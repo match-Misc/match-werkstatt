@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, FileText, Calendar, DollarSign, Clock, Eye, Edit2 } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import CreateOrder from './CreateOrder';
 import OrderDetails from './OrderDetails';
@@ -8,18 +9,55 @@ import EndabnahmeActions from './EndabnahmeActions';
 import { Order } from '../types';
 
 export default function ClientDashboard() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
+  const location = useLocation();
   const [showCreateOrder, setShowCreateOrder] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [orders, setOrders] = useState<Order[]>(state.orders);
 
-  const userOrders = state.orders.filter(order => 
+  // Orders nach jedem Öffnen/Schließen des Modals neu laden
+  const fetchOrders = async () => {
+    const res = await fetch('http://localhost:3001/api/orders');
+    const data = await res.json();
+    setOrders(data);
+    // Optional: globalen State aktualisieren
+    if (dispatch) dispatch({ type: 'LOAD_ORDERS', payload: data });
+  };
+
+  useEffect(() => {
+    setOrders(state.orders);
+    
+    // Handle opening specific order from QR code redirect
+    const locationState = location.state as { openOrderId?: string } | null;
+    if (locationState?.openOrderId && orders.length > 0) {
+      const orderToOpen = orders.find(order => 
+        (order.id === locationState.openOrderId || order.orderNumber === locationState.openOrderId) &&
+        order.clientId === state.currentUser?.id // Only allow viewing own orders
+      );
+      
+      if (orderToOpen) {
+        setSelectedOrder(orderToOpen);
+        dispatch({ 
+          type: 'SHOW_NOTIFICATION', 
+          payload: { message: `Auftrag "${orderToOpen.orderNumber || orderToOpen.id}" über QR-Code geöffnet.`, type: 'success' } 
+        });
+      }
+    }
+  }, [state.orders, location.state, orders, dispatch, state.currentUser?.id]);
+
+  // Initial orders laden
+  useEffect(() => {
+    fetchOrders();
+  }, []); // Nur einmal beim Mount
+
+  const userOrders = orders.filter(order => 
     order.clientId === state.currentUser?.id && order.status !== 'archived'
   );
 
   const waitingOrders = userOrders.filter(order => order.status === 'waiting_confirmation');
-  // Überarbeitungsaufträge werden wieder im Kundendashboard angezeigt, nur Nacharbeit bleibt ausgeblendet:
-  const otherOrders = userOrders.filter(order => order.status !== 'waiting_confirmation' && order.status !== 'rework');
+  // Aufträge zur Überarbeitung oder Nacharbeit werden im Dashboard angezeigt
+  const otherOrders = userOrders.filter(order => order.status !== 'waiting_confirmation');
 
   // Archivierte Aufträge des aktuellen Kunden
   const archivedOrders = state.orders.filter(order => order.clientId === state.currentUser?.id && order.status === 'archived');
@@ -41,21 +79,26 @@ export default function ClientDashboard() {
       case 'accepted': return 'Angenommen';
       case 'in_progress': return 'In Bearbeitung';
       case 'revision': return 'Überarbeitung erforderlich';
+      case 'rework': return 'Wird nachgearbeitet';
       case 'completed': return 'Abgeschlossen';
       default: return status;
     }
   };
 
   if (showCreateOrder) {
-    return <CreateOrder onClose={() => setShowCreateOrder(false)} />;
+    return <CreateOrder onClose={() => { setShowCreateOrder(false); fetchOrders(); }} />;
   }
 
   if (editingOrder) {
-    return <EditOrder order={editingOrder} onClose={() => setEditingOrder(null)} />;
+    return <EditOrder 
+      order={editingOrder} 
+      onClose={() => setEditingOrder(null)} 
+      onOrderUpdated={fetchOrders}
+    />;
   }
 
   if (selectedOrder) {
-    return <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
+    return <OrderDetails order={selectedOrder} onClose={() => { setSelectedOrder(null); fetchOrders(); }} />;
   }
 
   return (
@@ -105,6 +148,17 @@ export default function ClientDashboard() {
                     </div>
                   )}
                   
+                  {order.status === 'rework' && (
+                    <div className="mb-4 p-3 bg-blue-100 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-800 font-medium">
+                        Auftrag in Nacharbeit
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Die Werkstatt bearbeitet Ihre Anmerkungen.
+                      </p>
+                    </div>
+                  )}
+
                   <p className="text-gray-600 text-sm mb-4 line-clamp-2">{order.description}</p>
                   
                   <div className="space-y-2 mb-4">
@@ -127,7 +181,7 @@ export default function ClientDashboard() {
                       {order.documents.length} Dokument(e)
                     </span>
                     <div className="flex space-x-2">
-                      {order.status === 'revision' && (
+                      {(order.status === 'revision' || order.status === 'rework') && (
                         <button
                           onClick={() => setEditingOrder(order)}
                           className="text-orange-600 hover:text-orange-800 text-sm flex items-center"
@@ -192,7 +246,7 @@ export default function ClientDashboard() {
                 <EndabnahmeActions
                   onConfirm={async (note) => {
                     const updatedOrder = { ...order, status: 'completed', confirmationNote: note || '', confirmationDate: new Date() };
-                    await fetch(`/api/orders/${order.id}`, {
+                    await fetch(`http://localhost:3001/api/orders/${order.id}`, {
                       method: 'PUT',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify(updatedOrder)
@@ -207,19 +261,22 @@ export default function ClientDashboard() {
                       const d = new Date(newDeadlineStr);
                       if (!isNaN(d.getTime())) newDeadline = d;
                     }
-                    const updatedOrder = {
-                      ...order,
-                      status: 'rework', // NEU: Nacharbeit-Status
-                      revisionRequest: {
-                        description: revisionComment,
-                        newDeadline,
-                        requestedAt: new Date()
-                      }
+                    
+                    // Sende nur die notwendigen Felder für Nacharbeitskommentare
+                    const requestBody = {
+                      status: 'rework',
+                      revisionComment: revisionComment, // Das Backend erwartet revisionComment
+                      userId: state.currentUser?.id,
+                      userName: state.currentUser?.name,
+                      updatedAt: new Date(),
                     };
-                    await fetch(`/api/orders/${order.id}`, {
+                    
+                    console.log('ClientDashboard: Sending rework request:', requestBody);
+                    
+                    await fetch(`http://localhost:3001/api/orders/${order.id}`, {
                       method: 'PUT',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(updatedOrder)
+                      body: JSON.stringify(requestBody)
                     });
                     // Nach erfolgreichem Abschluss: Aufträge neu laden
                     if (typeof window !== 'undefined') window.location.reload();

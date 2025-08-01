@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { X, Plus, Edit2, Trash2, User, Building2, Shield } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Plus, Edit2, Trash2, User, Building2, Shield, Server } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { WorkshopAccount } from '../types';
+import NetworkConfigAdmin from './NetworkConfigAdmin';
+import LDAPManagement from './LDAPManagement';
 
 interface AccountManagementProps {
   onClose: () => void;
@@ -27,28 +29,105 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
     email: ''
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Lade Accounts beim Öffnen der Komponente
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/users');
+        if (response.ok) {
+          const users = await response.json();
+          dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+          dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
+        }
+      } catch (error) {
+        console.error('Fehler beim Laden der Accounts:', error);
+      }
+    };
+    
+    loadAccounts();
+  }, [dispatch]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (editingAccount) {
-      const updatedAccount: WorkshopAccount = {
-        ...editingAccount,
-        ...formData,
-        updatedAt: new Date()
-      };
-      dispatch({ type: 'UPDATE_WORKSHOP_ACCOUNT', payload: updatedAccount });
-      setEditingAccount(null);
+      // Update existing account via backend
+      try {
+        const updateData: any = {
+          username: formData.username,
+          name: formData.name,
+          role: formData.role,
+          updatedAt: new Date()
+        };
+        
+        // Only include password if it's not empty
+        if (formData.password && formData.password.trim() !== '') {
+          updateData.password = formData.password;
+        }
+        
+        const response = await fetch(`http://localhost:3001/api/users/${editingAccount.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updateData)
+        });
+
+        if (response.ok) {
+          const updatedUser = await response.json();
+          dispatch({ type: 'UPDATE_WORKSHOP_ACCOUNT', payload: updatedUser });
+          setEditingAccount(null);
+          
+          dispatch({
+            type: 'SHOW_NOTIFICATION',
+            payload: {
+              message: 'Account erfolgreich aktualisiert',
+              type: 'success'
+            }
+          });
+        } else {
+          throw new Error('Fehler beim Aktualisieren des Accounts');
+        }
+      } catch (error) {
+        console.error('Fehler beim Aktualisieren des Accounts:', error);
+        dispatch({
+          type: 'SHOW_NOTIFICATION',
+          payload: {
+            message: 'Fehler beim Aktualisieren des Accounts',
+            type: 'error'
+          }
+        });
+        return;
+      }
     } else {
-      const newAccount: WorkshopAccount = {
-        id: `workshop_${Date.now()}`,
-        ...formData,
-        isActive: true,
-        createdBy: state.currentUser?.id,
-        createdAt: new Date()
-      };
-      dispatch({ type: 'ADD_WORKSHOP_ACCOUNT', payload: newAccount });
+      // Backend-Call für neuen User
+      try {
+        const response = await fetch('http://localhost:3001/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: formData.username,
+            password: formData.password,
+            name: formData.name,
+            role: formData.role
+          })
+        });
+        if (!response.ok) {
+          alert('Fehler beim Anlegen des Accounts!');
+          return;
+        }
+        const newUser = await response.json();
+        dispatch({ type: 'ADD_WORKSHOP_ACCOUNT', payload: newUser });
+        
+        // Accounts neu laden um sicherzustellen, dass alle Daten aktuell sind
+        const allUsersResponse = await fetch('http://localhost:3001/api/users');
+        if (allUsersResponse.ok) {
+          const users = await allUsersResponse.json();
+          dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+          dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
+        }
+      } catch (err) {
+        alert('Netzwerkfehler beim Anlegen des Accounts!');
+        return;
+      }
     }
-    
     setFormData({ username: '', password: '', name: '', role: 'workshop' });
     setShowAddForm(false);
   };
@@ -57,21 +136,29 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
     setEditingAccount(account);
     setFormData({
       username: account.username,
-      password: account.password,
+      password: '', // Passwort-Feld beim Bearbeiten leer lassen
       name: account.name,
       role: account.role
     });
     setShowAddForm(true);
   };
 
-  const handleDelete = (accountId: string) => {
+  const handleDelete = async (accountId: string) => {
     if (accountId === state.currentUser?.id) {
       alert('Sie können Ihren eigenen Account nicht löschen');
       return;
     }
-    
     if (confirm('Sind Sie sicher, dass Sie diesen Account löschen möchten?')) {
+      await fetch(`http://localhost:3001/api/users/${accountId}`, { method: 'DELETE' });
       dispatch({ type: 'DELETE_WORKSHOP_ACCOUNT', payload: accountId });
+      
+      // Accounts neu laden
+      const response = await fetch('http://localhost:3001/api/users');
+      if (response.ok) {
+        const users = await response.json();
+        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+        dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
+      }
     }
   };
 
@@ -95,16 +182,56 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
     setClientForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSaveClient = () => {
+  const handleSaveClient = async () => {
     const updated = { ...editingClient, ...clientForm };
-    dispatch({ type: 'UPDATE_CLIENT_ACCOUNT', payload: updated });
-    setEditingClient(null);
+    
+    try {
+      const response = await fetch(`http://localhost:3001/api/users/${editingClient.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updated)
+      });
+
+      if (response.ok) {
+        dispatch({ type: 'UPDATE_CLIENT_ACCOUNT', payload: updated });
+        setEditingClient(null);
+        
+        dispatch({
+          type: 'SHOW_NOTIFICATION',
+          payload: {
+            message: 'Auftraggeber-Account erfolgreich aktualisiert',
+            type: 'success'
+          }
+        });
+      } else {
+        throw new Error('Fehler beim Aktualisieren des Accounts');
+      }
+    } catch (error) {
+      console.error('Fehler beim Speichern der Client-Änderungen:', error);
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          message: 'Fehler beim Aktualisieren des Accounts',
+          type: 'error'
+        }
+      });
+    }
   };
 
   const handleDeleteClient = async (id: string) => {
     if (window.confirm('Diesen Auftraggeber-Account wirklich löschen?')) {
-      await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      await fetch(`http://localhost:3001/api/users/${id}`, { method: 'DELETE' });
       dispatch({ type: 'DELETE_CLIENT_ACCOUNT', payload: id });
+      
+      // Accounts neu laden
+      const response = await fetch('http://localhost:3001/api/users');
+      if (response.ok) {
+        const users = await response.json();
+        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+        dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
+      }
     }
   };
 
@@ -123,6 +250,22 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
             <X className="w-6 h-6" />
           </button>
         </div>
+
+        {/* Netzwerkkonfiguration (nur für Admins sichtbar) */}
+        {state.currentUser?.role === 'admin' && (
+          <div className="p-6 border-b">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Systemkonfiguration</h3>
+            <NetworkConfigAdmin />
+            
+            <div className="mt-6 pt-6 border-t">
+              <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
+                <Server className="w-4 h-4 mr-2" />
+                LDAP-Verwaltung
+              </h4>
+              <LDAPManagement />
+            </div>
+          </div>
+        )}
 
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">
@@ -157,14 +300,15 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Passwort *
+                      Passwort {editingAccount ? '(leer lassen für keine Änderung)' : '*'}
                     </label>
                     <input
                       type="password"
                       value={formData.password}
                       onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      required
+                      required={!editingAccount}
+                      placeholder={editingAccount ? 'Neues Passwort eingeben oder leer lassen' : 'Passwort eingeben'}
                     />
                   </div>
                   <div>
@@ -399,7 +543,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
                               {!account.isApproved && (
                                 <button
                                   onClick={async () => {
-                                    await fetch(`/api/users/${account.id}/approve`, { method: 'PATCH' });
+                                    await fetch(`http://localhost:3001/api/users/${account.id}/approve`, { method: 'PATCH' });
                                     dispatch({ type: 'APPROVE_CLIENT_ACCOUNT', payload: account.id });
                                   }}
                                   className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700"

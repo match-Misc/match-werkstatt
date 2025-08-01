@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { X, Upload, FileText, Trash2, Save } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Order, PDFDocument } from '../types';
+import { Order, PDFDocument, RevisionComment } from '../types';
 
 interface EditOrderProps {
   order: Order;
   onClose: () => void;
+  onOrderUpdated?: () => void; // Callback für Order-Update
 }
 
-export default function EditOrder({ order, onClose }: EditOrderProps) {
+export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderProps) {
   const { dispatch } = useApp();
   const [title, setTitle] = useState(order.title);
   const [description, setDescription] = useState(order.description);
@@ -18,44 +19,124 @@ export default function EditOrder({ order, onClose }: EditOrderProps) {
   const [documents, setDocuments] = useState<PDFDocument[]>(order.documents);
   const [dragActive, setDragActive] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const updatedOrder: Order = {
-      ...order,
-      title,
-      description,
-      deadline: new Date(deadline),
-      costCenter,
-      priority,
-      documents,
-      status: 'pending', // Reset to pending when resubmitted
-      canEdit: false,
-      updatedAt: new Date()
-    };
+    try {
+      // Erst neue Dateien hochladen
+      const processedDocuments = await Promise.all(
+        documents.map(async (doc) => {
+          if (doc.file) {
+            // Neue Datei - erst hochladen
+            const formData = new FormData();
+            formData.append('file', doc.file);
+            
+            const uploadResponse = await fetch('http://localhost:3001/api/upload', {
+              method: 'POST',
+              body: formData
+            });
+            
+            if (!uploadResponse.ok) {
+              throw new Error(`Upload fehlgeschlagen für ${doc.name}`);
+            }
+            
+            const uploadData = await uploadResponse.json();
+            
+            return {
+              id: doc.id,
+              name: uploadData.originalname,
+              url: `/uploads/${uploadData.filename}`,
+              uploadDate: doc.uploadDate
+            };
+          } else {
+            // Bestehende Datei - keine Änderung
+            return {
+              id: doc.id,
+              name: doc.name,
+              url: doc.url,
+              uploadDate: doc.uploadDate
+            };
+          }
+        })
+      );
+      
+      const updatedOrder: Order = {
+        ...order,
+        title,
+        description,
+        deadline: new Date(deadline),
+        costCenter,
+        priority,
+        documents: processedDocuments,
+        status: 'pending', // Reset to pending when resubmitted
+        canEdit: false,
+        updatedAt: new Date()
+      };
 
-    dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
-    dispatch({ 
-      type: 'SHOW_NOTIFICATION', 
-      payload: { message: 'Auftrag wurde erfolgreich überarbeitet und erneut eingereicht', type: 'success' }
-    });
-    onClose();
+      console.log('=== FRONTEND: EditOrder Submit ===');
+      console.log('Order ID:', order.id);
+      console.log('processedDocuments:', processedDocuments);
+      console.log('updatedOrder:', updatedOrder);
+      console.log('JSON to be sent:', JSON.stringify(updatedOrder));
+
+      // Auftrag in der Datenbank aktualisieren
+      console.log('=== FRONTEND: Sending PUT Request ===');
+      const response = await fetch(`http://localhost:3001/api/orders/${order.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedOrder)
+      });
+
+      console.log('=== FRONTEND: PUT Response ===');
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('PUT Request failed:', errorText);
+        throw new Error(`Fehler beim Speichern des Auftrags: ${response.status} ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      console.log('PUT Response data:', responseData);
+
+      // Lokalen State aktualisieren
+      dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
+      dispatch({ 
+        type: 'SHOW_NOTIFICATION', 
+        payload: { message: 'Auftrag wurde erfolgreich überarbeitet und erneut eingereicht', type: 'success' }
+      });
+      
+      // Parent-Komponente über Update informieren
+      if (onOrderUpdated) {
+        onOrderUpdated();
+      }
+      
+      onClose();
+    } catch (error) {
+      console.error('Fehler beim Aktualisieren des Auftrags:', error);
+      dispatch({ 
+        type: 'SHOW_NOTIFICATION', 
+        payload: { message: 'Fehler beim Speichern des Auftrags', type: 'error' }
+      });
+    }
   };
 
   const handleFileUpload = (files: FileList | null) => {
     if (!files) return;
 
     Array.from(files).forEach(file => {
-      if (file.type === 'application/pdf') {
-        const document: PDFDocument = {
-          id: `doc_${Date.now()}_${Math.random()}`,
-          name: file.name,
-          url: URL.createObjectURL(file),
-          uploadDate: new Date(),
-          file: file
-        };
-        setDocuments(prev => [...prev, document]);
-      }
+      // Alle Dateitypen akzeptieren (nicht nur PDF)
+      const document: PDFDocument = {
+        id: `doc_${Date.now()}_${Math.random()}`,
+        name: file.name,
+        url: URL.createObjectURL(file),
+        uploadDate: new Date(),
+        file: file
+      };
+      setDocuments(prev => [...prev, document]);
     });
   };
 
@@ -180,6 +261,23 @@ export default function EditOrder({ order, onClose }: EditOrderProps) {
             </div>
           </div>
 
+          {/* Revision History */}
+          {order.revisionHistory && Array.isArray(order.revisionHistory) && order.revisionHistory.length > 0 && (
+            <div className="md:col-span-2">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 border-t pt-6">Kommentare zur Überarbeitung</h3>
+              <div className="space-y-4 bg-orange-50 rounded-lg p-4 border border-orange-200 max-h-60 overflow-y-auto">
+                {order.revisionHistory.map((entry: RevisionComment, index: number) => (
+                  <div key={index} className="p-3 bg-white rounded-md shadow-sm">
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.comment}</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      <strong>{entry.userName}</strong> am {new Date(entry.createdAt).toLocaleString('de-DE')}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               PDF Dokumente
@@ -202,7 +300,7 @@ export default function EditOrder({ order, onClose }: EditOrderProps) {
                 <input
                   type="file"
                   multiple
-                  accept=".pdf"
+                  accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
                   onChange={(e) => handleFileUpload(e.target.files)}
                   className="hidden"
                 />
