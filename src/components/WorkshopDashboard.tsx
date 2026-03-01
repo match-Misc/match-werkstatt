@@ -25,7 +25,7 @@ export default function WorkshopDashboard() {
   // Orders nach jedem Öffnen/Schließen des Modals neu laden
   const fetchOrders = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/orders');
+      const res = await fetch('/api/orders');
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -56,7 +56,7 @@ export default function WorkshopDashboard() {
       console.log('QR-Code gescannt:', code);
       
       // Suche nach Auftrag mit diesem Code
-      const response = await fetch(`http://localhost:3001/api/orders/barcode/${encodeURIComponent(code)}`);
+      const response = await fetch(`/api/orders/barcode/${encodeURIComponent(code)}`);
       
       if (!response.ok) {
         if (response.status === 404) {

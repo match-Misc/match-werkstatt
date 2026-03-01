@@ -260,20 +260,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Initialdaten laden
-    fetch('http://localhost:3001/api/orders')
+    fetch('/api/orders')
       .then(res => res.json())
       .then((orders: Order[]) => {
         dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Aufträge geladen', type: 'info' } });
         dispatch({ type: 'LOAD_ORDERS', payload: orders });
       });
-    fetch('http://localhost:3001/api/users')
+    fetch('/api/users')
       .then(res => res.json())
       .then((users: any[]) => {
         dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
         dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
       });
     // WebSocket-Verbindung
-    const ws = new WebSocket('ws://localhost:3001');
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'ordersUpdated') {

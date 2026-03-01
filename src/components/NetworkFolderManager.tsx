@@ -46,7 +46,7 @@ export default function NetworkFolderManager({ orderId, orderNumber, onClose }: 
 
   const loadConfig = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/admin/network-config');
+      const response = await fetch('/api/admin/network-config');
       if (response.ok) {
         const data = await response.json();
         setConfig(data);
@@ -59,7 +59,7 @@ export default function NetworkFolderManager({ orderId, orderNumber, onClose }: 
   const loadFolderStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/network-folder-status`);
+      const response = await fetch(`/api/orders/${orderId}/network-folder-status`);
       if (response.ok) {
         const data = await response.json();
         setFolderStatus(data);
@@ -74,7 +74,7 @@ export default function NetworkFolderManager({ orderId, orderNumber, onClose }: 
   const createNetworkFolder = async () => {
     try {
       setCreating(true);
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/create-network-folder`, {
+      const response = await fetch(`/api/orders/${orderId}/create-network-folder`, {
         method: 'POST'
       });
       

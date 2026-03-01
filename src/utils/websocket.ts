@@ -5,7 +5,7 @@
 let socket: WebSocket | null = null;
 let listeners: Array<(data: any) => void> = [];
 
-const WS_URL = 'ws://localhost:3001/ws'; // Passe ggf. die URL an dein Backend an
+const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
 
 const ws = {
   connect(orderId: string, onMessage: (data: any) => void) {

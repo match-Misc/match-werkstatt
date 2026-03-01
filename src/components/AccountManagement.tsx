@@ -33,7 +33,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
   useEffect(() => {
     const loadAccounts = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/users');
+        const response = await fetch('/api/users');
         if (response.ok) {
           const users = await response.json();
           dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
@@ -64,7 +64,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
           updateData.password = formData.password;
         }
         
-        const response = await fetch(`http://localhost:3001/api/users/${editingAccount.id}`, {
+        const response = await fetch(`/api/users/${editingAccount.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updateData)
@@ -99,7 +99,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
     } else {
       // Backend-Call für neuen User
       try {
-        const response = await fetch('http://localhost:3001/api/users', {
+        const response = await fetch('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -117,7 +117,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
         dispatch({ type: 'ADD_WORKSHOP_ACCOUNT', payload: newUser });
         
         // Accounts neu laden um sicherzustellen, dass alle Daten aktuell sind
-        const allUsersResponse = await fetch('http://localhost:3001/api/users');
+        const allUsersResponse = await fetch('/api/users');
         if (allUsersResponse.ok) {
           const users = await allUsersResponse.json();
           dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
@@ -149,11 +149,11 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
       return;
     }
     if (confirm('Sind Sie sicher, dass Sie diesen Account löschen möchten?')) {
-      await fetch(`http://localhost:3001/api/users/${accountId}`, { method: 'DELETE' });
+      await fetch(`/api/users/${accountId}`, { method: 'DELETE' });
       dispatch({ type: 'DELETE_WORKSHOP_ACCOUNT', payload: accountId });
       
       // Accounts neu laden
-      const response = await fetch('http://localhost:3001/api/users');
+      const response = await fetch('/api/users');
       if (response.ok) {
         const users = await response.json();
         dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
@@ -186,7 +186,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
     const updated = { ...editingClient, ...clientForm };
     
     try {
-      const response = await fetch(`http://localhost:3001/api/users/${editingClient.id}`, {
+      const response = await fetch(`/api/users/${editingClient.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -222,11 +222,11 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
 
   const handleDeleteClient = async (id: string) => {
     if (window.confirm('Diesen Auftraggeber-Account wirklich löschen?')) {
-      await fetch(`http://localhost:3001/api/users/${id}`, { method: 'DELETE' });
+      await fetch(`/api/users/${id}`, { method: 'DELETE' });
       dispatch({ type: 'DELETE_CLIENT_ACCOUNT', payload: id });
       
       // Accounts neu laden
-      const response = await fetch('http://localhost:3001/api/users');
+      const response = await fetch('/api/users');
       if (response.ok) {
         const users = await response.json();
         dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
@@ -543,7 +543,7 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
                               {!account.isApproved && (
                                 <button
                                   onClick={async () => {
-                                    await fetch(`http://localhost:3001/api/users/${account.id}/approve`, { method: 'PATCH' });
+                                    await fetch(`/api/users/${account.id}/approve`, { method: 'PATCH' });
                                     dispatch({ type: 'APPROVE_CLIENT_ACCOUNT', payload: account.id });
                                   }}
                                   className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700"

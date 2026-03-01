@@ -32,9 +32,12 @@ console.log('[HYBRID-AUTH] LDAP-Konfiguration geladen:', {
 const app = express();
 const port = 3001;
 
-// CORS
+// CORS - dynamisch konfigurierbar für Docker
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+  : true; // true = alle Origins erlauben
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5175'],
+  origin: corsOrigins,
   credentials: true
 }));
 
@@ -43,7 +46,24 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files
 const uploadsDir = path.join(__dirname, 'storage', 'uploads');
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(uploadsDir, {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res, filePath) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
+    
+    // Add file modification time for debugging
+    try {
+      const stats = fs.statSync(filePath);
+      console.log(`[Static Upload] Serving: ${filePath} (mtime: ${stats.mtime.toISOString()})`);
+    } catch (e) {
+      console.log(`[Static Upload] Serving: ${filePath} (no stats available)`);
+    }
+  }
+}));
 
 // Network folder static files middleware
 app.use('/network-files', async (req, res, next) => {
@@ -52,9 +72,31 @@ app.use('/network-files', async (req, res, next) => {
     const settingsCollection = db.collection('settings');
     const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
     await client.close();
+
+    // Strong cache prevention
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+    res.set('Surrogate-Control', 'no-store');
     
     if (networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath)) {
-      express.static(networkConfig.networkPath)(req, res, next);
+      express.static(networkConfig.networkPath, {
+        etag: false,
+        lastModified: false,
+        setHeaders: (res, filePath) => {
+          res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+          res.set('Pragma', 'no-cache');
+          res.set('Expires', '0');
+          res.set('Surrogate-Control', 'no-store');
+          
+          try {
+            const stats = fs.statSync(filePath);
+            console.log(`[Static Network] Serving: ${filePath} (mtime: ${stats.mtime.toISOString()})`);
+          } catch (e) {
+            console.log(`[Static Network] Serving: ${filePath} (no stats available)`);
+          }
+        }
+      })(req, res, next);
     } else {
       res.status(404).json({ error: 'Netzwerkpfad nicht verfügbar' });
     }
@@ -73,8 +115,23 @@ const storage = multer.diskStorage({
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    // Keep original filename (sanitized), avoid collisions by appending (1), (2), ...
+    const ext = path.extname(file.originalname);
+    const baseRaw = path.basename(file.originalname, ext);
+    // Sanitize for Windows and general file systems
+    const safeBase = baseRaw
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_') // Windows forbidden chars
+      .replace(/\s+/g, ' ')            // normalize spaces
+      .replace(/[^a-zA-Z0-9\-_. ()]/g, '_'); // keep common safe chars
+
+    let candidate = `${safeBase}${ext}`;
+    let counter = 1;
+    while (fs.existsSync(path.join(uploadsDir, candidate))) {
+      candidate = `${safeBase} (${counter})${ext}`;
+      counter += 1;
+    }
+    cb(null, candidate);
   }
 });
 
@@ -94,8 +151,9 @@ const memoryUpload = multer({
 });
 
 // MongoDB Connection Setup
-const MONGODB_URL = 'mongodb://localhost:27017';
-const DB_NAME = 'matchdb';
+// Docker: mongodb://matchuser:matchpass@mongodb:27017/matchdb?authSource=matchdb
+const MONGODB_URL = process.env.MONGODB_URL || 'mongodb://localhost:27017';
+const DB_NAME = process.env.DB_NAME || 'matchdb';
 
 // Helper function: MongoDB connection
 async function getDB() {
@@ -103,6 +161,85 @@ async function getDB() {
   await client.connect();
   const db = client.db(DB_NAME);
   return { client, db };
+}
+
+// Initialize MongoDB indexes on startup
+async function initializeIndexes() {
+  try {
+    const { client, db } = await getDB();
+    console.log('[MongoDB] Creating indexes...');
+    
+    // Order indexes
+    await db.collection('Order').createIndex({ orderNumber: 1 }, { unique: true, sparse: true });
+    await db.collection('Order').createIndex({ clientId: 1 });
+    await db.collection('Order').createIndex({ status: 1 });
+    await db.collection('Order').createIndex({ createdAt: -1 });
+    await db.collection('Order').createIndex({ deadline: 1 });
+    await db.collection('Order').createIndex({ assignedTo: 1 });
+    
+    // User indexes
+    await db.collection('User').createIndex({ username: 1 }, { unique: true });
+    await db.collection('User').createIndex({ role: 1 });
+    await db.collection('User').createIndex({ isActive: 1 });
+    
+    // Document indexes
+    await db.collection('Document').createIndex({ orderId: 1 });
+    
+    // NoteHistory indexes
+    await db.collection('NoteHistory').createIndex({ orderId: 1 });
+    await db.collection('NoteHistory').createIndex({ createdAt: -1 });
+    
+    // Component indexes
+    await db.collection('Component').createIndex({ orderId: 1 });
+    
+    // ComponentDocument indexes
+    await db.collection('ComponentDocument').createIndex({ componentId: 1 });
+    
+    // SystemConfig indexes
+    await db.collection('SystemConfig').createIndex({ key: 1 }, { unique: true });
+    
+    // Settings indexes
+    await db.collection('settings').createIndex({ type: 1 }, { unique: true });
+    
+    await client.close();
+    console.log('[MongoDB] Indexes created successfully');
+  } catch (error) {
+    console.error('[MongoDB] Error creating indexes:', error.message);
+  }
+}
+
+// Create default admin user if none exists
+async function ensureDefaultAdmin() {
+  try {
+    const { client, db } = await getDB();
+    
+    // Check if any admin user exists
+    const adminCount = await db.collection('User').countDocuments({ role: 'admin' });
+    
+    if (adminCount === 0) {
+      console.log('[MongoDB] No admin found, creating default admin...');
+      
+      const defaultAdmin = {
+        username: 'admin',
+        password: 'admin123',
+        name: 'System Administrator',
+        role: 'admin',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      await db.collection('User').insertOne(defaultAdmin);
+      console.log('✓ Default admin created successfully');
+      console.log('  Username: admin');
+      console.log('  Password: admin123');
+      console.log('  ⚠️  BITTE PASSWORT NACH ERSTEM LOGIN ÄNDERN!');
+    }
+    
+    await client.close();
+  } catch (error) {
+    console.error('[MongoDB] Error ensuring default admin:', error.message);
+  }
 }
 
 // Helper function: Convert MongoDB document to response format
@@ -531,10 +668,39 @@ app.get('/api/orders', async (req, res) => {
         }).toArray();
       }
       
+      // Enrich documents with IDs
+      const enrichedDocuments = documents.map(doc => ({
+        ...doc,
+        id: doc._id ? doc._id.toString() : doc.id,
+        _id: undefined
+      }));
+      
       // Load components
       const components = await db.collection('Component').find({ 
         orderId: new ObjectId(order._id) 
       }).toArray();
+      
+      // Enrich components with their documents
+      const enrichedComponents = await Promise.all(components.map(async (component) => {
+        // Support both ObjectId and String componentId (for backwards compatibility)
+        const compDocuments = await db.collection('Document').find({ 
+          $or: [
+            { componentId: component._id },
+            { componentId: component._id.toString() }
+          ]
+        }).toArray();
+        
+        const { _id, ...componentWithoutId } = component;
+        return {
+          ...componentWithoutId,
+          id: _id.toString(),
+          documents: compDocuments.map(doc => ({
+            ...doc,
+            id: doc._id.toString(),
+            _id: undefined
+          }))
+        };
+      }));
       
       // Load note history
       const noteHistory = await db.collection('NoteHistory').find({ 
@@ -547,8 +713,8 @@ app.get('/api/orders', async (req, res) => {
         ...order,
         id: order._id.toString(),
         _id: undefined,
-        documents: documents,
-        components: components,
+        documents: enrichedDocuments,
+        components: enrichedComponents,
         noteHistory: noteHistory,
         revisionHistory: order.revisionHistory || [],
         reworkComments: order.reworkComments || [],
@@ -603,16 +769,31 @@ app.get('/api/orders/:id', async (req, res) => {
     
     // Enrich components with their documents
     const enrichedComponents = await Promise.all(components.map(async (component) => {
+      // Support both ObjectId and String componentId (for backwards compatibility)
       const compDocuments = await db.collection('Document').find({ 
-        componentId: new ObjectId(component._id) 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
       }).toArray();
       
       const { _id, ...componentWithoutId } = component;
       return {
         ...componentWithoutId,
         id: _id.toString(),
-        documents: compDocuments
+        documents: compDocuments.map(doc => ({
+          ...doc,
+          id: doc._id.toString(),
+          _id: undefined
+        }))
       };
+    }));
+    
+    // Enrich documents with IDs
+    const enrichedDocuments = documents.map(doc => ({
+      ...doc,
+      id: doc._id ? doc._id.toString() : doc.id,
+      _id: undefined
     }));
     
     await client.close();
@@ -621,7 +802,7 @@ app.get('/api/orders/:id', async (req, res) => {
       ...order,
       id: order._id.toString(),
       _id: undefined,
-      documents: documents,
+      documents: enrichedDocuments,
       components: enrichedComponents,
       noteHistory: noteHistory,
       revisionHistory: order.revisionHistory || [],
@@ -690,8 +871,12 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
     
     // Enrich components with their documents
     const enrichedComponents = await Promise.all(components.map(async (component) => {
+      // Support both ObjectId and String componentId (for backwards compatibility)
       const compDocuments = await db.collection('Document').find({ 
-        componentId: new ObjectId(component._id) 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
       }).toArray();
       
       const { _id, ...componentWithoutId } = component;
@@ -941,18 +1126,73 @@ app.put('/api/orders/:id', async (req, res) => {
       );
     }
 
-    // Get updated order
+    // Get updated order with all relations (like GET /api/orders/:id)
     const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(req.params.id) });
-    await client.close();
     
     if (!updatedOrder) {
+      await client.close();
       return res.status(404).json({ error: 'Order not found after update' });
     }
+
+    // Load documents
+    let orderDocuments = updatedOrder.documents || [];
+    if (orderDocuments.length === 0) {
+      orderDocuments = await db.collection('Document').find({ 
+        orderId: new ObjectId(req.params.id) 
+      }).toArray();
+    }
+    
+    // Enrich documents with IDs
+    const enrichedDocuments = orderDocuments.map(doc => ({
+      ...doc,
+      id: doc._id ? doc._id.toString() : doc.id,
+      _id: undefined
+    }));
+    
+    // Load components with their documents
+    const orderComponents = await db.collection('Component').find({ 
+      orderId: new ObjectId(req.params.id) 
+    }).toArray();
+    
+    const enrichedComponents = await Promise.all(orderComponents.map(async (component) => {
+      // Support both ObjectId and String componentId (for backwards compatibility)
+      const compDocuments = await db.collection('Document').find({ 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
+      }).toArray();
+      
+      const { _id, ...componentWithoutId } = component;
+      return {
+        ...componentWithoutId,
+        id: _id.toString(),
+        documents: compDocuments.map(doc => ({
+          ...doc,
+          id: doc._id ? doc._id.toString() : doc.id,
+          _id: undefined
+        }))
+      };
+    }));
+    
+    // Load note history
+    const noteHistory = await db.collection('NoteHistory').find({ 
+      orderId: new ObjectId(req.params.id) 
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+    
+    await client.close();
 
     const responseOrder = {
       ...updatedOrder,
       id: updatedOrder._id.toString(),
       _id: undefined,
+      documents: enrichedDocuments,
+      components: enrichedComponents,
+      noteHistory: noteHistory,
+      revisionHistory: updatedOrder.revisionHistory || [],
+      reworkComments: updatedOrder.reworkComments || [],
       // Include title image metadata (not binary data) for frontend
       titleImage: updatedOrder.titleImage ? {
         filename: updatedOrder.titleImage.filename,
@@ -963,6 +1203,7 @@ app.put('/api/orders/:id', async (req, res) => {
     };
     
     console.log('Final response documents:', responseOrder.documents?.length || 0);
+    console.log('Final response components:', responseOrder.components?.length || 0);
     res.json(responseOrder);
   } catch (err) {
     console.error('PUT /api/orders/:id error:', err);
@@ -1030,8 +1271,12 @@ app.post('/api/orders/:id/upload-title-image', memoryUpload.single('file'), asyn
     
     // Enrich components with their documents
     const enrichedComponents = await Promise.all(components.map(async (component) => {
+      // Support both ObjectId and String componentId (for backwards compatibility)
       const compDocuments = await db.collection('Document').find({ 
-        componentId: new ObjectId(component._id) 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
       }).toArray();
       
       const { _id, ...componentWithoutId } = component;
@@ -1273,8 +1518,12 @@ app.get('/api/orders/:orderId/components', async (req, res) => {
     
     // Enrich components with their documents
     const enrichedComponents = await Promise.all(components.map(async (component) => {
+      // Support both ObjectId and String componentId (for backwards compatibility)
       const compDocuments = await db.collection('Document').find({ 
-        componentId: new ObjectId(component._id) 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
       }).toArray();
       
       const { _id, ...componentWithoutId } = component;
@@ -1583,10 +1832,31 @@ app.post('/api/orders/:id/migrate-files', async (req, res) => {
       return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     }
     
-    // Get all documents for this order
-    const documents = await ordersDb.collection('Document').find({ 
-      orderId: new ObjectId(req.params.id) 
+    // Check if documents are embedded in Order or in separate collection
+    let documents = [];
+    let documentsAreEmbedded = false;
+    
+    if (order.documents && order.documents.length > 0) {
+      // Documents are embedded in the Order
+      documents = order.documents.filter(doc => !doc.migrated); // Only non-migrated
+      documentsAreEmbedded = true;
+    } else {
+      // Documents are in separate collection (only order documents, not component documents)
+      documents = await ordersDb.collection('Document').find({ 
+        orderId: new ObjectId(req.params.id),
+        componentId: { $exists: false }, // Exclude component documents
+        migrated: { $ne: true } // Only non-migrated
+      }).toArray();
+    }
+    
+    // Get component documents (always from Document collection)
+    const componentDocuments = await ordersDb.collection('Document').find({ 
+      orderId: new ObjectId(req.params.id),
+      componentId: { $exists: true },
+      migrated: { $ne: true }
     }).toArray();
+    
+    console.log(`[Migration] Order documents: ${documents.length}, Component documents: ${componentDocuments.length}`);
     
     // Get network configuration from match_werkstatt (where settings are stored)
     const settingsDb = client.db('match_werkstatt');
@@ -1615,13 +1885,21 @@ app.post('/api/orders/:id/migrate-files', async (req, res) => {
       fs.mkdirSync(orderFolderPath, { recursive: true });
     }
     
+    // Create subfolder for component documents
+    const componentsFolderPath = path.join(orderFolderPath, 'Bauteile');
+    if (componentDocuments.length > 0 && !fs.existsSync(componentsFolderPath)) {
+      fs.mkdirSync(componentsFolderPath, { recursive: true });
+    }
+    
     // Migration statistics
     let migratedFiles = 0;
     const fileTypes = {};
     const errors = [];
-    
+    const migratedDocuments = []; // Track successfully migrated docs
+
     // Migrate each document
-    for (const document of documents) {
+    for (let i = 0; i < documents.length; i++) {
+      const document = documents[i];
       try {
         // Original file path
         const originalPath = path.join(uploadsDir, path.basename(document.url));
@@ -1631,30 +1909,56 @@ app.post('/api/orders/:id/migrate-files', async (req, res) => {
           continue;
         }
         
-        // Destination path
+        // Destination path - Dateiname mit korrekten Umlauten beibehalten
         const fileName = document.name || path.basename(document.url);
-        const destinationPath = path.join(orderFolderPath, fileName);
+        // Normalisiere den Dateinamen für das Dateisystem (NFC für Windows/Linux-Kompatibilität)
+        const normalizedFileName = fileName.normalize('NFC');
+        const destinationPath = path.join(orderFolderPath, normalizedFileName);
         
         // Copy file to network folder
         fs.copyFileSync(originalPath, destinationPath);
         
-        // Create network-accessible URL
-        const orderFolderName = order.orderNumber || order._id.toString();
-        const networkUrl = `/network-files/${orderFolderName}/${fileName}`;
+        // Create network-accessible URL - URL-encode für Sonderzeichen
+        const encodedFileName = encodeURIComponent(normalizedFileName);
+        const networkUrl = `/network-files/${orderFolderName}/${encodedFileName}`;
         
-        // Update document in database
-        await ordersDb.collection('Document').updateOne(
-          { _id: document._id },
-          { 
-            $set: { 
-              url: networkUrl,
-              networkPath: destinationPath,
-              originalUrl: document.url, // Keep reference to original location
-              migrated: true,
-              migratedAt: new Date()
+        if (documentsAreEmbedded) {
+          // Track migration for embedded documents
+          migratedDocuments.push({
+            index: i,
+            originalIndex: order.documents.findIndex(d => d.name === document.name && !d.migrated),
+            networkUrl,
+            networkPath: destinationPath,
+            originalUrl: document.url,
+            originalName: normalizedFileName
+          });
+        } else {
+          // Update document in separate collection
+          await ordersDb.collection('Document').updateOne(
+            { _id: document._id },
+            { 
+              $set: { 
+                url: networkUrl,
+                networkPath: destinationPath,
+                originalUrl: document.url, // Keep reference to original location
+                originalName: normalizedFileName, // Original-Dateiname mit Umlauten
+                migrated: true,
+                migratedAt: new Date()
+              }
             }
+          );
+        }
+        
+        // Delete original file from uploads folder after successful migration
+        try {
+          if (fs.existsSync(originalPath)) {
+            fs.unlinkSync(originalPath);
+            console.log(`[Migration] Deleted original file: ${originalPath}`);
           }
-        );
+        } catch (deleteError) {
+          console.warn(`[Migration] Could not delete original file ${originalPath}:`, deleteError.message);
+          // Don't fail migration if deletion fails
+        }
         
         // Track statistics
         migratedFiles++;
@@ -1664,6 +1968,85 @@ app.post('/api/orders/:id/migrate-files', async (req, res) => {
       } catch (copyError) {
         errors.push(`Fehler beim Kopieren von ${document.name}: ${copyError.message}`);
       }
+    }
+    
+    // Migrate component documents
+    for (const compDoc of componentDocuments) {
+      try {
+        const originalPath = path.join(uploadsDir, path.basename(compDoc.url));
+        
+        if (!fs.existsSync(originalPath)) {
+          errors.push(`Bauteil-Datei nicht gefunden: ${compDoc.name}`);
+          continue;
+        }
+        
+        const fileName = compDoc.name || path.basename(compDoc.url);
+        const normalizedFileName = fileName.normalize('NFC');
+        const destinationPath = path.join(componentsFolderPath, normalizedFileName);
+        
+        // Copy file to network folder
+        fs.copyFileSync(originalPath, destinationPath);
+        
+        // Create network-accessible URL
+        const encodedFileName = encodeURIComponent(normalizedFileName);
+        const networkUrl = `/network-files/${orderFolderName}/Bauteile/${encodedFileName}`;
+        
+        // Update component document in database
+        await ordersDb.collection('Document').updateOne(
+          { _id: compDoc._id },
+          { 
+            $set: { 
+              url: networkUrl,
+              networkPath: destinationPath,
+              originalUrl: compDoc.url,
+              originalName: normalizedFileName,
+              migrated: true,
+              migratedAt: new Date()
+            }
+          }
+        );
+        
+        // Delete original file
+        try {
+          if (fs.existsSync(originalPath)) {
+            fs.unlinkSync(originalPath);
+            console.log(`[Migration] Deleted component file: ${originalPath}`);
+          }
+        } catch (deleteError) {
+          console.warn(`[Migration] Could not delete component file ${originalPath}:`, deleteError.message);
+        }
+        
+        migratedFiles++;
+        const fileExtension = path.extname(fileName).toLowerCase();
+        fileTypes[fileExtension] = (fileTypes[fileExtension] || 0) + 1;
+        
+      } catch (copyError) {
+        errors.push(`Fehler beim Kopieren von Bauteil-Datei ${compDoc.name}: ${copyError.message}`);
+      }
+    }
+    
+    // Update embedded documents in Order if needed
+    if (documentsAreEmbedded && migratedDocuments.length > 0) {
+      const updatedDocuments = order.documents.map((doc, idx) => {
+        const migrated = migratedDocuments.find(m => m.originalIndex === idx);
+        if (migrated) {
+          return {
+            ...doc,
+            url: migrated.networkUrl,
+            networkPath: migrated.networkPath,
+            originalUrl: migrated.originalUrl,
+            originalName: migrated.originalName,
+            migrated: true,
+            migratedAt: new Date()
+          };
+        }
+        return doc;
+      });
+      
+      await ordersDb.collection('Order').updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { documents: updatedDocuments } }
+      );
     }
     
     await client.close();
@@ -1692,23 +2075,66 @@ app.get('/api/orders/:id/migration-status', async (req, res) => {
     await client.connect();
     
     const ordersDb = client.db('matchdb');
-    const documents = await ordersDb.collection('Document').find({ 
-      orderId: new ObjectId(req.params.id) 
+    
+    // Check both embedded documents in Order and separate Document collection
+    const order = await ordersDb.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    
+    // Get order documents (not component documents)
+    const separateOrderDocuments = await ordersDb.collection('Document').find({ 
+      orderId: new ObjectId(req.params.id),
+      componentId: { $exists: false }
+    }).toArray();
+    
+    // Get component documents
+    const componentDocuments = await ordersDb.collection('Document').find({ 
+      orderId: new ObjectId(req.params.id),
+      componentId: { $exists: true }
     }).toArray();
     
     await client.close();
     
+    // Combine embedded and separate documents
+    let allDocuments = [];
+    
+    // Add embedded documents from Order
+    if (order && order.documents && order.documents.length > 0) {
+      allDocuments = order.documents.map((doc, index) => ({
+        _id: doc.id || doc._id || `embedded-${index}`,
+        name: doc.name,
+        url: doc.url,
+        migrated: doc.migrated || false,
+        migratedAt: doc.migratedAt,
+        originalUrl: doc.originalUrl,
+        type: 'order'
+      }));
+    } else if (separateOrderDocuments.length > 0) {
+      // Add separate order documents if Order has none embedded
+      allDocuments = separateOrderDocuments.map(doc => ({
+        ...doc,
+        type: 'order'
+      }));
+    }
+    
+    // Add component documents
+    for (const compDoc of componentDocuments) {
+      allDocuments.push({
+        ...compDoc,
+        type: 'component'
+      });
+    }
+    
     const migrationStatus = {
-      totalFiles: documents.length,
-      migratedFiles: documents.filter(doc => doc.migrated).length,
-      pendingFiles: documents.filter(doc => !doc.migrated).length,
-      files: documents.map(doc => ({
-        id: doc._id.toString(),
+      totalFiles: allDocuments.length,
+      migratedFiles: allDocuments.filter(doc => doc.migrated).length,
+      pendingFiles: allDocuments.filter(doc => !doc.migrated).length,
+      files: allDocuments.map(doc => ({
+        id: doc._id ? doc._id.toString() : doc.id,
         name: doc.name,
         migrated: !!doc.migrated,
         migratedAt: doc.migratedAt,
         currentUrl: doc.url,
-        originalUrl: doc.originalUrl || doc.url
+        originalUrl: doc.originalUrl || doc.url,
+        type: doc.type || 'order'
       }))
     };
     
@@ -1774,40 +2200,252 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
   }
 });
 
-// GET /api/documents/:id - Download document
-app.get('/api/documents/:id', async (req, res) => {
+// GET /api/orders/:id/files/:filename - Direct file access by original filename
+app.get('/api/orders/:id/files/:filename', async (req, res) => {
+  console.log(`[Download] Request for order: ${req.params.id}, file: ${req.params.filename}`);
   try {
     const { client, db } = await getDB();
+    // Try to find order by orderNumber first, then by ObjectId if that fails
+    let order = await db.collection('Order').findOne({ orderNumber: req.params.id });
+    if (!order && ObjectId.isValid(req.params.id)) {
+      order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    }
+    if (!order) {
+      console.log(`[Download] Order not found: ${req.params.id}`);
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    console.log(`[Download] Found order: ${order.orderNumber} (${order._id})`);
+    const settingsCollection = db.collection('settings');
+    let networkConfig = await settingsCollection.findOne({ type: 'network-config' });
+    console.log(`[Download] Network config:`, networkConfig);
     
-    // Find document
-    let document = await db.collection('Document').findOne({ _id: new ObjectId(req.params.id) });
-    
-    if (!document) {
-      // Try component document
-      document = await db.collection('ComponentDocument').findOne({ _id: new ObjectId(req.params.id) });
+    // Fallback: If no network config found, use the known path
+    if (!networkConfig) {
+      console.log(`[Download] No network config found, using fallback path`);
+      networkConfig = { networkPath: 'C:\\Users\\maxim\\OneDrive\\Desktop\\Aufträge' };
     }
     
     await client.close();
-    
-    if (!document) {
-      return res.status(404).json({ error: 'Dokument nicht gefunden' });
-    }
-    
-    let filePath;
-    
-    // Check if document has been migrated to network folder
-    if (document.migrated && document.networkPath && fs.existsSync(document.networkPath)) {
-      filePath = document.networkPath;
+
+    const filename = decodeURIComponent(req.params.filename);
+    console.log(`[Download] Looking for file: ${filename}`);
+
+    // Resolve potential paths
+    let networkPath = undefined;
+    if (networkConfig && networkConfig.networkPath) {
+      console.log(`[Download] Network path from config: ${networkConfig.networkPath}`);
+      if (fs.existsSync(networkConfig.networkPath)) {
+        console.log(`[Download] Network path exists`);
+        const orderFolderName = order.orderNumber || order._id.toString();
+        const p = path.join(networkConfig.networkPath, orderFolderName, filename);
+        console.log(`[Download] Checking network path: ${p}`);
+        if (fs.existsSync(p)) {
+          networkPath = p;
+          console.log(`[Download] Network file found: ${networkPath}`);
+        } else {
+          console.log(`[Download] Network file not found`);
+        }
+      } else {
+        console.log(`[Download] Network path doesn't exist: ${networkConfig.networkPath}`);
+      }
     } else {
-      // Fall back to uploads folder
-      filePath = path.join(uploadsDir, path.basename(document.url));
+      console.log(`[Download] No network config or networkPath`);
     }
+
+    let uploadsPath = undefined;
+    try {
+      const { client: docClient, db: docDb } = await getDB();
+      // Use the order._id we already found, not the request parameter
+      console.log(`[Download] Checking uploads for orderId: ${order._id}, filename: ${filename}`);
+      const doc = await docDb.collection('Document').findOne({ orderId: order._id, name: filename });
+      await docClient.close();
+      if (doc && doc.url) {
+        const p = path.join(uploadsDir, path.basename(doc.url));
+        console.log(`[Download] Checking uploads path: ${p}`);
+        if (fs.existsSync(p)) {
+          uploadsPath = p;
+          console.log(`[Download] Uploads file found: ${uploadsPath}`);
+        } else {
+          console.log(`[Download] Uploads file not found`);
+        }
+      } else {
+        console.log(`[Download] No document record found in database`);
+      }
+    } catch (err) {
+      console.log(`[Download] Error checking uploads: ${err.message}`);
+    }
+
+    // Choose file with network priority (network always wins if available)
+    let chosenPath = undefined;
+    let debugInfo = {};
     
-    if (!fs.existsSync(filePath)) {
+    if (networkPath && uploadsPath) {
+      const netStat = fs.statSync(networkPath);
+      const upStat = fs.statSync(uploadsPath);
+      // ALWAYS prefer network over uploads
+      chosenPath = networkPath;
+      debugInfo = {
+        networkPath,
+        uploadsPath,
+        networkMtime: netStat.mtime.toISOString(),
+        uploadsMtime: upStat.mtime.toISOString(),
+        chosen: 'network (priority)',
+        reason: 'Network always has priority over uploads'
+      };
+      console.log(`[Download network priority] ${JSON.stringify(debugInfo)}`);
+    } else if (networkPath) {
+      chosenPath = networkPath;
+      debugInfo = { networkPath, source: 'network-only' };
+      console.log(`[Download network-only] ${JSON.stringify(debugInfo)}`);
+    } else if (uploadsPath) {
+      chosenPath = uploadsPath;
+      debugInfo = { uploadsPath, source: 'uploads-only' };
+      console.log(`[Download uploads-only] ${JSON.stringify(debugInfo)}`);
+    }
+
+    if (!chosenPath) {
+      console.log(`[Download] No file found - networkPath: ${networkPath}, uploadsPath: ${uploadsPath}`);
       return res.status(404).json({ error: 'Datei nicht gefunden' });
     }
+
+    // Force file system cache refresh
+    fs.access(chosenPath, fs.constants.F_OK, (err) => {
+      if (err) {
+        console.error(`[Download] File access error: ${err.message}`);
+        return res.status(404).json({ error: 'Datei nicht verfügbar' });
+      }
+      
+      // Strong cache prevention with additional headers
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      res.set('Surrogate-Control', 'no-store');
+      res.set('X-Accel-Expires', '0');
+      res.set('Vary', '*');
+      
+      // Add timestamp to ensure freshness
+      const stats = fs.statSync(chosenPath);
+      res.set('Last-Modified', stats.mtime.toUTCString());
+      res.set('ETag', `"${stats.mtime.getTime()}-${stats.size}"`);
+      res.set('X-File-Path', chosenPath);
+      res.set('X-File-Mtime', stats.mtime.toISOString());
+      
+      console.log(`[Download] Serving: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
+      res.download(chosenPath, filename);
+    });
+  } catch (err) {
+    console.error('GET /api/orders/:id/files/:filename error:', err);
+    res.status(500).json({ error: 'Fehler beim Herunterladen der Datei', details: err.message });
+  }
+});
+
+app.get('/api/documents/:id', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    let document = null;
     
-    res.download(filePath, document.name);
+    // Try to find document by various possible ID formats
+    if (ObjectId.isValid(req.params.id)) {
+      document = await db.collection('Document').findOne({ _id: new ObjectId(req.params.id) });
+      if (!document) {
+        document = await db.collection('ComponentDocument').findOne({ _id: new ObjectId(req.params.id) });
+      }
+    }
+    
+    // If not found by ObjectId, try other fields (adapt as needed for your schema)
+    if (!document) {
+      document = await db.collection('Document').findOne({ documentId: req.params.id });
+      if (!document) {
+        document = await db.collection('ComponentDocument').findOne({ documentId: req.params.id });
+      }
+    }
+    
+    if (!document) {
+      await client.close();
+      return res.status(404).json({ error: 'Dokument nicht gefunden' });
+    }
+    const settingsCollection = db.collection('settings');
+    const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
+
+    // Find related order (for network folder resolution)
+    const order = await db.collection('Order').findOne({
+      $or: [
+        { 'documents._id': new ObjectId(req.params.id) },
+        { 'documents.id': req.params.id },
+        { _id: document.orderId }
+      ]
+    });
+
+    await client.close();
+
+    // Resolve potential paths
+    let networkPath = undefined;
+    if (document.migrated && document.networkPath && fs.existsSync(document.networkPath)) {
+      networkPath = document.networkPath;
+    } else if (networkConfig && networkConfig.networkPath && order) {
+      const orderFolderName = order.orderNumber || order._id.toString();
+      const p = path.join(networkConfig.networkPath, orderFolderName, document.name);
+      if (fs.existsSync(p)) networkPath = p;
+    }
+
+    let uploadsPath = undefined;
+    const pUp = path.join(uploadsDir, path.basename(document.url || ''));
+    if (fs.existsSync(pUp)) uploadsPath = pUp;
+
+    // Choose the newest available file (prefer newer uploads if network is older)
+    let chosenPath = undefined;
+    let debugInfo = {};
+    
+    if (networkPath && uploadsPath) {
+      const netStat = fs.statSync(networkPath);
+      const upStat = fs.statSync(uploadsPath);
+      chosenPath = upStat.mtime > netStat.mtime ? uploadsPath : networkPath;
+      debugInfo = {
+        networkPath,
+        uploadsPath,
+        networkMtime: netStat.mtime.toISOString(),
+        uploadsMtime: upStat.mtime.toISOString(),
+        chosen: chosenPath === networkPath ? 'network' : 'uploads'
+      };
+      console.log(`[Download by id choose newest] ${JSON.stringify(debugInfo)}`);
+    } else if (networkPath) {
+      chosenPath = networkPath;
+      debugInfo = { networkPath, source: 'network-only' };
+      console.log(`[Download by id network-only] ${JSON.stringify(debugInfo)}`);
+    } else if (uploadsPath) {
+      chosenPath = uploadsPath;
+      debugInfo = { uploadsPath, source: 'uploads-only' };
+      console.log(`[Download by id uploads-only] ${JSON.stringify(debugInfo)}`);
+    }
+
+    if (!chosenPath) return res.status(404).json({ error: 'Datei nicht gefunden' });
+
+    // Force file system cache refresh
+    fs.access(chosenPath, fs.constants.F_OK, (err) => {
+      if (err) {
+        console.error(`[Download by ID] File access error: ${err.message}`);
+        return res.status(404).json({ error: 'Datei nicht verfügbar' });
+      }
+      
+      // Strong cache prevention with additional headers
+      res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.set('Pragma', 'no-cache');
+      res.set('Expires', '0');
+      res.set('Surrogate-Control', 'no-store');
+      res.set('X-Accel-Expires', '0');
+      res.set('Vary', '*');
+      
+      // Add timestamp to ensure freshness
+      const stats = fs.statSync(chosenPath);
+      res.set('Last-Modified', stats.mtime.toUTCString());
+      res.set('ETag', `"${stats.mtime.getTime()}-${stats.size}"`);
+      res.set('X-File-Path', chosenPath);
+      res.set('X-File-Mtime', stats.mtime.toISOString());
+      
+      console.log(`[Download by ID] Serving: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
+      res.download(chosenPath, document.name);
+    });
   } catch (err) {
     console.error('GET /api/documents/:id error:', err);
     res.status(500).json({ error: 'Fehler beim Herunterladen der Datei', details: err.message });
@@ -1912,7 +2550,7 @@ app.get('/api/system/network-test', async (req, res) => {
         `Netzwerkpfad "${networkConfig.networkPath}" ist erreichbar` : 
         `Netzwerkpfad "${networkConfig.networkPath}" ist nicht erreichbar`
     });
-  } catch (err) {
+  } catch ( err) {
     console.error('GET /api/system/network-test error:', err);
     res.status(500).json({ success: false, error: 'Fehler beim Testen der Netzwerkverbindung' });
   }
@@ -1921,6 +2559,314 @@ app.get('/api/system/network-test', async (req, res) => {
 // Test endpoint
 app.get('/api/test', (req, res) => {
   res.json({ message: 'MongoDB Match Werkstatt API is running!', timestamp: new Date().toISOString() });
+});
+
+// GET /api/orders/:id/network-files - List all files in order's network folder
+app.get('/api/orders/:id/network-files', async (req, res) => {
+  try {
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    
+    // Get order from matchdb
+    const ordersDb = client.db('matchdb');
+    const order = await ordersDb.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    // Get network configuration
+    const settingsDb = client.db('match_werkstatt');
+    const networkConfig = await settingsDb.collection('settings').findOne({ type: 'network-config' });
+    
+    await client.close();
+    
+    if (!networkConfig || !networkConfig.networkPath) {
+      return res.json({
+        success: false,
+        message: 'Kein Netzwerkpfad konfiguriert',
+        files: []
+      });
+    }
+    
+    // Check if network path is accessible
+    if (!fs.existsSync(networkConfig.networkPath)) {
+      return res.json({
+        success: false,
+        message: 'Netzwerkpfad nicht erreichbar',
+        files: []
+      });
+    }
+    
+    // Build order folder path
+    const orderFolderName = order.orderNumber || order._id.toString();
+    const orderFolderPath = path.join(networkConfig.networkPath, orderFolderName);
+    
+    // Check if order folder exists
+    if (!fs.existsSync(orderFolderPath)) {
+      return res.json({
+        success: true,
+        message: 'Auftragordner existiert noch nicht',
+        files: [],
+        folderPath: orderFolderPath
+      });
+    }
+    
+    // Read all files in the order folder including subfolders
+    const files = [];
+    
+    function readFilesRecursively(folderPath, relativePath = '') {
+      const items = fs.readdirSync(folderPath);
+      
+      for (const item of items) {
+        const itemPath = path.join(folderPath, item);
+        const stat = fs.statSync(itemPath);
+        
+        if (stat.isFile()) {
+          const relativeFilePath = relativePath ? path.join(relativePath, item) : item;
+          files.push({
+            name: item,
+            relativePath: relativeFilePath,
+            size: stat.size,
+            lastModified: stat.mtime.toISOString(),
+            created: stat.birthtime.toISOString(),
+            extension: path.extname(item).toLowerCase(),
+            downloadUrl: `/api/orders/${req.params.id}/network-files/${encodeURIComponent(relativeFilePath)}/download`
+          });
+        } else if (stat.isDirectory()) {
+          // Recursively read subdirectories
+          const subRelativePath = relativePath ? path.join(relativePath, item) : item;
+          readFilesRecursively(itemPath, subRelativePath);
+        }
+      }
+    }
+    
+    readFilesRecursively(orderFolderPath);
+    
+    // Sort files by name
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    
+    res.json({
+      success: true,
+      message: `${files.length} Datei(en) gefunden`,
+      files,
+      folderPath: orderFolderPath,
+      orderNumber: order.orderNumber
+    });
+    
+  } catch (err) {
+    console.error('GET /api/orders/:id/network-files error:', err);
+    res.status(500).json({ success: false, error: 'Fehler beim Auflisten der Netzwerkdateien' });
+  }
+});
+
+// GET /api/orders/:id/network-files/:filename/download - Download file from order's network folder
+app.get('/api/orders/:id/network-files/:filename/download', async (req, res) => {
+  try {
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    
+    // Get order from matchdb
+    const ordersDb = client.db('matchdb');
+    const order = await ordersDb.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    // Get network configuration
+    const settingsDb = client.db('match_werkstatt');
+    const networkConfig = await settingsDb.collection('settings').findOne({ type: 'network-config' });
+    
+    await client.close();
+    
+    if (!networkConfig || !networkConfig.networkPath) {
+      return res.status(400).json({ error: 'Kein Netzwerkpfad konfiguriert' });
+    }
+    
+    // Check if network path is accessible
+    if (!fs.existsSync(networkConfig.networkPath)) {
+      return res.status(400).json({ error: 'Netzwerkpfad nicht erreichbar' });
+    }
+    
+    // Build file path - filename can include subdirectories
+    const orderFolderName = order.orderNumber || order._id.toString();
+    const orderFolderPath = path.join(networkConfig.networkPath, orderFolderName);
+    const filename = decodeURIComponent(req.params.filename);
+    const filePath = path.join(orderFolderPath, filename);
+    
+    // Security check: ensure file is within order folder
+    const resolvedFilePath = path.resolve(filePath);
+    const resolvedOrderPath = path.resolve(orderFolderPath);
+    
+    if (!resolvedFilePath.startsWith(resolvedOrderPath)) {
+      return res.status(400).json({ error: 'Ungültiger Dateipfad' });
+    }
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Datei nicht gefunden' });
+    }
+    
+    // Get file stats
+    const stat = fs.statSync(filePath);
+    
+    if (!stat.isFile()) {
+      return res.status(400).json({ error: 'Pfad ist keine Datei' });
+    }
+    
+    // Set headers for download
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', stat.size);
+    
+    // Stream the file
+    const readStream = fs.createReadStream(filePath);
+    readStream.pipe(res);
+    
+    readStream.on('error', (err) => {
+      console.error('File stream error:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Fehler beim Lesen der Datei' });
+      }
+    });
+    
+  } catch (err) {
+    console.error('GET /api/orders/:id/network-files/:filename/download error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Fehler beim Herunterladen der Datei' });
+    }
+  }
+});
+
+// Network upload configuration for direct CAM file uploads
+const camNetworkStorage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    try {
+      const client = new MongoClient(MONGODB_URL);
+      await client.connect();
+      
+      // Get order from matchdb
+      const ordersDb = client.db('matchdb');
+      const order = await ordersDb.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+      
+      if (!order) {
+        await client.close();
+        return cb(new Error('Auftrag nicht gefunden'));
+      }
+      
+      // Get network configuration
+      const settingsDb = client.db('match_werkstatt');
+      const networkConfig = await settingsDb.collection('settings').findOne({ type: 'network-config' });
+      
+      await client.close();
+      
+      if (!networkConfig || !networkConfig.networkPath) {
+        return cb(new Error('Netzwerkkonfiguration nicht gefunden'));
+      }
+      
+      if (!fs.existsSync(networkConfig.networkPath)) {
+        return cb(new Error('Netzwerkpfad nicht erreichbar'));
+      }
+      
+      // Build order folder path
+      const orderFolderName = order.orderNumber || order._id.toString();
+      const orderFolderPath = path.join(networkConfig.networkPath, orderFolderName);
+      
+      // Create order folder if it doesn't exist
+      if (!fs.existsSync(orderFolderPath)) {
+        fs.mkdirSync(orderFolderPath, { recursive: true });
+      }
+      
+      // Check for target subfolder (e.g., 'CAM-Dateien')
+      let targetPath = orderFolderPath;
+      if (req.body && req.body.targetFolder) {
+        targetPath = path.join(orderFolderPath, req.body.targetFolder);
+        
+        // Create subfolder if it doesn't exist
+        if (!fs.existsSync(targetPath)) {
+          fs.mkdirSync(targetPath, { recursive: true });
+        }
+      }
+      
+      // Store info for later use
+      req.networkOrderPath = orderFolderPath;
+      req.networkTargetPath = targetPath;
+      req.orderData = order;
+      req.uploadMode = 'network';
+      
+      cb(null, targetPath);
+      
+    } catch (error) {
+      console.error('CAM network storage error:', error);
+      cb(error);
+    }
+  },
+  filename: (req, file, cb) => {
+    // Keep original filename without timestamp prefix
+    const originalName = file.originalname;
+    cb(null, originalName);
+  }
+});
+
+const camNetworkUpload = multer({
+  storage: camNetworkStorage,
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+// POST /api/orders/:id/upload-cam-file - Upload CAM file directly to network folder
+app.post('/api/orders/:id/upload-cam-file', camNetworkUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Keine Datei hochgeladen' });
+    }
+    
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const ordersDb = client.db('matchdb');
+    
+    // Create document record
+    const relativePath = req.body.targetFolder 
+      ? `${req.orderData.orderNumber || req.orderData._id}/${req.body.targetFolder}/${req.file.filename}`
+      : `${req.orderData.orderNumber || req.orderData._id}/${req.file.filename}`;
+    
+    const documentUrl = `/network-files/${relativePath}`;
+    
+    const document = {
+      name: req.file.originalname,
+      url: documentUrl,
+      networkPath: req.file.path,
+      uploadDate: new Date(),
+      orderId: new ObjectId(req.params.id),
+      size: req.file.size,
+      mimeType: req.file.mimetype,
+      uploadMode: 'network',
+      documentType: 'cam',
+      targetFolder: req.body.targetFolder || null
+    };
+    
+    const docResult = await ordersDb.collection('Document').insertOne(document);
+    
+    await client.close();
+    
+    res.json({
+      success: true,
+      message: 'CAM-Datei erfolgreich direkt ins Netzwerk hochgeladen',
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      path: documentUrl,
+      networkPath: req.file.path,
+      uploadMode: 'network',
+      documentId: docResult.insertedId.toString(),
+      targetFolder: req.body.targetFolder || null
+    });
+    
+  } catch (err) {
+    console.error('POST /api/orders/:id/upload-cam-file error:', err);
+    res.status(500).json({ error: 'Fehler beim Hochladen der CAM-Datei', details: err.message });
+  }
 });
 
 console.log('🚀 MongoDB-only Match Werkstatt Server');
@@ -1968,8 +2914,15 @@ wss.on('connection', (ws) => {
   }));
 });
 
-server.listen(port, () => {
-  console.log(`Backend listening on http://localhost:${port}`);
+server.listen(port, '0.0.0.0', async () => {
+  console.log(`Backend listening on http://0.0.0.0:${port}`);
+  
+  // Initialize MongoDB indexes
+  await initializeIndexes();
+  
+  // Ensure default admin exists
+  await ensureDefaultAdmin();
+  
   console.log('✓ Direct MongoDB connection established');
   console.log('🔌 WebSocket server running');
 });

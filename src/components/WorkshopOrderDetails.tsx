@@ -10,7 +10,6 @@ import {
   Trash2,
   Archive,
   Download,
-  Upload,
   Printer,
   Server,
   Eye
@@ -19,7 +18,8 @@ import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
 import NetworkFolderStatus from './NetworkFolderStatus';
-import NetworkFileUpload from './NetworkFileUpload';
+import NetworkFilesViewer from './NetworkFilesViewer';
+import NetworkDragDropUpload from './NetworkDragDropUpload';
 import STLViewer from './STLViewer';
 
 interface WorkshopOrderDetailsProps {
@@ -43,7 +43,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [subTaskAssignedTo, setSubTaskAssignedTo] = useState('');
   const [subTaskScopeType, setSubTaskScopeType] = useState<'order' | 'component'>('order');
   const [subTaskAssignedComponentId, setSubTaskAssignedComponentId] = useState('');
-  const [dragActive, setDragActive] = useState(false);
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
@@ -82,22 +81,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   useEffect(() => {
     const updatedOrder = state.orders.find(o => o.id === order.id);
     if (updatedOrder) {
-      console.log('WorkshopOrderDetails: Updating localOrder from context');
-      console.log('Current reworkComments:', updatedOrder.reworkComments);
-      console.log('Components:', updatedOrder.components);
       setLocalOrder(updatedOrder);
     }
   }, [state.orders, order.id]);
 
   useEffect(() => {
-    console.log('Title image check:', localOrder.titleImage);
     if (localOrder.titleImage && localOrder.titleImage.hasImage) {
       // Append a timestamp to break browser cache when the image is updated
-      const url = `http://localhost:3001/api/orders/${localOrder.id}/title-image?t=${new Date().getTime()}`;
-      console.log('Setting title image URL:', url);
+      const url = `/api/orders/${localOrder.id}/title-image?t=${new Date().getTime()}`;
       setTitleImageUrl(url);
     } else {
-      console.log('No title image found, clearing URL');
       setTitleImageUrl('');
     }
   }, [localOrder.titleImage, localOrder.id]);
@@ -145,7 +138,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
 
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${localOrder.id}`, {
+      const response = await fetch(`/api/orders/${localOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedFields)
@@ -249,7 +242,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     formData.append('file', file);
 
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${localOrder.id}/upload-title-image`, {
+      const response = await fetch(`/api/orders/${localOrder.id}/upload-title-image`, {
         method: 'POST',
         body: formData,
       });
@@ -264,8 +257,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       // müssen wir die URL im lokalen State "künstlich" erzeugen, um eine Neuanzeige zu triggern.
       // Ein Zeitstempel sorgt für einen einzigartigen Wert.
       const updatedOrderFromServer = await response.json();
-      console.log('Upload response:', updatedOrderFromServer);
-      console.log('Title image in response:', updatedOrderFromServer.titleImage);
       setLocalOrder(updatedOrderFromServer);
 
       dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Titelbild erfolgreich aktualisiert.', type: 'success' } });
@@ -288,49 +279,35 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   };
 
   const handleArchive = async () => {
+    // Prüfe ob Endabnahme durch WiMi erfolgt ist (confirmationDate muss gesetzt sein)
+    if (!localOrder.confirmationDate) {
+      dispatch({ 
+        type: 'SHOW_NOTIFICATION', 
+        payload: { 
+          message: 'Archivierung nicht möglich: Der Auftrag muss zuerst vom Kunden bestätigt werden (Endabnahme).', 
+          type: 'error' 
+        } 
+      });
+      return;
+    }
     updateOrder({ status: 'archived' }, 'Auftrag wurde archiviert');
     onClose();
   };
 
-  const handleFileUpload = (files: FileList | null) => {
-    if (!files) return;
-
-    Array.from(files).forEach(file => {
-      if (file.type === 'application/pdf') {
-        const document: PDFDocument = {
-          id: `doc_${Date.now()}_${Math.random()}`,
-          name: file.name,
-          url: URL.createObjectURL(file),
-          uploadDate: new Date(),
-          file: file
-        };
-        setSubTaskDocuments(prev => [...prev, document]);
-      }
-    });
-  };
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
+  // Prüfe ob alle Unteraufgaben erledigt sind
+  const allSubTasksCompleted = () => {
+    if (!localOrder.subTasks || localOrder.subTasks.length === 0) {
+      return true; // Keine Unteraufgaben = OK
     }
+    return localOrder.subTasks.every((task: any) => task.status === 'completed');
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    handleFileUpload(e.dataTransfer.files);
-  };
-
+  // Remove a temporary subtask document from local state
   const removeSubTaskDocument = (id: string) => {
     setSubTaskDocuments(prev => {
       const docToRemove = prev.find(doc => doc.id === id);
       if (docToRemove?.url) {
-        URL.revokeObjectURL(docToRemove.url);
+        try { URL.revokeObjectURL(docToRemove.url); } catch {}
       }
       return prev.filter(doc => doc.id !== id);
     });
@@ -400,26 +377,82 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   };
 
-  const handleDownload = (doc: any) => {
-    // reworkComment docs might just have a filename as URL
-    if (doc.url && !doc.url.startsWith('blob:')) {
-        const a = document.createElement('a');
-        // Prepend server address if it's a relative path
-        a.href = doc.url.startsWith('/uploads/') ? `http://localhost:3001${doc.url}` : doc.url;
-        a.download = doc.name;
-        a.target = '_blank'; // Open in new tab to prevent navigation issues
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    } else if (doc.file) { // For newly uploaded files before saving
-      const url = URL.createObjectURL(doc.file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+  const handleDownload = async (doc: any) => {
+    try {
+      // Generate a very strong cache-busting identifier
+      const cacheBuster = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}`;
+      
+      // Priority 1: Try direct file access by original filename (checks network folder first)
+      if (localOrder.id && doc.name) {
+        const baseUrl = `/api/orders/${localOrder.id}/files/${encodeURIComponent(doc.name)}`;
+        const directUrl = `${baseUrl}?cb=${cacheBuster}&_nocache=1`;
+        
+        try {
+          const response = await fetch(directUrl, { 
+            method: 'HEAD',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          if (response.ok) {
+            // Use a new window to force fresh download
+            const newWindow = window.open(directUrl, '_blank');
+            if (newWindow) {
+              // Close the window after a short delay
+              setTimeout(() => newWindow.close(), 1000);
+            } else {
+              // Fallback to location.href if popup blocked
+              window.location.href = directUrl;
+            }
+            return;
+          }
+        } catch (directError) {
+          // Direct file access failed, trying document ID method
+        }
+      }
+
+      // Priority 2: Try document ID method if present
+      if (doc.id) {
+        const baseIdUrl = `/api/documents/${doc.id}`;
+        const idUrl = `${baseIdUrl}?cb=${cacheBuster}&_nocache=1`;
+        
+        try {
+          const response = await fetch(idUrl, { 
+            method: 'HEAD',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          if (response.ok) {
+            // Use a new window to force fresh download
+            const newWindow = window.open(idUrl, '_blank');
+            if (newWindow) {
+              setTimeout(() => newWindow.close(), 1000);
+            } else {
+              window.location.href = idUrl;
+            }
+            return;
+          }
+        } catch (idError) {
+          // Document ID access failed, trying URL method
+        }
+      }
+
+      // Priority 3: Fallback to direct URL (legacy)
+      if (doc.url) {
+        const base = doc.url.startsWith('/uploads/') ? `${doc.url}` : doc.url;
+        const withTs = base.includes('?') ? `${base}&cb=${cacheBuster}` : `${base}?cb=${cacheBuster}`;
+        window.location.href = withTs;
+        return;
+      }
+    } catch (error) {
+      console.error('Download error:', error);
     }
   };
 
@@ -460,7 +493,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
     if (!window.confirm('Diesen Auftrag wirklich unwiderruflich löschen?')) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${localOrder.id}`, {
+      const response = await fetch(`/api/orders/${localOrder.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -591,12 +624,12 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       src={titleImageUrl} 
                       alt="Titelbild" 
                       className="w-32 h-32 object-cover rounded-lg shadow-md"
-                      onError={(e) => {
+                      onError={() => {
                         console.error('Image failed to load:', titleImageUrl);
                         setTitleImageUrl(''); // Clear the URL on error
                       }}
                       onLoad={() => {
-                        console.log('Image loaded successfully:', titleImageUrl);
+                        // Image loaded successfully
                       }}
                     />
                   ) : (
@@ -664,6 +697,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                 <NetworkFolderStatus 
                   orderId={localOrder.id}
                   orderNumber={localOrder.orderNumber}
+                />
+              </div>
+
+              {/* Netzwerkdateien */}
+              <div className="mt-4">
+                <NetworkFilesViewer 
+                  orderId={localOrder.id}
                 />
               </div>
 
@@ -749,7 +789,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       .map((doc) => (
                         <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
                           <STLViewer
-                            fileUrl={`http://localhost:3001${doc.url}`}
+                            fileUrl={`${doc.url}`}
                             fileName={doc.name}
                             className="w-full"
                             showControls={true}
@@ -768,7 +808,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   <h4 className="text-md font-semibold text-gray-900 mb-2">Bauteile</h4>
                   <div className="space-y-4">
                     {localOrder.components.map((component) => {
-                      console.log('Rendering component:', component);
                       // Use _id if id is not available (backwards compatibility)
                       const componentId = component.id || (component as any)._id;
                       // Use title if available, otherwise name (backwards compatibility)  
@@ -824,7 +863,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 .map((doc) => (
                                   <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
                                     <STLViewer
-                                      fileUrl={`http://localhost:3001${doc.url}`}
+                                      fileUrl={`${doc.url}`}
                                       fileName={doc.name}
                                       className="w-full"
                                       showControls={true}
@@ -858,23 +897,23 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           
                           {showComponentUpload && activeComponentId === componentId && (
                             <div className="mt-3">
-                              <NetworkFileUpload
+                              <NetworkDragDropUpload
                                 orderId={localOrder.id}
-                                componentId={componentId}
-                                uploadType="component"
-                                onUploadSuccess={() => {
+                                uploadType="document"
+                                targetFolder="Bauteile"
+                                onUploadSuccess={(fileName) => {
                                   setShowComponentUpload(false);
                                   setActiveComponentId(null);
                                   dispatch({
                                     type: 'SHOW_NOTIFICATION',
                                     payload: {
-                                      message: 'Bauteil-Dokument erfolgreich hochgeladen',
+                                      message: `Bauteil-Dokument "${fileName}" erfolgreich hochgeladen`,
                                       type: 'success'
                                     }
                                   });
                                   
                                   // Reload order to get updated components with documents
-                                  fetch(`http://localhost:3001/api/orders/${localOrder.id}`)
+                                  fetch(`/api/orders/${localOrder.id}`)
                                     .then(response => response.json())
                                     .then(updatedOrder => {
                                       dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
@@ -889,6 +928,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     .catch(error => {
                                       console.error('Error reloading order:', error);
                                     });
+                                }}
+                                onUploadError={(error) => {
+                                  dispatch({
+                                    type: 'SHOW_NOTIFICATION',
+                                    payload: {
+                                      message: `Upload-Fehler: ${error}`,
+                                      type: 'error'
+                                    }
+                                  });
                                 }}
                               />
                             </div>
@@ -1106,11 +1154,29 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     
                     {localOrder.status === 'in_progress' && (
                       <button
-                        onClick={() => handleStatusChange('completed')}
-                        className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        onClick={() => {
+                          if (!allSubTasksCompleted()) {
+                            dispatch({ 
+                              type: 'SHOW_NOTIFICATION', 
+                              payload: { 
+                                message: 'Auftrag kann nicht abgeschlossen werden: Nicht alle Unteraufgaben sind erledigt!', 
+                                type: 'error' 
+                              } 
+                            });
+                            return;
+                          }
+                          handleStatusChange('waiting_confirmation');
+                        }}
+                        disabled={!allSubTasksCompleted()}
+                        className={`flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                          allSubTasksCompleted() 
+                            ? 'bg-green-600 text-white hover:bg-green-700' 
+                            : 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        }`}
+                        title={!allSubTasksCompleted() ? 'Alle Unteraufgaben müssen erledigt sein' : ''}
                       >
                         <Check className="w-4 h-4 mr-2" />
-                        Abschließen
+                        Zur Abnahme freigeben
                       </button>
                     )}
                     
@@ -1229,32 +1295,35 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   </label>
                   
                   {/* New Network File Upload Component */}
-                  <NetworkFileUpload
+                  <NetworkDragDropUpload
                     orderId={localOrder.id}
                     uploadType="document"
-                    onUploadSuccess={(result) => {
-                      // Add document to local state
-                      const newDoc: PDFDocument = {
-                        id: result.documentId || `doc_${Date.now()}`,
-                        name: result.originalname,
-                        url: `/uploads/${result.filename}`,
-                        uploadDate: new Date()
-                      };
-                      setSubTaskDocuments(prev => [...prev, newDoc]);
-                      
+                    targetFolder="Dokumente"
+                    acceptedTypes={['.pdf']}
+                    onUploadSuccess={(fileName) => {
                       dispatch({
                         type: 'SHOW_NOTIFICATION',
                         payload: {
-                          message: 'Dokument erfolgreich hochgeladen',
+                          message: `Dokument "${fileName}" erfolgreich hochgeladen`,
                           type: 'success'
                         }
                       });
+                      
+                      // Reload order to get updated documents
+                      fetch(`/api/orders/${localOrder.id}`)
+                        .then(response => response.json())
+                        .then(data => {
+                          setLocalOrder(data);
+                        })
+                        .catch(error => {
+                          console.error('Error reloading order:', error);
+                        });
                     }}
                     onUploadError={(error) => {
                       dispatch({
                         type: 'SHOW_NOTIFICATION',
                         payload: {
-                          message: `Fehler beim Hochladen: ${error.message}`,
+                          message: `Fehler beim Hochladen: ${error}`,
                           type: 'error'
                         }
                       });
@@ -1529,35 +1598,36 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               orderId={localOrder.id} 
               orderNumber={localOrder.orderNumber}
             />
+            <div className="mt-6">
+              <NetworkFilesViewer 
+                orderId={localOrder.id}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {/* CAM-Dateien Upload Bereich */}
+      {/* Dateiupload Bereich */}
       <div className="mt-6 border-t pt-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">CAM-Dateien</h3>
-        <NetworkFileUpload
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Dateiupload</h3>
+        <NetworkDragDropUpload
           orderId={localOrder.id}
           uploadType="cam"
-          onUploadSuccess={(result) => {
+          targetFolder="Dateien"
+          onUploadSuccess={(fileName) => {
             dispatch({
               type: 'SHOW_NOTIFICATION',
               payload: {
-                message: 'CAM-Datei erfolgreich hochgeladen',
+                message: `Datei "${fileName}" erfolgreich hochgeladen`,
                 type: 'success'
               }
             });
             
-            // Optional: Reload order oder hinzufügen zur lokalen Dokumentenliste
-            fetch(`http://localhost:3001/api/orders/${localOrder.id}`)
+            // Reload order to update documents
+            fetch(`/api/orders/${localOrder.id}`)
               .then(response => response.json())
               .then(data => {
                 setLocalOrder(data);
-                // Wichtig: Dokumente auch zu changedFields hinzufügen damit sie gespeichert werden
-                setChangedFields(prev => ({
-                  ...prev,
-                  documents: data.documents
-                }));
               })
               .catch(error => {
                 console.error('Error reloading order:', error);
@@ -1567,7 +1637,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             dispatch({
               type: 'SHOW_NOTIFICATION',
               payload: {
-                message: `Fehler beim Hochladen der CAM-Datei: ${error.message}`,
+                message: `Upload-Fehler: ${error}`,
                 type: 'error'
               }
             });

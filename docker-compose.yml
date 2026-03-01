@@ -1,15 +1,76 @@
 version: '3.8'
+
 services:
-  db:
-    image: postgres:15
-    restart: always
+  # MongoDB Datenbank
+  mongodb:
+    image: mongo:7
+    container_name: match-mongodb
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: matchuser
-      POSTGRES_PASSWORD: matchpass
-      POSTGRES_DB: matchdb
-    ports:
-      - "5432:5432"
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: adminpassword
+      MONGO_INITDB_DATABASE: matchdb
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - mongodb_data:/data/db
+      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    ports:
+      - "27017:27017"
+    networks:
+      - match-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Backend (Node.js / Express)
+  backend:
+    build:
+      context: .
+      target: backend
+    container_name: match-backend
+    restart: unless-stopped
+    environment:
+      MONGODB_URL: mongodb://matchuser:matchpass@mongodb:27017/matchdb?authSource=matchdb
+      DB_NAME: matchdb
+      LDAP_HOST: ${LDAP_HOST:-ldap.company.local}
+      LDAP_PORT: ${LDAP_PORT:-389}
+      LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=company,dc=local}
+      LDAP_USER_SEARCH_BASE: ${LDAP_USER_SEARCH_BASE:-ou=users,dc=company,dc=local}
+      LDAP_BIND_DN: ${LDAP_BIND_DN:-}
+      LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+    volumes:
+      - uploads_data:/app/storage/uploads
+      - cam_files_data:/app/storage/cam-files
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - match-network
+
+  # Frontend (nginx + React Build)
+  frontend:
+    build:
+      context: .
+      target: frontend
+    container_name: match-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - match-network
+
 volumes:
-  db_data:
+  mongodb_data:
+    driver: local
+  uploads_data:
+    driver: local
+  cam_files_data:
+    driver: local
+
+networks:
+  match-network:
+    driver: bridge

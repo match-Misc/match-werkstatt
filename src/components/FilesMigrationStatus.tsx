@@ -31,9 +31,11 @@ interface MigrationStatus {
 interface FilesMigrationStatusProps {
   orderId: string;
   onStatusChange?: (status: MigrationStatus) => void;
+  hideIfComplete?: boolean; // Neues Prop: Verstecke wenn alles migriert
+  hideIfNoFiles?: boolean;  // Neues Prop: Verstecke wenn keine Dateien
 }
 
-export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesMigrationStatusProps) {
+export default function FilesMigrationStatus({ orderId, onStatusChange, hideIfComplete = false, hideIfNoFiles = false }: FilesMigrationStatusProps) {
   const [migrationStatus, setMigrationStatus] = useState<MigrationStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +49,7 @@ export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesM
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/migration-status`);
+      const response = await fetch(`/api/orders/${orderId}/migration-status`);
       if (!response.ok) {
         throw new Error('Fehler beim Laden des Migrationsstatus');
       }
@@ -70,7 +72,7 @@ export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesM
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/migrate-files`, {
+      const response = await fetch(`/api/orders/${orderId}/migrate-files`, {
         method: 'POST'
       });
       
@@ -94,7 +96,7 @@ export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesM
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/rollback-migration`, {
+      const response = await fetch(`/api/orders/${orderId}/rollback-migration`, {
         method: 'POST'
       });
       
@@ -150,6 +152,16 @@ export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesM
 
   const { totalFiles, migratedFiles, pendingFiles, files } = migrationStatus;
   const migrationProgress = totalFiles > 0 ? (migratedFiles / totalFiles) * 100 : 0;
+
+  // Verstecke Komponente wenn hideIfNoFiles und keine Dateien vorhanden
+  if (hideIfNoFiles && totalFiles === 0) {
+    return null;
+  }
+
+  // Verstecke Komponente wenn hideIfComplete und alles migriert
+  if (hideIfComplete && pendingFiles === 0) {
+    return null;
+  }
 
   return (
     <div className="space-y-4">
@@ -289,7 +301,7 @@ export default function FilesMigrationStatus({ orderId, onStatusChange }: FilesM
                   )}
                   
                   <a
-                    href={`http://localhost:3001/api/documents/${file.id}`}
+                    href={`/api/documents/${file.id}`}
                     className="text-blue-600 hover:text-blue-800"
                     title="Herunterladen"
                   >

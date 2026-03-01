@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Upload, FileText, Trash2, Save } from 'lucide-react';
+import { X, Upload, FileText, Trash2, Save, Box, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Order, PDFDocument, RevisionComment } from '../types';
+import { Order, PDFDocument, RevisionComment, Component } from '../types';
 
 interface EditOrderProps {
   order: Order;
@@ -18,6 +18,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(order.priority);
   const [documents, setDocuments] = useState<PDFDocument[]>(order.documents);
   const [dragActive, setDragActive] = useState(false);
+  const [components, setComponents] = useState<Component[]>(order.components || []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +32,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
             const formData = new FormData();
             formData.append('file', doc.file);
             
-            const uploadResponse = await fetch('http://localhost:3001/api/upload', {
+            const uploadResponse = await fetch('/api/upload', {
               method: 'POST',
               body: formData
             });
@@ -60,6 +61,52 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
         })
       );
       
+      // Bauteil-Dokumente verarbeiten (neue Dateien hochladen)
+      const processedComponents = await Promise.all(
+        components.map(async (comp) => {
+          const processedCompDocs = await Promise.all(
+            (comp.documents || []).map(async (doc) => {
+              if (doc.file) {
+                // Neue Datei - erst hochladen
+                const formData = new FormData();
+                formData.append('file', doc.file);
+                
+                const uploadResponse = await fetch('/api/upload', {
+                  method: 'POST',
+                  body: formData
+                });
+                
+                if (!uploadResponse.ok) {
+                  throw new Error(`Upload fehlgeschlagen für ${doc.name}`);
+                }
+                
+                const uploadData = await uploadResponse.json();
+                
+                return {
+                  id: doc.id,
+                  name: uploadData.originalname,
+                  url: `/uploads/${uploadData.filename}`,
+                  uploadDate: doc.uploadDate
+                };
+              } else {
+                // Bestehende Datei - keine Änderung
+                return {
+                  id: doc.id,
+                  name: doc.name,
+                  url: doc.url,
+                  uploadDate: doc.uploadDate
+                };
+              }
+            })
+          );
+          
+          return {
+            ...comp,
+            documents: processedCompDocs
+          };
+        })
+      );
+
       const updatedOrder: Order = {
         ...order,
         title,
@@ -68,6 +115,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
         costCenter,
         priority,
         documents: processedDocuments,
+        components: processedComponents,
         status: 'pending', // Reset to pending when resubmitted
         canEdit: false,
         updatedAt: new Date()
@@ -81,7 +129,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
 
       // Auftrag in der Datenbank aktualisieren
       console.log('=== FRONTEND: Sending PUT Request ===');
-      const response = await fetch(`http://localhost:3001/api/orders/${order.id}`, {
+      const response = await fetch(`/api/orders/${order.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -165,6 +213,49 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
       }
       return prev.filter(doc => doc.id !== id);
     });
+  };
+
+  // Bauteil-Beschreibung aktualisieren
+  const updateComponentDescription = (componentId: string, newDescription: string) => {
+    setComponents(prev => prev.map(comp => 
+      comp.id === componentId ? { ...comp, description: newDescription } : comp
+    ));
+  };
+
+  // Datei zu Bauteil hinzufügen
+  const handleComponentFileUpload = (componentId: string, files: FileList | null) => {
+    if (!files) return;
+
+    const newDocs: PDFDocument[] = Array.from(files).map(file => ({
+      id: `comp_doc_${Date.now()}_${Math.random()}`,
+      name: file.name,
+      url: URL.createObjectURL(file),
+      uploadDate: new Date(),
+      file: file
+    }));
+
+    setComponents(prev => prev.map(comp => 
+      comp.id === componentId 
+        ? { ...comp, documents: [...(comp.documents || []), ...newDocs] }
+        : comp
+    ));
+  };
+
+  // Dokument von Bauteil entfernen
+  const removeComponentDocument = (componentId: string, docId: string) => {
+    setComponents(prev => prev.map(comp => {
+      if (comp.id === componentId) {
+        const docToRemove = comp.documents?.find(doc => doc.id === docId);
+        if (docToRemove?.url && docToRemove.url.startsWith('blob:')) {
+          URL.revokeObjectURL(docToRemove.url);
+        }
+        return {
+          ...comp,
+          documents: comp.documents?.filter(doc => doc.id !== docId) || []
+        };
+      }
+      return comp;
+    }));
   };
 
   return (
@@ -327,6 +418,97 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
               </div>
             )}
           </div>
+
+          {/* Bauteile-Bereich (editierbar) */}
+          {components && components.length > 0 && (
+            <div className="md:col-span-2">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 border-t pt-6 flex items-center">
+                <Box className="w-5 h-5 mr-2 text-blue-600" />
+                Bauteile ({components.length})
+              </h3>
+              <div className="space-y-4">
+                {components.map((component, index) => (
+                  <div key={component.id || index} className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-800">{component.title}</h4>
+                        {component.quantity && component.quantity > 1 && (
+                          <span className="inline-block mt-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded">
+                            Stückzahl: {component.quantity}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Editierbare Beschreibung */}
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Beschreibung
+                      </label>
+                      <textarea
+                        value={component.description || ''}
+                        onChange={(e) => updateComponentDescription(component.id, e.target.value)}
+                        placeholder="Beschreibung des Bauteils..."
+                        rows={2}
+                        className="w-full px-3 py-2 text-sm border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                      />
+                    </div>
+                    
+                    {/* Komponenten-Dokumente */}
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Dokumente:</p>
+                      
+                      {/* Bestehende Dokumente */}
+                      {component.documents && component.documents.length > 0 && (
+                        <div className="space-y-1 mb-3">
+                          {component.documents.map((doc, docIndex) => (
+                            <div key={doc.id || docIndex} className="flex items-center justify-between p-2 bg-white rounded border">
+                              <div className="flex items-center flex-1 min-w-0">
+                                <FileText className="w-4 h-4 text-red-600 mr-2 flex-shrink-0" />
+                                <span className="text-sm text-gray-700 truncate">{doc.name}</span>
+                              </div>
+                              <div className="flex items-center space-x-2 ml-2">
+                                {!doc.file && (
+                                  <a
+                                    href={`${doc.url}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                  >
+                                    Öffnen
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeComponentDocument(component.id, doc.id)}
+                                  className="text-red-600 hover:text-red-800 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* Datei-Upload für Bauteil */}
+                      <label className="cursor-pointer inline-flex items-center px-3 py-2 text-sm bg-white border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors">
+                        <Plus className="w-4 h-4 mr-2 text-blue-600" />
+                        <span className="text-blue-600">Datei hinzufügen</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
+                          onChange={(e) => handleComponentFileUpload(component.id, e.target.files)}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end space-x-3 pt-6 border-t">
             <button

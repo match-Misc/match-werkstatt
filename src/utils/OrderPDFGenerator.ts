@@ -220,6 +220,21 @@ export class OrderPDFGenerator {
         }
       }
 
+      // Komponenten-Dokumente hinzufügen
+      if (this.options.includeComponents && this.order.components) {
+        for (const component of this.order.components) {
+          if (component.documents && component.documents.length > 0) {
+            for (const doc of component.documents) {
+              try {
+                await this.addDocumentToMergedPDF(pdfDoc, doc, `Bauteil: ${component.title || component.name}`);
+              } catch (error) {
+                console.warn(`Bauteil-Dokument ${doc.name} konnte nicht hinzugefügt werden:`, error);
+              }
+            }
+          }
+        }
+      }
+
       const pdfBytes = await pdfDoc.save();
       return new Blob([pdfBytes], { type: 'application/pdf' });
 
@@ -233,8 +248,9 @@ export class OrderPDFGenerator {
 
   private async addDocumentToMergedPDF(pdfDoc: PDFDocument, document: any, documentType: string): Promise<void> {
     try {
-      // Dokument vom Server laden
-      const response = await fetch(`/api/orders/${this.order.id}/documents/${document.name}`);
+      // Dokument vom Server laden - korrekter API-Pfad
+      const encodedName = encodeURIComponent(document.name);
+      const response = await fetch(`/api/orders/${this.order.id}/files/${encodedName}`);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);

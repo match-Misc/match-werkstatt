@@ -30,7 +30,7 @@ export default function NetworkFolderStatus({ orderId, orderNumber }: NetworkFol
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/network-folder`);
+      const response = await fetch(`/api/orders/${orderId}/network-folder`);
       if (!response.ok) {
         throw new Error('Fehler beim Laden des Ordnerstatus');
       }
@@ -49,7 +49,7 @@ export default function NetworkFolderStatus({ orderId, orderNumber }: NetworkFol
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/network-folder`, {
+      const response = await fetch(`/api/orders/${orderId}/network-folder`, {
         method: 'POST'
       });
       
@@ -78,7 +78,7 @@ export default function NetworkFolderStatus({ orderId, orderNumber }: NetworkFol
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/migrate-files`, {
+      const response = await fetch(`/api/orders/${orderId}/migrate-files`, {
         method: 'POST'
       });
       

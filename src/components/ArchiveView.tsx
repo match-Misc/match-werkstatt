@@ -12,7 +12,7 @@ export default function ArchiveView({ onClose }: { onClose: () => void }) {
   const getTitleImageUrl = (order: Order) => {
     if (order.titleImage) { // Prüft, ob das Feld existiert (nach DB-Migration)
       // Hänge einen Zeitstempel an, um Caching zu umgehen, falls das Bild aktualisiert wird
-      return `http://localhost:3001/api/orders/${order.id}/title-image?t=${new Date(order.updatedAt).getTime()}`;
+      return `/api/orders/${order.id}/title-image?t=${new Date(order.updatedAt).getTime()}`;
     }
     return undefined; // Kein Bild vorhanden
   };
@@ -20,7 +20,7 @@ export default function ArchiveView({ onClose }: { onClose: () => void }) {
   const handleRestore = async (order: Order) => {
     try {
       // Update server first
-      const response = await fetch(`http://localhost:3001/api/orders/${order.id}`, {
+      const response = await fetch(`/api/orders/${order.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'revision' })
@@ -67,7 +67,7 @@ export default function ArchiveView({ onClose }: { onClose: () => void }) {
                   )}
                   <div>
                     <div className="font-semibold text-lg">{order.title}</div>
-                    <div className="text-sm text-gray-500">#{order.id.slice(-8)}</div>
+                    <div className="text-sm text-gray-500">#{order.orderNumber || order.id}</div>
                   </div>
                 </div>
                 <div className="flex gap-2">

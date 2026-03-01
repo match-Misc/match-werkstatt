@@ -21,7 +21,7 @@ export const networkUploadUtils = {
     formData.append('file', file);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/upload-document`, {
+      const response = await fetch(`/api/orders/${orderId}/upload-document`, {
         method: 'POST',
         body: formData,
       });
@@ -44,7 +44,7 @@ export const networkUploadUtils = {
     formData.append('file', file);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/upload-cam-file`, {
+      const response = await fetch(`/api/orders/${orderId}/upload-cam-file`, {
         method: 'POST',
         body: formData,
       });
@@ -67,7 +67,7 @@ export const networkUploadUtils = {
     formData.append('file', file);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/components/${componentId}/upload-document`, {
+      const response = await fetch(`/api/components/${componentId}/upload-document`, {
         method: 'POST',
         body: formData,
       });

@@ -11,7 +11,8 @@ export default defineConfig({
     port: 5175,
     proxy: {
       '/api': 'http://localhost:3001',
-      '/uploads': 'http://localhost:3001', // Proxy für Datei-Downloads hinzugefügt
+      '/uploads': 'http://localhost:3001', // Proxy für Datei-Downloads
+      '/network-files': 'http://localhost:3001', // Proxy für Netzwerkdateien
     },
   },
 });

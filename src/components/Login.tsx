@@ -25,7 +25,7 @@ export default function Login() {
   useEffect(() => {
     const checkLdapStatus = async () => {
       try {
-        const res = await fetch('http://localhost:3001/api/ldap/test');
+        const res = await fetch('/api/ldap/test');
         if (res.ok) {
           const data = await res.json();
           setLdapStatus({
@@ -45,7 +45,7 @@ export default function Login() {
     e.preventDefault();
     setError('');
     try {
-      const res = await fetch('http://localhost:3001/api/login', {
+      const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

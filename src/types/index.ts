@@ -129,6 +129,9 @@ export interface Component {
   id: string;
   title: string;
   description: string;
+  quantity?: number;
+  material?: string;
+  notes?: string;
   documents: PDFDocument[];
 }
 

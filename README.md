@@ -1,47 +1,70 @@
 # Match-Werkstatt 🔧
-## Modernes Werkstatt-Verwaltungssystem mit Hybrid-LDAP-Authentifizierung
+## Modernes Werkstatt-Verwaltungssystem mit MongoDB und Hybrid-LDAP
 
-Match-Werkstatt ist ein umfassendes System zur Verwaltung von Werkstattaufträgen mit moderner Web-Technologie und flexibler Benutzerauthentifizierung.
+Ein umfassendes Auftragsmanagement-System für Werkstätten mit moderner Web-Technologie, Bauteilverwaltung, Netzwerk-Dateiintegration und flexibler Authentifizierung.
 
-## ✨ Features
+## ✨ Hauptfunktionen
 
 ### 🔐 Hybrid-Authentifizierung
-- **LDAP-Integration**: Zentrale Benutzerverwaltung über LDAP-Server
-- **Lokale Fallback-Authentifizierung**: Funktioniert auch ohne LDAP
-- **Rollenverwaltung**: Lokale Rollen-/Berechtigungsverwaltung in MongoDB
+- **LDAP-Integration**: Zentrale Benutzerverwaltung über LDAP-Server (optional)
+- **MongoDB-Fallback**: Funktioniert vollständig ohne LDAP
+- **Rollenverwaltung**: Admin, Werkstatt, Kunde
 - **Nahtloser Übergang**: Automatischer Fallback bei LDAP-Ausfall
 
-### 👥 Benutzerverwaltung
-- **Admin-Bereich**: Vollständige System- und Benutzerverwaltung
-- **Werkstatt-Accounts**: Mitarbeiter-Verwaltung für Werkstattpersonal
-- **Kunden-Accounts**: Registrierung und Verwaltung von Auftraggebern
-- **LDAP-Synchronisation**: Automatische Benutzer-Synchronisation
-- **Rollenbasierte Berechtigungen**: Admin, Werkstatt, Kunde
-
 ### 📋 Auftragsverwaltung
-- **Digitale Auftragserfassung**: Vollständige Auftragsdaten
-- **QR-Code-System**: Schnelle Auftragserkennung
-- **Status-Tracking**: Live-Verfolgung des Bearbeitungsstatus
-- **Datei-Uploads**: Anhänge und Dokumente pro Auftrag
-- **Zeitstempel**: Automatische Erfassung aller Änderungen
+- **Bauteilverwaltung**: Mehrere Bauteile pro Auftrag mit separaten Dokumenten
+- **Überarbeitungssystem**: Revision-Workflow mit Kommentaren und Historie
+- **QR-Code-System**: Schnelle Auftragserkennung und -verwaltung
+- **Status-Tracking**: Pending, Accepted, In Progress, Revision, Completed, Archived
+- **Material-Status**: Werkstatt-/Kundenbestellungen mit Bestätigungen
+- **Endabnahme**: Kundenbestätigung bei Auftragsabschluss
 
-### 📱 Moderne Benutzeroberfläche
-- **Responsive Design**: Optimiert für Desktop, Tablet und Mobile
-- **Echtzeit-Updates**: WebSocket-basierte Live-Aktualisierungen
-- **Intuitive Navigation**: Benutzerfreundliche Oberfläche
-- **Dark/Light Mode**: Anpassbare Darstellung
+### 📁 Datei- & Netzwerkverwaltung
+- **Netzwerk-Ordner-Integration**: Automatische Dateimigration zu Windows-Netzwerkfreigaben
+- **CAM-Dateien**: Separate Verwaltung von Fertigungsdateien
+- **3D-Viewer**: Integrierter STL/STEP-Datei-Viewer
+- **Bauteil-Dokumente**: Individuelle Dateien pro Bauteil
+- **Drag & Drop**: Komfortabler Datei-Upload
 
-## 🔧 Installation & Setup
+### 🔧 Werkstatt-Features
+- **Auftragsnummern**: Automatische Generierung (F-YYMM-X Format)
+- **Zeiterfassung**: Geschätzte vs. tatsächliche Arbeitsstunden
+- **Teilaufgaben**: Aufgaben mit Zuweisung zu Bauteilen oder Gesamtauftrag
+- **Notizen-Historie**: Vollständige Dokumentation aller Änderungen
+- **Mitarbeiterverwaltung**: Zuweisungen und Verantwortlichkeiten
+
+## �️ Technologie-Stack
+
+### Backend
+- **Node.js & Express**: REST API Server
+- **MongoDB 8.0+**: NoSQL-Datenbank (ohne Prisma)
+- **Native MongoDB Driver**: Direkte Datenbankoperationen
+- **WebSocket**: Echtzeit-Updates
+- **Multer**: Datei-Upload-Handling
+- **bcryptjs**: Passwort-Hashing
+
+### Frontend
+- **React 18 + TypeScript**: Moderne UI-Entwicklung
+- **Vite**: Schneller Build-Prozess
+- **Tailwind CSS**: Utility-first Styling
+- **Lucide React**: Icon-Library
+- **Three.js**: 3D-Datei-Visualisierung
+
+### Authentifizierung
+- **Hybrid-System**: LDAP + MongoDB
+- **Custom LDAP Client**: Keine externen Dependencies
+- **JWT**: Token-basierte Authentifizierung (optional)
+
+## 📦 Installation
 
 ### Voraussetzungen
-- Node.js (v16 oder höher)
-- npm oder yarn
-- MongoDB (lokal oder remote)
-- Optional: LDAP-Server für zentrale Benutzerverwaltung
+- **Node.js** v16 oder höher
+- **MongoDB** 8.0+ (lokal oder remote)
+- Optional: **LDAP-Server** für zentrale Authentifizierung
 
 ### 1. Repository klonen
 ```bash
-git clone <repository-url>
+git clone https://github.com/match-Misc/match-werkstatt.git
 cd match-werkstatt
 ```
 
@@ -50,196 +73,232 @@ cd match-werkstatt
 npm install
 ```
 
-### 3. Konfigurationsdateien erstellen
+### 3. MongoDB einrichten
+
+#### Windows
+```powershell
+# MongoDB installieren
+winget install MongoDB.Server
+
+# MongoDB-Service starten
+net start MongoDB
+```
+
+#### Linux/Mac
 ```bash
-# Standard-Konfiguration
-cp .env.example .env
+# MongoDB installieren (Ubuntu/Debian)
+sudo apt-get install mongodb-org
 
-# LDAP-Konfiguration (optional)
-cp .env.ldap.example .env.ldap
+# MongoDB starten
+sudo systemctl start mongod
 ```
 
-### 4. Umgebungsvariablen konfigurieren
+Die Datenbank `matchdb` wird automatisch beim ersten Start erstellt.
 
-#### Standard-Konfiguration (.env)
-```env
-MONGODB_URI=mongodb://localhost:27017/match-werkstatt
-PORT=3001
-JWT_SECRET=your-super-secret-jwt-key
-NODE_ENV=development
-```
+### 4. Umgebungsvariablen (optional)
+Erstellen Sie eine `.env` Datei für LDAP-Konfiguration:
 
-#### LDAP-Konfiguration (.env.ldap) - Optional
 ```env
-LDAP_HOST=ldap.example.com
+LDAP_HOST=ldap.company.local
 LDAP_PORT=389
-LDAP_BASE_DN=dc=example,dc=com
-LDAP_BIND_DN=cn=admin,dc=example,dc=com
-LDAP_BIND_PASSWORD=your-ldap-password
-LDAP_ENABLED=true
-LDAP_USER_FILTER=(uid=%username%)
-LDAP_USERNAME_ATTRIBUTE=uid
-LDAP_EMAIL_ATTRIBUTE=mail
-LDAP_DISPLAY_NAME_ATTRIBUTE=displayName
-LDAP_ALLOW_LOCAL_FALLBACK=true
+LDAP_BASE_DN=dc=company,dc=local
+LDAP_USER_SEARCH_BASE=ou=users,dc=company,dc=local
 ```
 
-### 5. Datenbank starten
-```bash
-# MongoDB starten (falls lokal installiert)
-mongod
+**Hinweis**: Ohne LDAP-Konfiguration funktioniert das System vollständig mit MongoDB-Authentifizierung.
 
-# Oder Docker verwenden
-docker run -d -p 27017:27017 --name match-mongo mongo:latest
-```
+### 5. Anwendung starten
 
-### 6. Anwendung starten
-
-#### Entwicklungsmodus
 ```bash
 # Backend starten (Port 3001)
 node server.cjs
 
-# Frontend starten (Port 5178)
+# In einem neuen Terminal: Frontend starten (Port 5173)
 npm run dev
 ```
 
-#### Produktionsmodus
-```bash
-# Frontend bauen
-npm run build
+Öffnen Sie `http://localhost:5173` im Browser.
 
-# Backend starten
-NODE_ENV=production node server.cjs
-```
+### 6. Erster Login
 
-### 7. Standard-Admin anlegen
-Nach dem ersten Start können Sie über die Web-Oberfläche einen Admin-Account registrieren oder direkt in der Datenbank anlegen.
+**Standard-Admin-Account** (wird automatisch beim ersten Server-Start erstellt):
+- Username: `admin`
+- Password: `admin123`
 
-## 🏗️ Systemarchitektur
+**⚠️ Wichtig**: Bitte ändern Sie das Passwort nach dem ersten Login!
 
-### Backend (Node.js/Express)
-- **REST API**: Vollständige API für alle Funktionen
-- **MongoDB Integration**: Moderne NoSQL-Datenbank
-- **JWT-Authentifizierung**: Sichere Token-basierte Auth
-- **WebSocket-Support**: Echtzeit-Kommunikation
-- **LDAP-Integration**: Custom LDAP-Client ohne externe Dependencies
+Der Standard-Admin wird nur erstellt, wenn noch kein Admin-Account in der Datenbank existiert.
 
-### Frontend (React/Vite)
-- **React 18**: Moderne React-Features
-- **TypeScript**: Typisierte Entwicklung
-- **Tailwind CSS**: Utility-first CSS-Framework
-- **Vite**: Schneller Build-Prozess
-- **Responsive Design**: Mobile-first Ansatz
-
-### Hybrid-Authentifizierung
-```
-Login-Versuch
-    ↓
-LDAP verfügbar?
-    ↓ Ja          ↓ Nein
-LDAP-Auth    →  Lokale Auth
-    ↓
-Erfolgreich?
-    ↓ Ja          ↓ Nein
-Rolle aus     →  Lokale Auth
-MongoDB           (Fallback)
-    ↓
-Login-Erfolg
-```
-
-## 👥 Benutzerrollen
+## 👥 Benutzerrollen & Workflows
 
 ### 🛡️ Admin
-- **Vollzugriff**: Alle Systemfunktionen
-- **Benutzerverwaltung**: Accounts erstellen/bearbeiten/löschen
-- **LDAP-Verwaltung**: LDAP-Konfiguration und Synchronisation
-- **Systemkonfiguration**: Netzwerk- und Server-Einstellungen
-- **Auftragsverwaltung**: Alle Aufträge verwalten
+- Vollständige System- und Benutzerverwaltung
+- Netzwerk-Ordner-Konfiguration
+- LDAP-Verwaltung und Synchronisation
+- Alle Aufträge einsehen und verwalten
+- Account-Verwaltung (Werkstatt & Kunden)
 
-### 🔧 Werkstatt
-- **Auftragsbearbeitung**: Status-Updates und Bearbeitung
-- **Kunden-Interaktion**: Kommunikation mit Auftraggebern
-- **Datei-Management**: Upload und Verwaltung von Dokumenten
-- **QR-Code-Scanning**: Schnelle Auftragserkennung
+### 🔧 Werkstatt (WiMi - Wissenschaftliche Mitarbeiter)
+- **Auftragsannahme**: Aufträge annehmen oder ablehnen
+- **Bearbeitung**: Status-Updates und Zeiterfassung
+- **Bauteile**: Komponenten mit Beschreibungen und Dokumenten verwalten
+- **Revision**: Aufträge zur Überarbeitung zurückschicken
+- **Teilaufgaben**: Aufgaben erstellen und Mitarbeitern zuweisen
+- **CAM-Dateien**: Fertigungsdateien hochladen
+- **Endabnahme**: Kunden zur Endabnahme auffordern
 
 ### 👤 Kunde
-- **Aufträge erstellen**: Neue Reparaturaufträge anlegen
-- **Status verfolgen**: Live-Tracking des Auftragsstatus
-- **Kommunikation**: Nachrichten mit der Werkstatt
-- **Historien-Einsicht**: Vergangene Aufträge einsehen
+- **Aufträge erstellen**: Mit Bauteilen, Beschreibungen und Dateien
+- **Status verfolgen**: Live-Tracking des Bearbeitungsstatus
+- **Überarbeitung**: Bei Revision-Anfrage anpassen und neu einreichen
+- **Endabnahme**: Fertige Aufträge bestätigen oder zur Nacharbeit schicken
+- **Archiv**: Abgeschlossene Aufträge einsehen
 
-## 🔄 Workflow
+## 🔄 Auftrags-Workflow
 
-### 1. Auftrag erstellen
-1. **Kunde registriert sich** oder meldet sich an
-2. **"Neuen Auftrag erstellen"** auswählen
-3. **Auftragsdaten eingeben**: Gerät, Problem, Kontaktdaten
-4. **Dateien hochladen**: Bilder, Dokumente (optional)
-5. **Auftrag absenden**: Automatische QR-Code-Generierung
-
-### 2. Auftrag bearbeiten
-1. **Werkstatt scannt QR-Code** oder sucht Auftrag
-2. **Status aktualisieren**: "In Bearbeitung", "Wartet auf Teile", etc.
-3. **Notizen hinzufügen**: Arbeitsschritte dokumentieren
-4. **Kunde wird informiert**: Automatische Benachrichtigungen
-
-### 3. Auftrag abschließen
-1. **Reparatur abschließen**: Status auf "Abgeschlossen" setzen
-2. **Endabnahme**: Kunde bestätigt Reparatur
-3. **Archivierung**: Auftrag wird archiviert
-4. **Feedback**: Optional Bewertung durch Kunde
-
-## 🔗 API-Endpunkte
-
-### Authentifizierung
-- `POST /api/login` - Hybrid-Login (LDAP + Lokal)
-- `POST /api/register` - Benutzer registrieren
-- `POST /api/logout` - Abmelden
-
-### LDAP-Verwaltung (Admin)
-- `GET /api/ldap/test` - LDAP-Verbindung testen
-- `POST /api/ldap/test-auth` - LDAP-Authentifizierung testen
-- `GET /api/ldap/users` - LDAP-Benutzer auflisten
-- `POST /api/ldap/sync` - Benutzer synchronisieren
-- `PUT /api/ldap/users/:username/role` - Rolle zuweisen
-
-### Benutzerverwaltung
-- `GET /api/users` - Alle Benutzer (Admin)
-- `POST /api/users` - Benutzer erstellen (Admin)
-- `PUT /api/users/:id` - Benutzer bearbeiten
-- `DELETE /api/users/:id` - Benutzer löschen (Admin)
-
-### Auftragsverwaltung
-- `GET /api/orders` - Aufträge auflisten
-- `POST /api/orders` - Neuen Auftrag erstellen
-- `GET /api/orders/:id` - Auftrag Details
-- `PUT /api/orders/:id` - Auftrag bearbeiten
-- `DELETE /api/orders/:id` - Auftrag löschen
-- `POST /api/orders/:id/files` - Datei hochladen
-
-## 🚀 Deployment
-
-### Docker-Deployment
-```bash
-# Dockerfile erstellen
-FROM node:16-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-RUN npm run build
-EXPOSE 3001
-CMD ["node", "server.cjs"]
-
-# Container bauen und starten
-docker build -t match-werkstatt .
-docker run -d -p 3001:3001 --name match-app match-werkstatt
+### 1. Auftragserstellung (Kunde)
+```
+Kunde → Neuer Auftrag → Titel, Beschreibung, Deadline, Kostenstelle, Priorität
+      → Bauteile hinzufügen (Titel, Beschreibung, Dateien)
+      → Dokumente hochladen
+      → Absenden → Status: Pending
 ```
 
-### Produktionsserver
+### 2. Auftragsannahme (Werkstatt)
+```
+WiMi → Dashboard → Auftrag prüfen
+     → Annehmen → Status: Accepted
+     → Oder: Ablehnen mit Begründung
+```
+
+### 3. Bearbeitung (Werkstatt)
+```
+WiMi → Status: In Progress
+     → Teilaufgaben erstellen und zuweisen
+     → Notizen hinzufügen
+     → Arbeitsstunden erfassen
+     → CAM-Dateien hochladen (optional)
+```
+
+### 4. Revision (optional)
+```
+WiMi → "Zur Überarbeitung" → Kommentar hinzufügen
+     → Status: Revision
+Kunde → Überarbeitungsfenster → Änderungen vornehmen
+      → Neu einreichen → Status: Pending
+```
+
+### 5. Fertigstellung
+```
+WiMi → Status: Completed
+     → "Zur Endabnahme" → Kunde wird benachrichtigt
+Kunde → Endabnahme-Bestätigung
+      → Oder: Nacharbeit anfordern (Status: Rework)
+      → Nach Bestätigung: Status: Archived
+```
+
+## 📁 Dateimanagement & Netzwerk-Integration
+
+### Netzwerk-Ordner-Migration
+Aufträge können in Windows-Netzwerkfreigaben migriert werden:
+
+```
+\\server\Aufträge\
+  ├── F-2601-1\
+  │   ├── Auftrag_F-2601-1.pdf
+  │   ├── Zeichnung.pdf
+  │   ├── CAM\
+  │   │   └── fertigungsdatei.step
+  │   └── Bauteile\
+  │       ├── Gehaeuse_Zeichnung.pdf
+  │       └── Schraube_Modell.stl
+  └── F-2601-2\
+      └── ...
+```
+
+**Funktionen:**
+- Automatische Ordnerstruktur-Erstellung
+- Dateien nach Auftragsnummer organisiert
+- Separate Ordner für CAM-Dateien und Bauteile
+- Umlaute werden korrekt behandelt
+- Original-Dateien werden nach Migration gelöscht
+
+### 3D-Datei-Viewer
+Unterstützte Formate:
+- **STL**: Stereolithography
+- **STEP/STP**: Standard für Produktdaten
+- **OBJ, PLY, 3DS**: 3D-Mesh-Formate
+- **GLTF/GLB**: GL Transmission Format
+
+## 🗄️ Datenbankstruktur (MongoDB)
+
+### Collections
+
+**Order**
+- Auftragsnummer (F-YYMM-X)
+- Status, Priorität, Fristen
+- Kunden- und Werkstatt-Zuweisungen
+- Dokumente, Material-Status
+- Revision-Historie, Endabnahme-Daten
+
+**Component**
+- Titel, Beschreibung, Material
+- Stückzahl, Notizen
+- Verknüpfung zu Order
+
+**Document**
+- Name, URL, Upload-Datum
+- Verknüpfung zu Order oder Component
+- Migrations-Status (lokal/Netzwerk)
+
+**User**
+- Username, Name, Rolle
+- Passwort-Hash (für lokale Auth)
+- LDAP-Status, Aktivierungsstatus
+
+**NoteHistory**
+- Historische Notizen zu Aufträgen
+- Zeitstempel und Zuordnung
+
+## 🔗 Wichtige API-Endpunkte
+
+### Authentifizierung
+- `POST /api/login` - Hybrid-Login (LDAP + MongoDB Fallback)
+- `POST /api/register` - Kunden-Registrierung
+- `GET /api/ldap/test` - LDAP-Verbindung testen (Admin)
+
+### Auftragsverwaltung
+- `GET /api/orders` - Alle Aufträge (mit Bauteilen und Dokumenten)
+- `POST /api/orders` - Neuen Auftrag erstellen
+- `GET /api/orders/:id` - Auftrag mit allen Relationen laden
+- `PUT /api/orders/:id` - Auftrag aktualisieren (inkl. Bauteile)
+- `DELETE /api/orders/:id` - Auftrag löschen
+- `GET /api/orders/barcode/:code` - Auftrag per QR-Code finden
+
+### Dateiverwaltung
+- `POST /api/upload` - Datei hochladen (lokal)
+- `POST /api/orders/:id/upload-cam-file` - CAM-Datei zu Netzwerk hochladen
+- `POST /api/orders/:id/migrate-files` - Dateien zu Netzwerk migrieren
+- `GET /api/orders/:id/migration-status` - Migrations-Status prüfen
+- `GET /api/orders/:id/network-files` - Netzwerk-Dateien auflisten
+- `DELETE /api/orders/:id/network-files/:filename` - Netzwerk-Datei löschen
+
+### Benutzerverwaltung (Admin)
+- `GET /api/users` - Alle Benutzer
+- `POST /api/users` - Benutzer erstellen
+- `PUT /api/users/:id` - Benutzer bearbeiten
+- `DELETE /api/users/:id` - Benutzer löschen
+
+### WebSocket-Events
+- `order-created` - Neuer Auftrag erstellt
+- `order-updated` - Auftrag aktualisiert
+- `order-deleted` - Auftrag gelöscht
+
+## 🚀 Produktions-Deployment
+
+### Mit PM2 (empfohlen)
 ```bash
-# PM2 für Prozess-Management
+# PM2 installieren
 npm install -g pm2
 
 # Anwendung starten
@@ -248,79 +307,182 @@ pm2 start server.cjs --name "match-werkstatt"
 # Auto-Start nach Reboot
 pm2 startup
 pm2 save
+
+# Logs anzeigen
+pm2 logs match-werkstatt
+
+# Status prüfen
+pm2 status
 ```
 
-## 🔒 Sicherheit
+### Systemd Service (Linux)
+```bash
+# Service-Datei erstellen: /etc/systemd/system/match-werkstatt.service
+[Unit]
+Description=Match Werkstatt Server
+After=network.target mongodb.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/match-werkstatt
+ExecStart=/usr/bin/node server.cjs
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+# Service aktivieren
+sudo systemctl enable match-werkstatt
+sudo systemctl start match-werkstatt
+```
+
+### Reverse Proxy (nginx)
+```nginx
+server {
+    listen 80;
+    server_name werkstatt.example.com;
+
+    # Frontend (statische Dateien)
+    location / {
+        root /opt/match-werkstatt/dist;
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Backend API
+    location /api {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # WebSocket
+    location /socket.io {
+        proxy_pass http://localhost:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+## 🔒 Sicherheit & Best Practices
 
 ### Authentifizierung
-- **JWT-Tokens**: Sichere, stateless Authentifizierung
-- **Password-Hashing**: bcrypt für lokale Passwörter
-- **LDAP-Sicherheit**: Sichere LDAP-Verbindungen
-- **Session-Management**: Automatische Token-Erneuerung
+- Hybrid-System: LDAP-Authentifizierung mit MongoDB-Fallback
+- Passwort-Hashing mit bcrypt (Rounds: 10)
+- Automatischer Session-Timeout
+- Geschützte API-Routen basierend auf Benutzerrollen
 
-### Autorisierung
-- **Rollenbasiert**: Strenge Rollentrennung
-- **API-Schutz**: Middleware für alle geschützten Routen
-- **Input-Validierung**: Umfassende Eingabeprüfung
-- **File-Upload-Sicherheit**: Validierung und Größenbegrenzung
+### Datei-Upload
+- Validierung von Dateitypen und -größen
+- Sichere Dateinamen (Sanitization)
+- Separate Ordner für verschiedene Dateitypen
+- Umlauts-korrekte Behandlung bei Netzwerk-Migration
 
-## 🧪 Testing
+### Datenbank
+- MongoDB ohne externe ORM (direkte Treiber-Nutzung)
+- ObjectId-Validierung
+- Index-Optimierung für häufige Queries
+- Automatische Backup-Empfehlung
 
-### Frontend-Tests
-```bash
-npm run test
+## 📚 Weitere Dokumentation
+
+- [LDAP-Setup](LDAP_SETUP.md) - Detaillierte LDAP-Konfiguration
+- [MongoDB-Setup](MONGODB_SETUP.md) - Datenbank-Installation und Konfiguration
+- [3D-Viewer](docs/3d-viewer.md) - 3D-Datei-Viewer-Dokumentation
+- [Netzwerk-Migration](docs/network-migration.md) - Dateimigration zu Netzwerkfreigaben
+
+## 🛠️ Entwicklung
+
+### Projekt-Struktur
+```
+match-werkstatt/
+├── server.cjs              # Express Backend-Server
+├── simple-ldap-auth.cjs    # LDAP-Authentifizierung
+├── src/
+│   ├── main.tsx           # React Entry Point
+│   ├── App.tsx            # Haupt-Komponente
+│   ├── components/        # React-Komponenten
+│   ├── context/           # React Context (State Management)
+│   ├── types/             # TypeScript-Definitionen
+│   └── utils/             # Hilfsfunktionen
+├── storage/
+│   ├── uploads/           # Lokale Datei-Uploads
+│   └── cam-files/         # CAM-Dateien
+├── scripts/
+│   ├── seedUsers.cjs      # Benutzer-Seeds
+│   └── deleteAllOrders.cjs # Aufträge löschen
+└── public/                # Statische Assets
 ```
 
-### Backend-Tests
+### Backend entwickeln
 ```bash
-npm run test:backend
+# Server mit Auto-Reload (nodemon)
+npm install -g nodemon
+nodemon server.cjs
+
+# MongoDB-Logs anzeigen
+tail -f /var/log/mongodb/mongod.log
 ```
 
-### E2E-Tests
+### Frontend entwickeln
 ```bash
-npm run test:e2e
+# Development-Server
+npm run dev
+
+# Build für Produktion
+npm run build
+
+# Preview Production Build
+npm run preview
 ```
 
-## 📝 Entwicklung
+## 🤝 Mitwirkung
 
-### Code-Stil
-- **ESLint**: Automatische Code-Analyse
-- **Prettier**: Code-Formatierung
-- **TypeScript**: Strenge Typisierung
-- **Conventional Commits**: Standardisierte Commit-Messages
-
-### Git-Workflow
-```bash
-# Feature-Branch erstellen
-git checkout -b feature/neue-funktion
-
-# Änderungen committen
-git add .
-git commit -m "feat: neue LDAP-Synchronisation"
-
-# Push und Pull Request
-git push origin feature/neue-funktion
-```
-
-## 🤝 Contributing
+Beiträge sind willkommen! Bitte beachten Sie:
 
 1. **Fork** das Repository
-2. **Feature Branch** erstellen (`git checkout -b feature/AmazingFeature`)
-3. **Commit** deine Änderungen (`git commit -m 'Add some AmazingFeature'`)
-4. **Push** zum Branch (`git push origin feature/AmazingFeature`)
-5. **Pull Request** öffnen
+2. **Feature Branch** erstellen (`git checkout -b feature/NeuesFunktion`)
+3. **Commit** mit aussagekräftiger Nachricht (`git commit -m 'feat: Bauteil-Duplikation hinzugefügt'`)
+4. **Push** zum Branch (`git push origin feature/NeuesFunktion`)
+5. **Pull Request** erstellen
+
+### Code-Style
+- TypeScript für Frontend
+- ESLint-Regeln beachten
+- Kommentare für komplexe Logik
+- Keine Konsolenlogs in Production-Code
+
+## 📝 Changelog
+
+### Version 2.0 (Januar 2026)
+- ✅ Migration von Prisma zu nativen MongoDB-Treibern
+- ✅ Bauteilverwaltung mit separaten Dokumenten
+- ✅ Netzwerk-Ordner-Integration
+- ✅ 3D-Datei-Viewer (STL/STEP)
+- ✅ Überarbeitetes Revision-System
+- ✅ Material-Status-Tracking
+- ✅ Endabnahme-Workflow
+
+### Version 1.0
+- Basis-Auftragsverwaltung
+- LDAP-Integration
+- QR-Code-System
+- Benutzerrollen
+
+## 📞 Support & Kontakt
+
+- **Issues**: [GitHub Issues](https://github.com/match-Misc/match-werkstatt/issues)
+- **Entwickler**: Maximilian Meyer
 
 ## 📄 Lizenz
 
-Dieses Projekt steht unter der MIT Lizenz - siehe [LICENSE](LICENSE) Datei für Details.
-
-## 📞 Support
-
-Bei Fragen oder Problemen:
-- **Issues**: GitHub Issues für Bug-Reports
-- **Wiki**: Dokumentation im GitHub Wiki
-- **Discussions**: Community-Diskussionen
+MIT License - siehe [LICENSE](LICENSE) für Details
 
 ---
 
-**Match-Werkstatt** - Moderne Werkstattverwaltung mit Hybrid-LDAP-Authentifizierung 🚀
+**Match-Werkstatt** - Professionelle Werkstattverwaltung mit MongoDB 🚀

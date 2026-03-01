@@ -16,7 +16,7 @@ export default function NetworkConfigAdmin() {
   useEffect(() => {
     const loadConfigs = async () => {
       try {
-        const response = await fetch('http://localhost:3001/api/admin/network-config');
+        const response = await fetch('/api/admin/network-config');
         if (response.ok) {
           const result = await response.json();
           if (result.success && result.networkPath) {
@@ -35,7 +35,7 @@ export default function NetworkConfigAdmin() {
   const testNetworkConnection = async () => {
     setConnectionStatus({ status: 'testing', message: 'Verbindung wird getestet...' });
     try {
-      const response = await fetch('http://localhost:3001/api/system/network-test');
+      const response = await fetch('/api/system/network-test');
       const result = await response.json();
       
       if (result.success) {
@@ -67,7 +67,7 @@ export default function NetworkConfigAdmin() {
       
       console.log('Sending network path:', pathToSend);
       
-      const response = await fetch('http://localhost:3001/api/admin/network-config', {
+      const response = await fetch('/api/admin/network-config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

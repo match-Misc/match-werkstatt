@@ -119,7 +119,7 @@ const DocumentViewer = ({
       {isViewable3DFile && showSTLViewer && showPreview && (
         <div className="p-4 bg-gray-50">
           <STLViewer
-            fileUrl={`http://localhost:3001${document.url}`}
+            fileUrl={`${document.url}`}
             fileName={document.name}
             className="w-full"
             showControls={true}

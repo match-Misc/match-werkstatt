@@ -22,7 +22,7 @@ export default function QRCodeOrderView() {
       }
 
       try {
-        const response = await fetch(`http://localhost:3001/api/orders/barcode/${encodeURIComponent(orderId)}`);
+        const response = await fetch(`/api/orders/barcode/${encodeURIComponent(orderId)}`);
         
         if (!response.ok) {
           if (response.status === 404) {

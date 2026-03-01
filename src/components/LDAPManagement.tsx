@@ -32,7 +32,7 @@ export default function LDAPManagement() {
 
   const fetchLdapStatus = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/ldap/test');
+      const res = await fetch('/api/ldap/test');
       const data = await res.json();
       setIsConnected(data.ldapConnected);
       setLdapConfig(data.config);
@@ -43,7 +43,7 @@ export default function LDAPManagement() {
 
   const fetchLdapUsers = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/ldap/users');
+      const res = await fetch('/api/ldap/users');
       if (res.ok) {
         const data = await res.json();
         setLdapUsers(data.users || []);
@@ -61,7 +61,7 @@ export default function LDAPManagement() {
 
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/ldap/test-auth', {
+      const res = await fetch('/api/ldap/test-auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: testUsername, password: testPassword })
@@ -85,7 +85,7 @@ export default function LDAPManagement() {
   const syncLdapUsers = async () => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:3001/api/ldap/sync', {
+      const res = await fetch('/api/ldap/sync', {
         method: 'POST'
       });
 
@@ -105,7 +105,7 @@ export default function LDAPManagement() {
 
   const updateUserRole = async (username: string, role: string) => {
     try {
-      const res = await fetch(`http://localhost:3001/api/ldap/users/${username}/role`, {
+      const res = await fetch(`/api/ldap/users/${username}/role`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role })

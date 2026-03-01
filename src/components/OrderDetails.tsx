@@ -6,6 +6,7 @@ import { useApp } from '../context/AppContext';
 import NetworkFileUpload from './NetworkFileUpload';
 import STLViewer from './STLViewer';
 import FilesMigrationStatus from './FilesMigrationStatus';
+import NetworkFilesViewer from './NetworkFilesViewer';
 
 interface OrderDetailsProps {
   order: Order;
@@ -53,7 +54,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   useEffect(() => {
     if (currentOrder.titleImage) {
       // Hänge einen Zeitstempel an, um den Browser-Cache zu umgehen
-      setTitleImageUrl(`http://localhost:3001/api/orders/${currentOrder.id}/title-image?t=${new Date().getTime()}`);
+      setTitleImageUrl(`/api/orders/${currentOrder.id}/title-image?t=${new Date().getTime()}`);
     } else {
       setTitleImageUrl('');
     }
@@ -75,6 +76,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     console.log('OrderDetails: currentUser', state.currentUser);
     console.log('OrderDetails: currentOrder.status', currentOrder.status);
     console.log('OrderDetails: currentOrder', currentOrder);
+    console.log('OrderDetails: currentOrder.components', currentOrder.components);
     console.log('OrderDetails: currentOrder.reworkComments', currentOrder.reworkComments);
   }, [state.currentUser, currentOrder.status, currentOrder]);
 
@@ -114,15 +116,108 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     }
   };
 
-  const handleDownload = (doc: any) => {
-    if (doc.url) {
-      const a = document.createElement('a');
-      a.href = doc.url.startsWith('/uploads/') ? `http://localhost:3001${doc.url}` : doc.url;
-      a.download = doc.name;
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+  const handleDownload = async (doc: any) => {
+    try {
+      // Generate a very strong cache-busting identifier
+      const cacheBuster = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${performance.now()}`;
+      
+      // Priority 1: Try direct file access by original filename (checks network folder first)
+      if (currentOrder.id && doc.name) {
+        const baseUrl = `/api/orders/${currentOrder.id}/files/${encodeURIComponent(doc.name)}`;
+        const directUrl = `${baseUrl}?cb=${cacheBuster}&_nocache=1`;
+        
+        try {
+          const headRes = await fetch(directUrl, { 
+            method: 'HEAD',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          if (headRes.ok) {
+            console.log(`[Download] Using direct file access for: ${doc.name}`);
+            console.log(`[Download] File path: ${headRes.headers.get('X-File-Path')}`);
+            console.log(`[Download] File mtime: ${headRes.headers.get('X-File-Mtime')}`);
+            
+            // Use a new window to force fresh download
+            const newWindow = window.open(directUrl, '_blank');
+            if (newWindow) {
+              // Close the window after a short delay
+              setTimeout(() => newWindow.close(), 1000);
+            } else {
+              // Fallback to location.href if popup blocked
+              window.location.href = directUrl;
+            }
+            return;
+          }
+        } catch (directError) {
+          console.log('Direct file access failed, trying document ID method');
+        }
+      }
+      
+      // Priority 2: Try document ID method (existing fallback)
+      if (doc.id) {
+        const baseIdUrl = `/api/documents/${doc.id}`;
+        const idUrl = `${baseIdUrl}?cb=${cacheBuster}&_nocache=1`;
+        
+        try {
+          const headRes = await fetch(idUrl, { 
+            method: 'HEAD',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
+          if (headRes.ok) {
+            console.log(`[Download] Using document ID access for: ${doc.name}`);
+            console.log(`[Download] File path: ${headRes.headers.get('X-File-Path')}`);
+            console.log(`[Download] File mtime: ${headRes.headers.get('X-File-Mtime')}`);
+            
+            // Use a new window to force fresh download
+            const newWindow = window.open(idUrl, '_blank');
+            if (newWindow) {
+              setTimeout(() => newWindow.close(), 1000);
+            } else {
+              window.location.href = idUrl;
+            }
+            return;
+          }
+        } catch (idError) {
+          console.log('Document ID access failed, trying URL method');
+        }
+      }
+      
+      // Priority 3: Fallback to direct URL (legacy method)
+      if (doc.url) {
+        const base = doc.url.startsWith('/uploads/') ? `${doc.url}` : doc.url;
+        const withTs = base.includes('?') ? `${base}&cb=${cacheBuster}` : `${base}?cb=${cacheBuster}`;
+        console.log(`[Download] Using legacy URL access for: ${doc.name}`);
+        window.location.href = withTs;
+        return;
+      }
+      
+      // If all methods fail
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          message: `Datei \"${doc.name}\" konnte nicht gefunden werden`,
+          type: 'error'
+        }
+      });
+      
+    } catch (error) {
+      console.error('Download error:', error);
+      dispatch({
+        type: 'SHOW_NOTIFICATION',
+        payload: {
+          message: `Fehler beim Herunterladen von \"${doc.name}\"`,
+          type: 'error'
+        }
+      });
     }
   };
 
@@ -133,7 +228,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
       const updatedOrder = { ...currentOrder, [field]: value };
       dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
       
-      const response = await fetch(`http://localhost:3001/api/orders/${currentOrder.id}`, {
+      const response = await fetch(`/api/orders/${currentOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [field]: value }),
@@ -162,7 +257,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     }
     if (!window.confirm('Diesen Auftrag wirklich unwiderruflich löschen?')) return;
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${currentOrder.id}`, {
+      const response = await fetch(`/api/orders/${currentOrder.id}`, {
         method: 'DELETE',
       });
       if (!response.ok) {
@@ -192,7 +287,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
         updatedAt: new Date(),
       };
       console.log('PUT /api/orders/:id (Bestätigen):', updatedOrder);
-      const response = await fetch(`http://localhost:3001/api/orders/${currentOrder.id}`, {
+      const response = await fetch(`/api/orders/${currentOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedOrder),
@@ -254,7 +349,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
       console.log('===============================================');
       
       console.log('PUT /api/orders/:id (Nacharbeit):', requestBody);
-      const response = await fetch(`http://localhost:3001/api/orders/${currentOrder.id}`, {
+      const response = await fetch(`/api/orders/${currentOrder.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
@@ -412,7 +507,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                     <NetworkFileUpload
                       orderId={currentOrder.id}
                       uploadType="document"
-                      onUploadSuccess={(result) => {
+                      onUploadSuccess={(_result) => {
                         setShowUploadSection(false);
                         dispatch({
                           type: 'SHOW_NOTIFICATION',
@@ -423,7 +518,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         });
                         
                         // Reload order to get updated documents
-                        fetch(`http://localhost:3001/api/orders/${currentOrder.id}`)
+                        fetch(`/api/orders/${currentOrder.id}`)
                           .then(response => response.json())
                           .then(data => {
                             dispatch({
@@ -448,16 +543,26 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   </div>
                 )}
                 
-                {/* Datei-Migration Status */}
-                {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop') && (
+                {/* Datei-Migration Status - nur wenn nicht archiviert und Dateien zum Migrieren vorhanden */}
+                {currentOrder.status !== 'archived' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop') && (
                   <div className="mb-6">
                     <FilesMigrationStatus 
                       orderId={currentOrder.id}
+                      hideIfComplete={true}
+                      hideIfNoFiles={true}
                       onStatusChange={(status) => {
                         // Optional: Status-Updates verarbeiten
                         console.log('Migration Status:', status);
                       }}
                     />
+                  </div>
+                )}
+                
+                {/* Netzwerkdateien-Viewer für alle Dateien (besonders wichtig für archivierte Aufträge) */}
+                {currentOrder.status === 'archived' && (
+                  <div className="mb-6">
+                    <h4 className="text-md font-semibold text-gray-900 mb-2">Alle Dateien im Netzwerkordner</h4>
+                    <NetworkFilesViewer orderId={currentOrder.id} />
                   </div>
                 )}
                 
@@ -519,7 +624,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         {isSTLFile(doc.name) && showSTLViewers[doc.id] && (
                           <div className="p-4 bg-gray-50">
                             <STLViewer
-                              fileUrl={`http://localhost:3001${doc.url}`}
+                              fileUrl={`${doc.url}`}
                               fileName={doc.name}
                               className="w-full"
                               showControls={true}
@@ -598,7 +703,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                   });
                                   
                                   // Reload order to get updated documents
-                                  fetch(`http://localhost:3001/api/orders/${currentOrder.id}`)
+                                  fetch(`/api/orders/${currentOrder.id}`)
                                     .then(response => response.json())
                                     .then(data => {
                                       dispatch({
@@ -662,7 +767,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                 isSTLFile(doc.name) && showSTLViewers[doc.id] && (
                                   <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
                                     <STLViewer
-                                      fileUrl={`http://localhost:3001${doc.url}`}
+                                      fileUrl={`${doc.url}`}
                                       fileName={doc.name}
                                       className="w-full"
                                       showControls={true}
@@ -697,7 +802,9 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Zugewiesen an:</span>
                     <span className="text-sm font-medium text-gray-900">
-                      {currentOrder.assignedTo ? 'Werkstatt Personal' : 'Nicht zugewiesen'}
+                      {currentOrder.assignedTo 
+                        ? (state.workshopAccounts.find(acc => acc.id === currentOrder.assignedTo)?.name || 'Werkstatt Personal')
+                        : 'Nicht zugewiesen'}
                     </span>
                   </div>
                 </div>
