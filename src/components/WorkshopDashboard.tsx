@@ -13,6 +13,9 @@ export default function WorkshopDashboard() {
   const { state, dispatch } = useApp();
   const location = useLocation();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [activeTab, setActiveTab] = useState<'orders' | 'admin_tasks'>(
+    state.currentUser?.role === 'admin' ? 'admin_tasks' : 'orders'
+  );
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showAccountManagement, setShowAccountManagement] = useState(false);
@@ -25,7 +28,8 @@ export default function WorkshopDashboard() {
   // Orders nach jedem Öffnen/Schließen des Modals neu laden
   const fetchOrders = async () => {
     try {
-      const res = await fetch('/api/orders');
+      const viewerRole = state.currentUser?.role || 'workshop';
+      const res = await fetch(`/api/orders?viewerRole=${encodeURIComponent(viewerRole)}`);
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
@@ -56,7 +60,8 @@ export default function WorkshopDashboard() {
       console.log('QR-Code gescannt:', code);
       
       // Suche nach Auftrag mit diesem Code
-      const response = await fetch(`/api/orders/barcode/${encodeURIComponent(code)}`);
+      const viewerRole = state.currentUser?.role || 'workshop';
+      const response = await fetch(`/api/orders/barcode/${encodeURIComponent(code)}?viewerRole=${encodeURIComponent(viewerRole)}`);
       
       if (!response.ok) {
         if (response.status === 404) {
@@ -111,6 +116,12 @@ export default function WorkshopDashboard() {
       }
     }
   }, [state.orders, location.state, orders, dispatch]);
+
+  useEffect(() => {
+    if (state.currentUser?.role === 'admin') {
+      setActiveTab('admin_tasks');
+    }
+  }, [state.currentUser?.role]);
 
   // Filter orders based on user role and view mode
   const getFilteredOrders = () => {
@@ -167,6 +178,68 @@ export default function WorkshopDashboard() {
   };
 
   const mySubTasks = getMySubTasks();
+
+  const getAdminOwnSubTasks = () => {
+    if (state.currentUser?.role !== 'admin') return [];
+
+    const ownSubTasks: Array<{ order: Order; subTask: any; deadline: number }> = [];
+    state.orders.forEach((order) => {
+      if (!Array.isArray(order.subTasks)) return;
+      order.subTasks.forEach((subTask) => {
+        if (subTask.assignedTo === state.currentUser?.id && subTask.status !== 'completed') {
+          ownSubTasks.push({
+            order,
+            subTask,
+            deadline: new Date(order.deadline).getTime()
+          });
+        }
+      });
+    });
+
+    return ownSubTasks.sort((a, b) => a.deadline - b.deadline);
+  };
+
+  const getAdminTeamPlannedSubTasks = () => {
+    if (state.currentUser?.role !== 'admin') return [];
+
+    const plannedSubTasks: Array<{ order: Order; subTask: any; assigneeName: string; deadline: number }> = [];
+    state.orders.forEach((order) => {
+      if (!Array.isArray(order.subTasks)) return;
+      order.subTasks.forEach((subTask) => {
+        if (subTask.status === 'pending' && subTask.assignedTo && subTask.assignedTo !== state.currentUser?.id) {
+          const assigneeName = state.workshopAccounts.find(acc => acc.id === subTask.assignedTo)?.name || 'Unbekannt';
+          plannedSubTasks.push({
+            order,
+            subTask,
+            assigneeName,
+            deadline: new Date(order.deadline).getTime()
+          });
+        }
+      });
+    });
+
+    return plannedSubTasks.sort((a, b) => a.deadline - b.deadline);
+  };
+
+  const adminOwnSubTasks = getAdminOwnSubTasks();
+  const adminTeamPlannedSubTasks = getAdminTeamPlannedSubTasks();
+
+  const getSubTaskScopeText = (order: Order, subTask: any) => {
+    if (subTask.scopeType !== 'component') {
+      return '📋 Gesamtauftrag';
+    }
+
+    const component = order.components?.find((comp: any) => {
+      const compId = comp.id || comp._id;
+      return compId === subTask.assignedComponentId;
+    });
+
+    const componentTitle = component
+      ? (component.title || component.name || 'Bauteil')
+      : (subTask.assignedComponentTitle || 'Bauteil');
+
+    return `🔧 ${componentTitle}`;
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -331,6 +404,108 @@ export default function WorkshopDashboard() {
           )}
         </div>
       </div>
+
+      {state.currentUser?.role === 'admin' && (
+        <div className="bg-white rounded-lg shadow-sm border mb-6 p-2">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'orders'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Auftragsübersicht
+            </button>
+            <button
+              onClick={() => setActiveTab('admin_tasks')}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'admin_tasks'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Admin-Unteraufgaben
+            </button>
+          </div>
+        </div>
+      )}
+
+      {state.currentUser?.role === 'admin' && activeTab === 'admin_tasks' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
+            {adminOwnSubTasks.length === 0 ? (
+              <p className="text-sm text-gray-500">Keine offenen eigenen Unteraufgaben.</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {adminOwnSubTasks.map(({ order, subTask }) => (
+                  <div key={subTask.id} className="bg-white rounded-lg p-4 shadow-sm border">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
+                        <p className="text-xs text-gray-600 mt-1">{subTask.description}</p>
+                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
+                      </div>
+                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
+                        {getStatusText(subTask.status)}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mb-2">Hauptauftrag: {order.title}</div>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                      >
+                        Öffnen
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Geplante Team-Unteraufgaben (Statusübersicht)</h3>
+            {adminTeamPlannedSubTasks.length === 0 ? (
+              <p className="text-sm text-gray-500">Keine geplanten Team-Unteraufgaben.</p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {adminTeamPlannedSubTasks.map(({ order, subTask, assigneeName }) => (
+                  <div key={subTask.id} className="bg-gray-50 rounded-lg p-4 border">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
+                        <p className="text-xs text-gray-600 mt-1">Mitarbeiter: {assigneeName}</p>
+                        <p className="text-xs text-gray-600">Auftrag: {order.title}</p>
+                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
+                      </div>
+                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
+                        {getStatusText(subTask.status)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                      >
+                        Öffnen
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!(state.currentUser?.role === 'admin' && activeTab === 'admin_tasks') && (
+      <>
       {/* Modal für Auftragserstellung */}
       {showCreateOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
@@ -598,6 +773,8 @@ export default function WorkshopDashboard() {
           onScan={handleBarcodeScanned}
           onClose={() => setShowBarcodeScanner(false)}
         />
+      )}
+      </>
       )}
     </div>
   );

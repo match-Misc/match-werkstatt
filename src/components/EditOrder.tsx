@@ -18,7 +18,13 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(order.priority);
   const [documents, setDocuments] = useState<PDFDocument[]>(order.documents);
   const [dragActive, setDragActive] = useState(false);
-  const [components, setComponents] = useState<Component[]>(order.components || []);
+  const [components, setComponents] = useState<Component[]>(
+    (order.components || []).map((component) => ({
+      ...component,
+      quantity: component.quantity && component.quantity > 0 ? component.quantity : 1
+    }))
+  );
+  const [activeComponentDragId, setActiveComponentDragId] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -219,6 +225,14 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
   const updateComponentDescription = (componentId: string, newDescription: string) => {
     setComponents(prev => prev.map(comp => 
       comp.id === componentId ? { ...comp, description: newDescription } : comp
+    ));
+  };
+
+  const updateComponentQuantity = (componentId: string, newQuantity: string) => {
+    setComponents(prev => prev.map(comp =>
+      comp.id === componentId
+        ? { ...comp, quantity: Math.max(1, Number(newQuantity) || 1) }
+        : comp
     ));
   };
 
@@ -432,16 +446,25 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <h4 className="font-semibold text-gray-800">{component.title}</h4>
-                        {component.quantity && component.quantity > 1 && (
-                          <span className="inline-block mt-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded">
-                            Stückzahl: {component.quantity}
-                          </span>
-                        )}
+                        <span className="inline-block mt-1 px-2 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded">
+                          Stückzahl: {component.quantity || 1}
+                        </span>
                       </div>
                     </div>
                     
                     {/* Editierbare Beschreibung */}
                     <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        Anzahl
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={component.quantity}
+                        onChange={(e) => updateComponentQuantity(component.id, e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white mb-2"
+                      />
+
                       <label className="block text-xs font-medium text-gray-500 mb-1">
                         Beschreibung
                       </label>
@@ -492,17 +515,49 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                       )}
                       
                       {/* Datei-Upload für Bauteil */}
-                      <label className="cursor-pointer inline-flex items-center px-3 py-2 text-sm bg-white border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors">
-                        <Plus className="w-4 h-4 mr-2 text-blue-600" />
-                        <span className="text-blue-600">Datei hinzufügen</span>
-                        <input
-                          type="file"
-                          multiple
-                          accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
-                          onChange={(e) => handleComponentFileUpload(component.id, e.target.files)}
-                          className="hidden"
-                        />
-                      </label>
+                      <div
+                        className={`border-2 border-dashed rounded-lg p-3 transition-colors ${
+                          activeComponentDragId === component.id
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-blue-200 bg-white'
+                        }`}
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(component.id);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(component.id);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (activeComponentDragId === component.id) {
+                            setActiveComponentDragId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(null);
+                          handleComponentFileUpload(component.id, e.dataTransfer.files);
+                        }}
+                      >
+                        <p className="text-xs text-gray-600 mb-2">Dateien hier ablegen oder</p>
+                        <label className="cursor-pointer inline-flex items-center px-3 py-2 text-sm bg-white border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors">
+                          <Plus className="w-4 h-4 mr-2 text-blue-600" />
+                          <span className="text-blue-600">Datei hinzufügen</span>
+                          <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
+                            onChange={(e) => handleComponentFileUpload(component.id, e.target.files)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
                 ))}

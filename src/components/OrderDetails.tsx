@@ -658,6 +658,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       <div key={component.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                         <div className="mb-3">
                           <h5 className="font-medium text-gray-900 text-sm">{component.title}</h5>
+                          <p className="text-gray-600 text-sm mt-1">Anzahl: {component.quantity || 1}</p>
                           {component.description && (
                             <p className="text-gray-600 text-sm mt-1">{component.description}</p>
                           )}

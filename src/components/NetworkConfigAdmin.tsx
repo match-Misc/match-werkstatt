@@ -138,7 +138,7 @@ export default function NetworkConfigAdmin() {
               type="text"
               value={networkPath}
               onChange={(e) => setNetworkPath(e.target.value)}
-              placeholder="\\SERVER\Freigabe\Aufträge oder Z:\Aufträge"
+              placeholder="\\fileserver\Freigabe\Aufträge oder Z:\Aufträge"
               className="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
@@ -208,7 +208,7 @@ export default function NetworkConfigAdmin() {
         <p className="font-medium">Hinweise:</p>
         <ul className="list-disc pl-5 mt-1 space-y-1">
           <li>
-            Für Windows-Netzwerkpfade, verwende doppelte Backslashes: <code>\\SERVER\Ordner</code>
+            Für Windows-Netzwerkpfade verwende Hostnamen statt statischer IPs: <code>\\fileserver\Ordner</code>
           </li>
           <li>
             Für gemappte Laufwerke, verwende den Laufwerksbuchstaben: <code>Z:\Ordner</code>

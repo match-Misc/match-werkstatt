@@ -59,6 +59,7 @@ export interface Order {
   actualHours: number;
   assignedTo: string | null;
   notes: string;
+  internalWorkshopNote?: string;
   createdAt: Date;
   updatedAt: Date;
   subTasks: SubTask[];
@@ -95,6 +96,7 @@ export interface SubTask {
   assignedTo: string | null; // Mitarbeiter-ID (Pflicht)
   scopeType: 'order' | 'component'; // Scope: Gesamtauftrag oder Bauteil
   assignedComponentId?: string | null; // ID des zugewiesenen Bauteils (nur bei scopeType='component')
+  assignedComponentTitle?: string | null;
   notes: string;
   documents: PDFDocument[];
   createdAt: Date;
@@ -129,7 +131,7 @@ export interface Component {
   id: string;
   title: string;
   description: string;
-  quantity?: number;
+  quantity: number;
   material?: string;
   notes?: string;
   documents: PDFDocument[];

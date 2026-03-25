@@ -236,8 +236,8 @@ export default function LDAPManagement() {
                     <td className="py-3">
                       <span className={`px-2 py-1 rounded text-xs ${
                         user.localRole === 'admin' ? 'bg-red-100 text-red-800' :
-                        user.localRole === 'werkstatt' ? 'bg-blue-100 text-blue-800' :
-                        user.localRole === 'kunde' ? 'bg-green-100 text-green-800' :
+                        user.localRole === 'workshop' ? 'bg-blue-100 text-blue-800' :
+                        user.localRole === 'client' ? 'bg-green-100 text-green-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
                         {user.localRole || 'Keine Rolle'}
@@ -251,8 +251,8 @@ export default function LDAPManagement() {
                       >
                         <option value="">Keine Rolle</option>
                         <option value="admin">Admin</option>
-                        <option value="werkstatt">Werkstatt</option>
-                        <option value="kunde">Kunde</option>
+                        <option value="workshop">Werkstatt</option>
+                        <option value="client">Kunde</option>
                       </select>
                     </td>
                   </tr>

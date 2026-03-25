@@ -17,7 +17,31 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
   const [documents, setDocuments] = useState<PDFDocument[]>([]);
   const [components, setComponents] = useState<Component[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [activeComponentDragId, setActiveComponentDragId] = useState<string | null>(null);
   const [orderType, setOrderType] = useState<'fertigung' | 'service'>('fertigung');
+
+  const uploadSingleFile = async (file: File): Promise<PDFDocument> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error('Fehler beim Hochladen');
+    }
+
+    const data = await response.json();
+    return {
+      id: `doc_${Date.now()}_${Math.random()}`,
+      name: data.originalname,
+      url: `/uploads/${data.filename}`,
+      uploadDate: new Date(),
+      file: undefined
+    };
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,28 +91,11 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
+    const files = e.target.files;
+    if (!files) return;
     try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert('Fehler beim Hochladen!');
-        return;
-      }
-      const data = await response.json();
-      const document: PDFDocument = {
-        id: `doc_${Date.now()}_${Math.random()}`,
-        name: data.originalname,
-        url: `/uploads/${data.filename}`,
-        uploadDate: new Date(),
-        file: undefined
-      };
-      setDocuments(prev => [...prev, document]);
+      const uploadedDocs = await Promise.all(Array.from(files).map(uploadSingleFile));
+      setDocuments(prev => [...prev, ...uploadedDocs]);
     } catch (err) {
       alert('Netzwerkfehler beim Hochladen!');
     }
@@ -96,28 +103,10 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
 
   // Hilfsfunktion für FileList (Drag & Drop)
   const handleFileListUpload = async (fileList: FileList) => {
-    const file = fileList[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append('file', file);
+    if (!fileList.length) return;
     try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert('Fehler beim Hochladen!');
-        return;
-      }
-      const data = await response.json();
-      const document: PDFDocument = {
-        id: `doc_${Date.now()}_${Math.random()}`,
-        name: data.originalname,
-        url: `/uploads/${data.filename}`,
-        uploadDate: new Date(),
-        file: undefined
-      };
-      setDocuments(prev => [...prev, document]);
+      const uploadedDocs = await Promise.all(Array.from(fileList).map(uploadSingleFile));
+      setDocuments(prev => [...prev, ...uploadedDocs]);
     } catch (err) {
       alert('Netzwerkfehler beim Hochladen!');
     }
@@ -158,6 +147,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
       id: `comp_${Date.now()}_${Math.random()}`,
       title: '',
       description: '',
+      quantity: 1,
       documents: []
     };
     setComponents(prev => [...prev, newComponent]);
@@ -165,7 +155,12 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
 
   const updateComponent = (id: string, field: keyof Component, value: any) => {
     setComponents(prev => prev.map(comp => 
-      comp.id === id ? { ...comp, [field]: value } : comp
+      comp.id === id
+        ? {
+            ...comp,
+            [field]: field === 'quantity' ? Math.max(1, Number(value) || 1) : value
+          }
+        : comp
     ));
   };
 
@@ -182,34 +177,15 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     });
   };
 
-  const handleComponentFileUpload = async (componentId: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    const formData = new FormData();
-    formData.append('file', file);
+  const handleComponentFileUpload = async (componentId: string, files: FileList | null) => {
+    if (!files || !files.length) return;
     
     try {
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      if (!response.ok) {
-        alert('Fehler beim Hochladen!');
-        return;
-      }
-      const data = await response.json();
-      const document: PDFDocument = {
-        id: `doc_${Date.now()}_${Math.random()}`,
-        name: data.originalname,
-        url: `/uploads/${data.filename}`,
-        uploadDate: new Date(),
-        file: undefined
-      };
+      const uploadedDocs = await Promise.all(Array.from(files).map(uploadSingleFile));
       
       setComponents(prev => prev.map(comp => 
         comp.id === componentId 
-          ? { ...comp, documents: [...comp.documents, document] }
+          ? { ...comp, documents: [...comp.documents, ...uploadedDocs] }
           : comp
       ));
     } catch (err) {
@@ -433,6 +409,19 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
                       
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Anzahl *
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={component.quantity}
+                          onChange={(e) => updateComponent(component.id, 'quantity', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
                           Beschreibung
                         </label>
                         <textarea
@@ -450,14 +439,45 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Dokumente für dieses Bauteil
                       </label>
-                      <div className="flex items-center space-x-2 mb-2">
+                      <div
+                        className={`border-2 border-dashed rounded-lg p-4 mb-2 transition-colors ${
+                          activeComponentDragId === component.id
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'border-gray-300 hover:border-gray-400 bg-white'
+                        }`}
+                        onDragEnter={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(component.id);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(component.id);
+                        }}
+                        onDragLeave={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (activeComponentDragId === component.id) {
+                            setActiveComponentDragId(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveComponentDragId(null);
+                          handleComponentFileUpload(component.id, e.dataTransfer.files);
+                        }}
+                      >
+                        <p className="text-gray-600 text-sm mb-2">Dateien hier ablegen oder</p>
                         <label className="cursor-pointer inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
                           <Upload className="w-4 h-4 mr-2" />
                           Dateien hochladen
                           <input
                             type="file"
+                            multiple
                             accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
-                            onChange={(e) => handleComponentFileUpload(component.id, e)}
+                            onChange={(e) => handleComponentFileUpload(component.id, e.target.files)}
                             className="hidden"
                           />
                         </label>

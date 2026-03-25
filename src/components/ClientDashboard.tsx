@@ -18,7 +18,8 @@ export default function ClientDashboard() {
 
   // Orders nach jedem Öffnen/Schließen des Modals neu laden
   const fetchOrders = async () => {
-    const res = await fetch('/api/orders');
+    const viewerRole = state.currentUser?.role || 'client';
+    const res = await fetch(`/api/orders?viewerRole=${encodeURIComponent(viewerRole)}`);
     const data = await res.json();
     setOrders(data);
     // Optional: globalen State aktualisieren

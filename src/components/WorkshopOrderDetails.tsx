@@ -34,6 +34,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [estimatedHours, setEstimatedHours] = useState(localOrder.estimatedHours?.toString() || '0');
   const [actualHours, setActualHours] = useState(localOrder.actualHours?.toString() || '0');
   const [notes, setNotes] = useState(localOrder.notes || '');
+  const [internalWorkshopNote, setInternalWorkshopNote] = useState(localOrder.internalWorkshopNote || '');
   const [showAddSubTask, setShowAddSubTask] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState('');
   const [subTaskDescription, setSubTaskDescription] = useState('');
@@ -77,6 +78,29 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   // Zustand für bearbeitete Felder
   const [changedFields, setChangedFields] = useState<Partial<Order>>({});
 
+  const getComponentDisplayById = (componentId?: string | null) => {
+    if (!componentId) {
+      return null;
+    }
+
+    const component = localOrder.components?.find((comp) => {
+      const compId = comp.id || (comp as any)._id;
+      return compId === componentId;
+    });
+
+    if (!component) {
+      return null;
+    }
+
+    return component.title || (component as any).name || 'Bauteil';
+  };
+
+  const calculateHoursFromSubTasks = (subTasks: SubTask[]) => {
+    const estimatedHours = subTasks.reduce((sum, task) => sum + (Number(task.estimatedHours) || 0), 0);
+    const actualHours = subTasks.reduce((sum, task) => sum + (Number(task.actualHours) || 0), 0);
+    return { estimatedHours, actualHours };
+  };
+
   // localOrder aktualisieren, wenn sich der Order im Context ändert
   useEffect(() => {
     const updatedOrder = state.orders.find(o => o.id === order.id);
@@ -112,6 +136,9 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             case 'notes':
                 setNotes(value);
                 break;
+            case 'internalWorkshopNote':
+              setInternalWorkshopNote(value);
+              break;
             case 'materialOrderedByWorkshop':
             case 'materialOrderedByClient':
             case 'materialOrderedByClientConfirmed':
@@ -331,14 +358,19 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       assignedTo: subTaskAssignedTo, // Mitarbeiter-ID (Pflicht)
       scopeType: subTaskScopeType, // Scope: 'order' oder 'component'
       assignedComponentId: subTaskScopeType === 'component' ? subTaskAssignedComponentId : null,
+      assignedComponentTitle: subTaskScopeType === 'component' ? (getComponentDisplayById(subTaskAssignedComponentId) || 'Bauteil') : null,
       notes: '',
       documents: subTaskDocuments,
       createdAt: new Date(),
       updatedAt: new Date()
     };
+    const nextSubTasks = [...localOrder.subTasks, newSubTask];
+    const autoHours = calculateHoursFromSubTasks(nextSubTasks);
     const updatedOrder = {
       ...localOrder,
-      subTasks: [...localOrder.subTasks, newSubTask],
+      subTasks: nextSubTasks,
+      estimatedHours: autoHours.estimatedHours,
+      actualHours: autoHours.actualHours,
       updatedAt: new Date()
     };
     await updateOrder(updatedOrder, 'Unteraufgabe wurde erfolgreich hinzugefügt');
@@ -358,9 +390,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       ...updates,
       updatedAt: new Date()
     };
+    const nextSubTasks = localOrder.subTasks.map(st => st.id === subTask.id ? updatedSubTask : st);
+    const autoHours = calculateHoursFromSubTasks(nextSubTasks);
     const updatedOrder = {
       ...localOrder,
-      subTasks: localOrder.subTasks.map(st => st.id === subTask.id ? updatedSubTask : st),
+      subTasks: nextSubTasks,
+      estimatedHours: autoHours.estimatedHours,
+      actualHours: autoHours.actualHours,
       updatedAt: new Date()
     };
     await updateOrder(updatedOrder, 'Unteraufgabe aktualisiert');
@@ -368,9 +404,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
   const handleDeleteSubTask = async (subTaskId: string) => {
     if (confirm('Sind Sie sicher, dass Sie diese Unteraufgabe löschen möchten?')) {
+      const nextSubTasks = localOrder.subTasks.filter(st => st.id !== subTaskId);
+      const autoHours = calculateHoursFromSubTasks(nextSubTasks);
       const updatedOrder = {
         ...localOrder,
-        subTasks: localOrder.subTasks.filter(st => st.id !== subTaskId),
+        subTasks: nextSubTasks,
+        estimatedHours: autoHours.estimatedHours,
+        actualHours: autoHours.actualHours,
         updatedAt: new Date()
       };
       await updateOrder(updatedOrder, 'Unteraufgabe gelöscht');
@@ -484,6 +524,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
   const canModify = state.currentUser?.role === 'admin' || 
                    (state.currentUser?.role === 'workshop' && localOrder.assignedTo === state.currentUser?.id);
+  const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop';
 
   // Auftrag löschen (nur für Admin)
   const handleDeleteOrder = async () => {
@@ -523,11 +564,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     // Scope anzeigen
     let scope = '';
     if (subTask.scopeType === 'component' && subTask.assignedComponentId) {
-      const component = localOrder.components?.find(comp => {
-        const compId = comp.id || (comp as any)._id;
-        return compId === subTask.assignedComponentId;
-      });
-      const componentTitle = component ? (component.title || (component as any).name || 'Unbenanntes Bauteil') : 'Unbekanntes Bauteil';
+      const componentTitle = getComponentDisplayById(subTask.assignedComponentId) || subTask.assignedComponentTitle || 'Bauteil';
       scope = ` → 🔧 ${componentTitle}`;
     } else if (subTask.scopeType === 'order') {
       scope = ' → 📋 Gesamtauftrag';
@@ -1013,10 +1050,24 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     <textarea
                       value={notes}
                       onChange={(e) => handleFieldChange('notes', e.target.value)}
-                      disabled={!canModify && state.currentUser?.role !== 'admin'}
+                      disabled={!canEditNotes}
                       rows={4}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                       placeholder="Notizen und Kommentare..."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Interne Werkstattnotiz
+                    </label>
+                    <textarea
+                      value={internalWorkshopNote}
+                      onChange={(e) => handleFieldChange('internalWorkshopNote', e.target.value)}
+                      disabled={!canEditNotes}
+                      rows={4}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      placeholder="Nur für Werkstatt/Admin sichtbar..."
                     />
                   </div>
 
@@ -1246,7 +1297,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     required
                   >
                     <option value="">Mitarbeiter auswählen *</option>
-                    {state.workshopAccounts.filter(acc => acc.role === 'workshop').map(acc => (
+                    {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map(acc => (
                       <option key={acc.id} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>
@@ -1447,7 +1498,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
                         >
                           <option value="">Mitarbeiter auswählen</option>
-                          {state.workshopAccounts.filter(acc => acc.role === 'workshop').map((account) => (
+                          {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map((account) => (
                             <option key={account.id} value={account.id}>
                               {account.name}
                             </option>
@@ -1461,7 +1512,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                             const newScopeType = e.target.value as 'order' | 'component';
                             let updates: Partial<SubTask> = { 
                               scopeType: newScopeType,
-                              assignedComponentId: newScopeType === 'order' ? null : subTask.assignedComponentId
+                              assignedComponentId: newScopeType === 'order' ? null : subTask.assignedComponentId,
+                              assignedComponentTitle: newScopeType === 'order'
+                                ? null
+                                : (getComponentDisplayById(subTask.assignedComponentId) || subTask.assignedComponentTitle || 'Bauteil')
                             };
                             handleUpdateSubTask(subTask, updates);
                           }}
@@ -1476,7 +1530,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                         {subTask.scopeType === 'component' && (
                           <select
                             value={subTask.assignedComponentId || ''}
-                            onChange={(e) => handleUpdateSubTask(subTask, { assignedComponentId: e.target.value || null })}
+                            onChange={(e) => {
+                              const selectedComponentId = e.target.value || null;
+                              handleUpdateSubTask(subTask, {
+                                assignedComponentId: selectedComponentId,
+                                assignedComponentTitle: selectedComponentId ? (getComponentDisplayById(selectedComponentId) || 'Bauteil') : null
+                              });
+                            }}
                             disabled={!canModify && state.currentUser?.role !== 'admin'}
                             className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
                           >

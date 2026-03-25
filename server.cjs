@@ -17,6 +17,10 @@ const ldapConfig = {
   useTLS: process.env.LDAP_USE_TLS === 'true',
   baseDN: process.env.LDAP_BASE_DN || 'dc=company,dc=local',
   userSearchBase: process.env.LDAP_USER_SEARCH_BASE || 'ou=users,dc=company,dc=local',
+  domain: process.env.LDAP_DOMAIN || '',
+  userDnTemplates: process.env.LDAP_USER_DN_TEMPLATES
+    ? process.env.LDAP_USER_DN_TEMPLATES.split(/[;\n]/).map((item) => item.trim()).filter(Boolean)
+    : [],
   bindDN: process.env.LDAP_BIND_DN || '',
   bindPassword: process.env.LDAP_BIND_PASSWORD || ''
 };
@@ -245,16 +249,74 @@ async function ensureDefaultAdmin() {
 // Helper function: Convert MongoDB document to response format
 function convertMongoDoc(doc) {
   if (!doc) return null;
+
+  const normalizedRole = normalizeUserRole(doc.role);
   return {
     ...doc,
+    role: normalizedRole || doc.role,
     id: doc._id.toString(),
     _id: undefined
   };
 }
 
+function normalizeUserRole(role) {
+  if (!role) {
+    return role;
+  }
+
+  const roleMap = {
+    kunde: 'client',
+    client: 'client',
+    werkstatt: 'workshop',
+    workshop: 'workshop',
+    admin: 'admin'
+  };
+
+  return roleMap[role] || role;
+}
+
+function normalizeIncomingRole(role) {
+  const normalized = normalizeUserRole(role);
+  if (['client', 'workshop', 'admin'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
 // Helper function: Convert array of MongoDB documents
 function convertMongoDocs(docs) {
   return docs.map(convertMongoDoc);
+}
+
+function parseViewerRole(req) {
+  const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
+  return ['client', 'workshop', 'admin'].includes(viewerRole) ? viewerRole : null;
+}
+
+function sanitizeOrderForViewer(order, viewerRole) {
+  if (viewerRole === 'client') {
+    const { internalWorkshopNote, ...orderWithoutInternalNote } = order;
+    return orderWithoutInternalNote;
+  }
+  return order;
+}
+
+function parseQuantity(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 1;
+  }
+  return Math.floor(parsed);
+}
+
+function isStaticIpPath(networkPath) {
+  if (!networkPath || typeof networkPath !== 'string') {
+    return false;
+  }
+
+  const normalized = networkPath.trim();
+  const uncIpRegex = /^\\\\(?:\d{1,3}\.){3}\d{1,3}\\/;
+  return uncIpRegex.test(normalized);
 }
 
 // === FILE UPLOAD API ===
@@ -329,6 +391,11 @@ app.post('/api/users', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Benutzername und Passwort erforderlich' });
+    }
+
     console.log(`[HYBRID-AUTH] Login-Versuch für: ${username}`);
     
     let userInfo = null;
@@ -355,6 +422,8 @@ app.post('/api/login', async (req, res) => {
 
         if (localUser) {
           console.log('[HYBRID-AUTH] Lokaler Benutzer gefunden - aktualisiere LDAP-Daten');
+          const normalizedRole = normalizeIncomingRole(localUser.role) || 'client';
+
           // Aktualisiere LDAP-Daten, behalte lokale Rollen
           await db.collection('User').updateOne(
             { _id: localUser._id },
@@ -362,6 +431,7 @@ app.post('/api/login', async (req, res) => {
               $set: {
                 email: userInfo.email,
                 name: userInfo.name,
+                role: normalizedRole,
                 lastLdapLogin: new Date(),
                 authSource: 'ldap'
               }
@@ -408,14 +478,15 @@ app.post('/api/login', async (req, res) => {
     
     if (user && user.password === password) {
       console.log('[HYBRID-AUTH] Lokale Authentifizierung erfolgreich');
+      const normalizedRole = normalizeIncomingRole(user.role) || 'client';
       
-      if (user.role === 'client' && user.isApproved === false) {
+      if (normalizedRole === 'client' && user.isApproved === false) {
         return res.status(403).json({ success: false, message: 'Account noch nicht bestätigt' });
       }
       
       return res.json({ 
         success: true, 
-        user: convertMongoDoc(user),
+        user: convertMongoDoc({ ...user, role: normalizedRole }),
         authSource: 'local'
       });
     }
@@ -443,7 +514,8 @@ app.get('/api/ldap/test', async (req, res) => {
         host: ldapConfig.host,
         port: ldapConfig.port,
         baseDN: ldapConfig.baseDN,
-        userSearchBase: ldapConfig.userSearchBase
+        userSearchBase: ldapConfig.userSearchBase,
+        domain: ldapConfig.domain
       },
       message: isConnected ? 'LDAP-Verbindung erfolgreich' : 'LDAP-Verbindung fehlgeschlagen'
     });
@@ -457,10 +529,123 @@ app.get('/api/ldap/test', async (req, res) => {
   }
 });
 
+app.post('/api/ldap/test-auth', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ success: false, message: 'Username und Passwort erforderlich' });
+    }
+
+    const userInfo = await ldapAuth.authenticate(username, password);
+    if (!userInfo) {
+      return res.status(401).json({ success: false, message: 'LDAP-Authentifizierung fehlgeschlagen' });
+    }
+
+    return res.json({ success: true, user: userInfo });
+  } catch (err) {
+    console.error('[LDAP-TEST-AUTH] Error:', err);
+    return res.status(500).json({ success: false, message: 'Fehler beim LDAP-Test', error: err.message });
+  }
+});
+
+app.get('/api/ldap/users', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const users = await db.collection('User').find({
+      $or: [
+        { authSource: 'ldap' },
+        { lastLdapLogin: { $exists: true } },
+        { lastLdapSync: { $exists: true } }
+      ]
+    }).sort({ username: 1 }).toArray();
+    await client.close();
+
+    const mappedUsers = users.map((user) => ({
+      username: user.username,
+      email: user.email || null,
+      displayName: user.name || null,
+      localRole: normalizeIncomingRole(user.role),
+      lastSync: (user.lastLdapLogin || user.lastLdapSync || user.updatedAt || user.createdAt || null)
+    }));
+
+    return res.json({ success: true, users: mappedUsers });
+  } catch (err) {
+    console.error('[LDAP-USERS] Error:', err);
+    return res.status(500).json({ success: false, message: 'Fehler beim Laden der LDAP-Benutzer', error: err.message });
+  }
+});
+
+app.post('/api/ldap/sync', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const result = await db.collection('User').updateMany(
+      {
+        $or: [
+          { authSource: 'ldap' },
+          { lastLdapLogin: { $exists: true } }
+        ]
+      },
+      {
+        $set: {
+          authSource: 'ldap',
+          lastLdapSync: new Date()
+        }
+      }
+    );
+    await client.close();
+
+    return res.json({
+      success: true,
+      synchronized: result.modifiedCount,
+      message: 'LDAP-Benutzer wurden markiert/synchronisiert'
+    });
+  } catch (err) {
+    console.error('[LDAP-SYNC] Error:', err);
+    return res.status(500).json({ success: false, message: 'Fehler bei der LDAP-Synchronisation', error: err.message });
+  }
+});
+
+app.put('/api/ldap/users/:username/role', async (req, res) => {
+  try {
+    const normalizedRole = normalizeIncomingRole(req.body.role);
+    if (!normalizedRole) {
+      return res.status(400).json({ success: false, message: 'Ungültige Rolle' });
+    }
+
+    const { client, db } = await getDB();
+    const user = await db.collection('User').findOne({ username: req.params.username });
+
+    if (!user) {
+      await client.close();
+      return res.status(404).json({ success: false, message: 'Benutzer nicht gefunden' });
+    }
+
+    await db.collection('User').updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          role: normalizedRole,
+          roleUpdatedAt: new Date()
+        }
+      }
+    );
+
+    await client.close();
+    return res.json({ success: true, message: `Rolle auf '${normalizedRole}' aktualisiert` });
+  } catch (err) {
+    console.error('[LDAP-ROLE-UPDATE] Error:', err);
+    return res.status(500).json({ success: false, message: 'Fehler beim Aktualisieren der Rolle', error: err.message });
+  }
+});
+
 // LDAP Benutzer-Rolle aktualisieren
 app.put('/api/users/:id/role', async (req, res) => {
   try {
-    const { role } = req.body;
+    const role = normalizeIncomingRole(req.body.role);
+    if (!role) {
+      return res.status(400).json({ error: 'Ungültige Rolle' });
+    }
     const { client, db } = await getDB();
     
     console.log(`[HYBRID-AUTH] Aktualisiere Rolle für Benutzer ${req.params.id} zu: ${role}`);
@@ -652,6 +837,7 @@ app.delete('/api/users/:id', async (req, res) => {
 app.get('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();
+    const viewerRole = parseViewerRole(req);
     
     // Load all orders
     const orders = await db.collection('Order').find({})
@@ -709,7 +895,7 @@ app.get('/api/orders', async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
       
-      return {
+      return sanitizeOrderForViewer({
         ...order,
         id: order._id.toString(),
         _id: undefined,
@@ -725,7 +911,7 @@ app.get('/api/orders', async (req, res) => {
           uploadedAt: order.titleImage.uploadedAt,
           hasImage: true
         } : null
-      };
+      }, viewerRole);
     }));
     
     await client.close();
@@ -741,6 +927,7 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
+    const viewerRole = parseViewerRole(req);
     
     const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
     
@@ -798,7 +985,7 @@ app.get('/api/orders/:id', async (req, res) => {
     
     await client.close();
     
-    const enrichedOrder = {
+    const enrichedOrder = sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -814,7 +1001,7 @@ app.get('/api/orders/:id', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    };
+    }, viewerRole);
     
     console.log('GET /api/orders/:id - Loaded order from MongoDB:', enrichedOrder.id);
     res.json(enrichedOrder);
@@ -828,6 +1015,7 @@ app.get('/api/orders/:id', async (req, res) => {
 app.get('/api/orders/barcode/:code', async (req, res) => {
   try {
     const { client, db } = await getDB();
+    const viewerRole = parseViewerRole(req);
     const code = req.params.code;
     
     console.log('Searching for order with barcode/orderNumber:', code);
@@ -889,7 +1077,7 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
     
     await client.close();
     
-    const enrichedOrder = {
+    const enrichedOrder = sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -905,7 +1093,7 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    };
+    }, viewerRole);
     
     console.log('GET /api/orders/barcode/:code - Found order:', enrichedOrder.orderNumber || enrichedOrder.id);
     res.json(enrichedOrder);
@@ -934,7 +1122,7 @@ app.put('/api/orders/:id', async (req, res) => {
       orderType, subTasks, documents, components, revisionRequest, revisionComment,
       userId, userName, materialOrderedByWorkshop, materialOrderedByClient,
       materialOrderedByClientConfirmed, materialAvailable, confirmationNote,
-      confirmationDate, canEdit, titleImage
+      confirmationDate, canEdit, titleImage, internalWorkshopNote
     } = req.body;
     
     console.log('Extracted documents:', documents);
@@ -996,6 +1184,7 @@ app.put('/api/orders/:id', async (req, res) => {
     if (actualHours !== undefined) updateData.actualHours = actualHours;
     if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
     if (notes !== undefined) updateData.notes = notes;
+    if (internalWorkshopNote !== undefined) updateData.internalWorkshopNote = internalWorkshopNote;
     if (orderType !== undefined) updateData.orderType = orderType;
     if (subTasks !== undefined) updateData.subTasks = subTasks || [];
     
@@ -1061,7 +1250,7 @@ app.put('/api/orders/:id', async (req, res) => {
             title: component.title || component.name,
             description: component.description || '',
             material: component.material || '',
-            quantity: component.quantity || 1,
+            quantity: parseQuantity(component.quantity),
             notes: component.notes || '',
             orderId: new ObjectId(req.params.id),
             createdAt: new Date(),
@@ -1405,6 +1594,7 @@ app.post('/api/orders', async (req, res) => {
       actualHours: orderData.actualHours || 0,
       assignedTo: orderData.assignedTo || null,
       notes: orderData.notes || '',
+      internalWorkshopNote: orderData.internalWorkshopNote || '',
       orderType: orderData.orderType,
       subTasks: orderData.subTasks || [],
       documents: documents || [],
@@ -1436,7 +1626,7 @@ app.post('/api/orders', async (req, res) => {
           title: component.title || component.name,
           description: component.description || '',
           material: component.material || '',
-          quantity: component.quantity || 1,
+          quantity: parseQuantity(component.quantity),
           notes: component.notes || '',
           orderId: result.insertedId,
           createdAt: new Date(),
@@ -1555,7 +1745,7 @@ app.post('/api/orders/:orderId/components', async (req, res) => {
       title: title || name,
       description: description || '',
       material: material || '',
-      quantity: quantity || 1,
+      quantity: parseQuantity(quantity),
       notes: notes || '',
       orderId: new ObjectId(req.params.orderId),
       createdAt: new Date(),
@@ -1607,7 +1797,7 @@ app.put('/api/components/:id', async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (description !== undefined) updateData.description = description;
     if (material !== undefined) updateData.material = material;
-    if (quantity !== undefined) updateData.quantity = quantity;
+    if (quantity !== undefined) updateData.quantity = parseQuantity(quantity);
     if (notes !== undefined) updateData.notes = notes;
     
     // Update component
@@ -2490,6 +2680,13 @@ app.post('/api/admin/network-config', async (req, res) => {
     if (!networkPath) {
       return res.status(400).json({ success: false, error: 'Netzwerkpfad ist erforderlich' });
     }
+
+    if (isStaticIpPath(networkPath)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Statische IP-Pfade sind nicht erlaubt. Bitte verwenden Sie einen DNS-Hostnamen oder ein gemapptes Laufwerk.'
+      });
+    }
     
     // Test if path exists
     const pathExists = fs.existsSync(networkPath);
@@ -2914,8 +3111,10 @@ wss.on('connection', (ws) => {
   }));
 });
 
-server.listen(port, '0.0.0.0', async () => {
-  console.log(`Backend listening on http://0.0.0.0:${port}`);
+const serverHost = process.env.HOST || undefined;
+
+server.listen(port, serverHost, async () => {
+  console.log(`Backend listening on port ${port}`);
   
   // Initialize MongoDB indexes
   await initializeIndexes();

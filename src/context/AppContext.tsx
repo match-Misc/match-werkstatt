@@ -259,8 +259,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state.currentUser]);
 
   useEffect(() => {
+    const persistedUserRaw = localStorage.getItem('currentUser');
+    let persistedUserRole = '';
+    if (persistedUserRaw) {
+      try {
+        const parsed = JSON.parse(persistedUserRaw);
+        persistedUserRole = parsed?.role || '';
+      } catch {
+        persistedUserRole = '';
+      }
+    }
+
+    const viewerRole = state.currentUser?.role || persistedUserRole;
+    const ordersUrl = viewerRole
+      ? `/api/orders?viewerRole=${encodeURIComponent(viewerRole)}`
+      : '/api/orders';
+
     // Initialdaten laden
-    fetch('/api/orders')
+    fetch(ordersUrl)
       .then(res => res.json())
       .then((orders: Order[]) => {
         dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Aufträge geladen', type: 'info' } });
@@ -286,7 +302,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
     return () => ws.close();
-  }, []);
+  }, [state.currentUser?.role]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

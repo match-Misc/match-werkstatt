@@ -14,6 +14,8 @@ class SimpleLDAPAuth {
       baseDN: config.baseDN || '',
       userSearchBase: config.userSearchBase || '',
       userSearchFilter: config.userSearchFilter || '(uid={{username}})',
+      domain: config.domain || '',
+      userDnTemplates: Array.isArray(config.userDnTemplates) ? config.userDnTemplates : [],
       bindDN: config.bindDN || '',
       bindPassword: config.bindPassword || ''
     };
@@ -26,78 +28,121 @@ class SimpleLDAPAuth {
    * @returns {Promise<Object|null>} User-Daten oder null
    */
   async authenticate(username, password) {
-    return new Promise((resolve, reject) => {
+    if (!username || !password) {
+      return null;
+    }
+
+    const candidates = this.buildCandidateUserDNs(username);
+    if (candidates.length === 0) {
+      return null;
+    }
+
+    for (const userDN of candidates) {
       try {
-        // Einfache DN-Konstruktion für Direct Bind
-        const userDN = this.constructUserDN(username);
-        
         console.log(`[LDAP] Versuche Authentifizierung: ${userDN}`);
-        
-        // Socket-Verbindung erstellen
-        const socket = this.config.useTLS ? 
-          tls.connect(this.config.port, this.config.host) :
-          net.connect(this.config.port, this.config.host);
-
-        socket.on('connect', () => {
-          console.log('[LDAP] Verbindung hergestellt');
-          
-          // LDAP Bind Request erstellen
-          const bindRequest = this.createBindRequest(userDN, password);
-          socket.write(bindRequest);
-        });
-
-        socket.on('data', (data) => {
-          console.log('[LDAP] Response erhalten');
-          
-          // Einfache Response-Parsing
-          if (this.isBindSuccessful(data)) {
-            console.log('[LDAP] Authentifizierung erfolgreich');
-            socket.end();
-            
-            // Benutzer-Informationen aus DN extrahieren
-            const userInfo = this.extractUserInfo(username, userDN);
-            resolve(userInfo);
-          } else {
-            console.log('[LDAP] Authentifizierung fehlgeschlagen');
-            socket.end();
-            resolve(null);
-          }
-        });
-
-        socket.on('error', (err) => {
-          console.error('[LDAP] Socket-Fehler:', err.message);
-          reject(err);
-        });
-
-        socket.on('timeout', () => {
-          console.error('[LDAP] Verbindung-Timeout');
-          socket.destroy();
-          resolve(null);
-        });
-
-        socket.setTimeout(10000); // 10 Sekunden Timeout
-
+        const isSuccess = await this.attemptBind(userDN, password);
+        if (isSuccess) {
+          console.log('[LDAP] Authentifizierung erfolgreich');
+          return this.extractUserInfo(username, userDN);
+        }
       } catch (error) {
-        console.error('[LDAP] Allgemeiner Fehler:', error.message);
-        reject(error);
+        console.error(`[LDAP] Bind-Fehler für ${userDN}:`, error.message);
       }
+    }
+
+    return null;
+  }
+
+  /**
+   * Führt einen LDAP Simple Bind-Versuch aus
+   * @param {string} userDN
+   * @param {string} password
+   * @returns {Promise<boolean>}
+   */
+  async attemptBind(userDN, password) {
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const complete = (result, err = null) => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(result);
+      };
+
+      const socket = this.config.useTLS
+        ? tls.connect(this.config.port, this.config.host)
+        : net.connect(this.config.port, this.config.host);
+
+      socket.on('connect', () => {
+        const bindRequest = this.createBindRequest(userDN, password);
+        socket.write(bindRequest);
+      });
+
+      socket.on('data', (data) => {
+        const isSuccess = this.isBindSuccessful(data);
+        socket.end();
+        complete(isSuccess);
+      });
+
+      socket.on('error', (err) => {
+        socket.destroy();
+        complete(false, err);
+      });
+
+      socket.on('timeout', () => {
+        socket.destroy();
+        complete(false);
+      });
+
+      socket.setTimeout(10000);
     });
   }
 
   /**
-   * Konstruiert User DN aus Username
+   * Konstruiert mehrere User-DN-Kandidaten aus Username
    * @param {string} username 
-   * @returns {string} User DN
+   * @returns {string[]} User DNs
    */
-  constructUserDN(username) {
-    // Verschiedene DN-Patterns unterstützen
-    if (this.config.userSearchBase.includes('cn=Users')) {
-      // Active Directory Pattern
-      return `cn=${username},${this.config.userSearchBase}`;
-    } else {
-      // Standard LDAP Pattern
-      return `uid=${username},${this.config.userSearchBase}`;
+  buildCandidateUserDNs(username) {
+    const candidates = [];
+    const pushUnique = (value) => {
+      if (!value || typeof value !== 'string') {
+        return;
+      }
+      const trimmed = value.trim();
+      if (trimmed && !candidates.includes(trimmed)) {
+        candidates.push(trimmed);
+      }
+    };
+
+    // UPN/DOMAIN\\user direkt übernehmen, falls bereits vollständig.
+    if (username.includes('@') || username.includes('\\')) {
+      pushUnique(username);
     }
+
+    if (this.config.domain) {
+      pushUnique(`${this.config.domain}\\${username}`);
+      pushUnique(`${username}@${this.config.domain}`);
+    }
+
+    for (const template of this.config.userDnTemplates) {
+      pushUnique(template.replace(/\{\{\s*username\s*\}\}/g, username));
+    }
+
+    if (this.config.userSearchBase) {
+      if (this.config.userSearchBase.includes('cn=Users')) {
+        pushUnique(`cn=${username},${this.config.userSearchBase}`);
+      }
+      pushUnique(`uid=${username},${this.config.userSearchBase}`);
+      pushUnique(`cn=${username},${this.config.userSearchBase}`);
+    }
+
+    return candidates;
   }
 
   /**
@@ -107,25 +152,55 @@ class SimpleLDAPAuth {
    * @returns {Buffer} LDAP Bind Request
    */
   createBindRequest(dn, password) {
-    // Vereinfachte LDAP Bind Request (ASN.1 BER encoding)
     const dnBuffer = Buffer.from(dn, 'utf8');
     const passwordBuffer = Buffer.from(password, 'utf8');
-    
-    // LDAP Bind Request Structure (vereinfacht)
-    const request = Buffer.concat([
-      Buffer.from([0x30]), // SEQUENCE
-      Buffer.from([dnBuffer.length + passwordBuffer.length + 10]), // Length
-      Buffer.from([0x02, 0x01, 0x01]), // messageID: 1
-      Buffer.from([0x60]), // Bind Request
-      Buffer.from([dnBuffer.length + passwordBuffer.length + 6]), // Length
-      Buffer.from([0x02, 0x01, 0x03]), // LDAP Version 3
-      Buffer.from([0x04, dnBuffer.length]), // DN
-      dnBuffer,
-      Buffer.from([0x80, passwordBuffer.length]), // Simple Authentication
+
+    const messageId = Buffer.from([0x02, 0x01, 0x01]);
+    const version = Buffer.from([0x02, 0x01, 0x03]);
+    const name = Buffer.concat([
+      Buffer.from([0x04]),
+      this.encodeLength(dnBuffer.length),
+      dnBuffer
+    ]);
+    const authentication = Buffer.concat([
+      Buffer.from([0x80]),
+      this.encodeLength(passwordBuffer.length),
       passwordBuffer
     ]);
-    
-    return request;
+
+    const bindRequestBody = Buffer.concat([version, name, authentication]);
+    const bindRequest = Buffer.concat([
+      Buffer.from([0x60]),
+      this.encodeLength(bindRequestBody.length),
+      bindRequestBody
+    ]);
+
+    const ldapMessageBody = Buffer.concat([messageId, bindRequest]);
+    return Buffer.concat([
+      Buffer.from([0x30]),
+      this.encodeLength(ldapMessageBody.length),
+      ldapMessageBody
+    ]);
+  }
+
+  /**
+   * Kodiert ASN.1 BER-Längen (short/long form)
+   * @param {number} length
+   * @returns {Buffer}
+   */
+  encodeLength(length) {
+    if (length < 128) {
+      return Buffer.from([length]);
+    }
+
+    const bytes = [];
+    let value = length;
+    while (value > 0) {
+      bytes.unshift(value & 0xff);
+      value = value >> 8;
+    }
+
+    return Buffer.from([0x80 | bytes.length, ...bytes]);
   }
 
   /**
@@ -151,6 +226,7 @@ class SimpleLDAPAuth {
       username: username,
       dn: dn,
       email: this.guessEmail(username),
+      displayName: this.guessDisplayName(username),
       name: this.guessDisplayName(username),
       authSource: 'ldap'
     };
