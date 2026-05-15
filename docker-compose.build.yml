@@ -24,7 +24,9 @@ services:
 
   # Backend (Node.js / Express)
   backend:
-    image: ghcr.io/match-misc/match-werkstatt-backend:main
+    build:
+      context: .
+      target: backend
     container_name: match-backend
     restart: unless-stopped
     environment:
@@ -49,7 +51,9 @@ services:
 
   # Frontend (nginx + React Build)
   frontend:
-    image: ghcr.io/match-misc/match-werkstatt-frontend:main
+    build:
+      context: .
+      target: frontend
     container_name: match-frontend
     restart: unless-stopped
     ports:
