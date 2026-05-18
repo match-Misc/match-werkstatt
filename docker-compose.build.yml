@@ -66,6 +66,67 @@ services:
     networks:
       - match-network
 
+  # ── Backup (MongoDB + Uploads/Cam Files) ──────────────────────────────────────
+  # Creates daily backups at BACKUP_TIME. Retains BACKUP_RETAIN_COUNT oldest backups.
+  mongo-backup:
+    image: mongo:7.0
+    container_name: match-mongo-backup
+    environment:
+      MONGO_USER: ${MONGO_ROOT_USER}
+      MONGO_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      BACKUP_TIME: ${BACKUP_TIME:-03:00}
+      BACKUP_RETAIN_COUNT: ${BACKUP_RETAIN_COUNT:-7}
+      TZ: ${TZ:-Europe/Berlin}
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - uploads_data:/app/storage/uploads:ro
+      - cam_files_data:/app/storage/cam-files:ro
+    networks:
+      - match-network
+    entrypoint: |
+      sh -c '
+      echo "Backup service started – daily at $${BACKUP_TIME}, retain $${BACKUP_RETAIN_COUNT}, TZ=$${TZ}"
+      while true; do
+        TARGET=$$(date -d "$${BACKUP_TIME}" +%s 2>/dev/null || date -d "tomorrow $${BACKUP_TIME}" +%s)
+        NOW=$$(date +%s)
+        WAIT=$$((TARGET - NOW))
+        if [ "$${WAIT}" -le 0 ]; then
+          WAIT=$$((WAIT + 86400))
+        fi
+        echo "Next backup in $${WAIT}s (at $${BACKUP_TIME})"
+        sleep "$${WAIT}"
+
+        STAMP=$$(date +%Y%m%d_%H%M%S)
+        FILE_DB="/backups/werkstatt/werkstatt-backup.archive"
+        FILE_UPLOADS="/backups/werkstatt/werkstatt-backup-uploads.tar.gz"
+        FILE_CAM="/backups/werkstatt/werkstatt-backup-camfiles.tar.gz"
+
+        echo "[$${STAMP}] Starting backups..."
+        mkdir -p /backups/werkstatt
+        
+        mongodump \
+          --host=mongodb \
+          --username="$${MONGO_USER}" \
+          --password="$${MONGO_PASSWORD}" \
+          --authenticationDatabase=admin \
+          --archive="$${FILE_DB}" \
+          --gzip \
+        && echo "[$${STAMP}] DB Backup saved → $${FILE_DB}" \
+        || echo "[$${STAMP}] ⚠ DB Backup FAILED"
+
+        tar -czf "$${FILE_UPLOADS}" -C /app/storage/uploads . \
+        && echo "[$${STAMP}] Uploads Backup saved → $${FILE_UPLOADS}" \
+        || echo "[$${STAMP}] ⚠ Uploads Backup FAILED"
+
+        tar -czf "$${FILE_CAM}" -C /app/storage/cam-files . \
+        && echo "[$${STAMP}] Cam-Files Backup saved → $${FILE_CAM}" \
+        || echo "[$${STAMP}] ⚠ Cam-Files Backup FAILED"
+      done'
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   mongodb_data:
     driver: local
