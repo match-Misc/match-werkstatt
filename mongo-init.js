@@ -4,15 +4,23 @@
 // Authentifizieren als Admin
 db = db.getSiblingDB('admin');
 
+const dbName = process.env.MONGO_DB_NAME;
+const appUser = process.env.MONGO_APP_USER;
+const appPass = process.env.MONGO_APP_PASSWORD;
+
+if (!dbName || !appUser || !appPass) {
+  throw new Error("Fehlende MongoDB Umgebungsvariablen: MONGO_DB_NAME, MONGO_APP_USER oder MONGO_APP_PASSWORD");
+}
+
 // Zum matchdb wechseln
-db = db.getSiblingDB('matchdb');
+db = db.getSiblingDB(dbName);
 
 // Benutzer für matchdb erstellen
 db.createUser({
-  user: 'matchuser',
-  pwd: 'matchpass',
+  user: appUser,
+  pwd: appPass,
   roles: [
-    { role: 'readWrite', db: 'matchdb' }
+    { role: 'readWrite', db: dbName }
   ]
 });
 

@@ -5,9 +5,12 @@ services:
     container_name: match-mongodb
     restart: unless-stopped
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: adminpassword
-      MONGO_INITDB_DATABASE: matchdb
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+      MONGO_APP_USER: ${MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD}
+      MONGO_DB_NAME: ${MONGO_DB_NAME}
     volumes:
       - mongodb_data:/data/db
       - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
@@ -30,8 +33,8 @@ services:
     container_name: match-backend
     restart: unless-stopped
     environment:
-      MONGODB_URL: mongodb://matchuser:matchpass@mongodb:27017/matchdb?authSource=matchdb
-      DB_NAME: matchdb
+      MONGODB_URL: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGO_DB_NAME}?authSource=${MONGO_DB_NAME}
+      DB_NAME: ${MONGO_DB_NAME}
       LDAP_HOST: ${LDAP_HOST:-ldap.company.local}
       LDAP_PORT: ${LDAP_PORT:-389}
       LDAP_BASE_DN: ${LDAP_BASE_DN:-dc=company,dc=local}
