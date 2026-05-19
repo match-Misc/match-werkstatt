@@ -1,8 +1,7 @@
 services:
   # MongoDB Datenbank
-  mongodb:
+  match-werkstatt-mongodb:
     image: mongo:7
-    container_name: match-mongodb
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
@@ -26,14 +25,13 @@ services:
       start_period: 30s
 
   # Backend (Node.js / Express)
-  backend:
+  match-werkstatt-backend:
     build:
       context: .
       target: backend
-    container_name: match-backend
     restart: unless-stopped
     environment:
-      MONGODB_URL: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGO_DB_NAME}?authSource=${MONGO_DB_NAME}
+      MONGODB_URL: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@match-werkstatt-mongodb:27017/${MONGO_DB_NAME}?authSource=${MONGO_DB_NAME}
       DB_NAME: ${MONGO_DB_NAME}
       LDAP_HOST: ${LDAP_HOST:-ldap.company.local}
       LDAP_PORT: ${LDAP_PORT:-389}
@@ -47,30 +45,28 @@ services:
       - uploads_data:/app/storage/uploads
       - cam_files_data:/app/storage/cam-files
     depends_on:
-      mongodb:
+      match-werkstatt-mongodb:
         condition: service_healthy
     networks:
       - match-network
 
   # Frontend (nginx + React Build)
-  frontend:
+  match-werkstatt-frontend:
     build:
       context: .
       target: frontend
-    container_name: match-frontend
     restart: unless-stopped
     ports:
       - "80:80"
     depends_on:
-      - backend
+      - match-werkstatt-backend
     networks:
       - match-network
 
   # ── Backup (MongoDB) ──────────────────────────────────────
   # Creates daily backups at BACKUP_TIME. Retains BACKUP_RETAIN_COUNT oldest backups.
-  mongo-backup:
+  match-werkstatt-mongo-backup:
     image: mongo:7.0
-    container_name: match-mongo-backup
     environment:
       MONGO_USER: ${MONGO_ROOT_USER}
       MONGO_PASSWORD: ${MONGO_ROOT_PASSWORD}
@@ -100,7 +96,7 @@ services:
         echo "[$${STAMP}] Starting backups..."
         
         mongodump \
-          --host=mongodb \
+          --host=match-werkstatt-mongodb \
           --username="$${MONGO_USER}" \
           --password="$${MONGO_PASSWORD}" \
           --authenticationDatabase=admin \
@@ -110,7 +106,7 @@ services:
         || echo "[$${STAMP}] ⚠ DB Backup FAILED"
       done'
     depends_on:
-      mongodb:
+      match-werkstatt-mongodb:
         condition: service_healthy
     restart: unless-stopped
 
