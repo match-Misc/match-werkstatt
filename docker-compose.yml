@@ -1,5 +1,3 @@
-name: match-werkstatt
-
 services:
   # MongoDB Datenbank
   match-werkstatt-mongodb:
