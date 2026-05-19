@@ -56,13 +56,13 @@ services:
     container_name: match-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "5007:80"
     depends_on:
       - backend
     networks:
       - match-network
 
-  # ── Backup (MongoDB + Uploads/Cam Files) ──────────────────────────────────────
+  # ── Backup (MongoDB) ──────────────────────────────────────
   # Creates daily backups at BACKUP_TIME. Retains BACKUP_RETAIN_COUNT oldest backups.
   mongo-backup:
     image: mongo:7.0
@@ -75,8 +75,6 @@ services:
       TZ: ${TZ:-Europe/Berlin}
     volumes:
       - ${BACKUP_DIR:-./backups}:/backups
-      - uploads_data:/app/storage/uploads:ro
-      - cam_files_data:/app/storage/cam-files:ro
     networks:
       - match-network
     entrypoint: |
@@ -94,8 +92,6 @@ services:
 
         STAMP=$$(date +%Y%m%d_%H%M%S)
         FILE_DB="/backups/werkstatt/werkstatt-backup.archive"
-        FILE_UPLOADS="/backups/werkstatt/werkstatt-backup-uploads.tar.gz"
-        FILE_CAM="/backups/werkstatt/werkstatt-backup-camfiles.tar.gz"
 
         echo "[$${STAMP}] Starting backups..."
         mkdir -p /backups/werkstatt
@@ -109,14 +105,6 @@ services:
           --gzip \
         && echo "[$${STAMP}] DB Backup saved → $${FILE_DB}" \
         || echo "[$${STAMP}] ⚠ DB Backup FAILED"
-
-        tar -czf "$${FILE_UPLOADS}" -C /app/storage/uploads . \
-        && echo "[$${STAMP}] Uploads Backup saved → $${FILE_UPLOADS}" \
-        || echo "[$${STAMP}] ⚠ Uploads Backup FAILED"
-
-        tar -czf "$${FILE_CAM}" -C /app/storage/cam-files . \
-        && echo "[$${STAMP}] Cam-Files Backup saved → $${FILE_CAM}" \
-        || echo "[$${STAMP}] ⚠ Cam-Files Backup FAILED"
       done'
     depends_on:
       mongodb:
