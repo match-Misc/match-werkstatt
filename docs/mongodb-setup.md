@@ -27,13 +27,13 @@
 
 1. **MongoDB Community Edition herunterladen**
    - https://www.mongodb.com/try/download/community
-   - Version: 7.x für Windows
+   - Version: 8.x für Windows
    - Als Windows Service installieren
 
 2. **Installation starten**
    - Installiere MongoDB als Service
    - Standard-Port: 27017
-   - Datenverzeichnis: `C:\Program Files\MongoDB\Server\7.0\data`
+   - Datenverzeichnis: `C:\Program Files\MongoDB\Server\8.0\data`
 
 3. **MongoDB Compass installieren** (optional - GUI für MongoDB)
    - https://www.mongodb.com/try/download/compass
