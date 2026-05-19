@@ -91,10 +91,9 @@ services:
         sleep "$${WAIT}"
 
         STAMP=$$(date +%Y%m%d_%H%M%S)
-        FILE_DB="/backups/werkstatt/werkstatt-backup.archive"
+        FILE_DB="/backups/werkstatt-backup.archive"
 
         echo "[$${STAMP}] Starting backups..."
-        mkdir -p /backups/werkstatt
         
         mongodump \
           --host=mongodb \
