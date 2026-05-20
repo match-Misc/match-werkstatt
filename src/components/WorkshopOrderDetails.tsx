@@ -853,8 +853,12 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <div key={componentId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                         <div className="mb-3">
                           <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
+                          <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                            <span>Anzahl: {component.quantity || 1}</span>
+                            {component.material && <span>Material: {component.material}</span>}
+                          </div>
                           {component.description && (
-                            <p className="text-gray-600 text-sm mt-1">{component.description}</p>
+                            <p className="text-gray-600 text-sm mt-2">{component.description}</p>
                           )}
                         </div>
                         
