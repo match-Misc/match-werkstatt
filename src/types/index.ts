@@ -14,6 +14,12 @@ export interface PDFDocument {
   file?: File;
 }
 
+export interface Material {
+  id: string;
+  name: string;
+  createdAt?: string;
+}
+
 export interface RevisionComment {
   comment: string;
   userId: string;

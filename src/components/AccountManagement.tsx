@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { WorkshopAccount } from '../types';
 import NetworkConfigAdmin from './NetworkConfigAdmin';
 import LDAPManagement from './LDAPManagement';
+import MaterialManagement from './MaterialManagement';
 
 interface AccountManagementProps {
   onClose: () => void;
@@ -263,6 +264,10 @@ export default function AccountManagement({ onClose }: AccountManagementProps) {
                 LDAP-Verwaltung
               </h4>
               <LDAPManagement />
+            </div>
+
+            <div className="mt-6 pt-6 border-t">
+              <MaterialManagement />
             </div>
           </div>
         )}

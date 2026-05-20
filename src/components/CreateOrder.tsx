@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Order, PDFDocument, Component } from '../types';
+import { Order, PDFDocument, Component, Material } from '../types';
 
 interface CreateOrderProps {
   onClose: () => void;
@@ -19,6 +19,22 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
   const [dragActive, setDragActive] = useState(false);
   const [activeComponentDragId, setActiveComponentDragId] = useState<string | null>(null);
   const [orderType, setOrderType] = useState<'fertigung' | 'service'>('fertigung');
+  const [availableMaterials, setAvailableMaterials] = useState<Material[]>([]);
+
+  useEffect(() => {
+    const fetchMaterials = async () => {
+      try {
+        const res = await fetch('/api/materials');
+        if (res.ok) {
+          const data = await res.json();
+          setAvailableMaterials(data);
+        }
+      } catch (err) {
+        console.error('Fehler beim Laden der Materialien:', err);
+      }
+    };
+    fetchMaterials();
+  }, []);
 
   const uploadSingleFile = async (file: File): Promise<PDFDocument> => {
     const formData = new FormData();
@@ -418,6 +434,22 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
                           onChange={(e) => updateComponent(component.id, 'quantity', e.target.value)}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          Material
+                        </label>
+                        <select
+                          value={component.material || ''}
+                          onChange={(e) => updateComponent(component.id, 'material', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">Kein Material ausgewählt</option>
+                          {availableMaterials.map(mat => (
+                            <option key={mat.id} value={mat.name}>{mat.name}</option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>

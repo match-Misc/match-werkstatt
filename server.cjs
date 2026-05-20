@@ -476,6 +476,9 @@ async function initializeIndexes() {
     // Settings indexes
     await db.collection('settings').createIndex({ type: 1 }, { unique: true });
     
+    // Material indexes
+    await db.collection('Material').createIndex({ name: 1 }, { unique: true });
+    
     await client.close();
     console.log('[MongoDB] Indexes created successfully');
   } catch (error) {
@@ -609,6 +612,99 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: 'Upload fehlgeschlagen', details: error.message });
+  }
+});
+
+// === MATERIALS API ===
+app.get('/api/materials', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const materials = await db.collection('Material').find({}).sort({ name: 1 }).toArray();
+    await client.close();
+    res.json(convertMongoDocs(materials));
+  } catch (err) {
+    console.error('GET /api/materials error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden der Materialien', details: err.message });
+  }
+});
+
+app.post('/api/materials', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Name ist erforderlich' });
+    }
+    
+    const { client, db } = await getDB();
+    const exists = await db.collection('Material').findOne({ name: name.trim() });
+    if (exists) {
+      await client.close();
+      return res.status(409).json({ error: 'Material existiert bereits' });
+    }
+    
+    const newMaterial = { name: name.trim(), createdAt: new Date() };
+    const result = await db.collection('Material').insertOne(newMaterial);
+    await client.close();
+    
+    res.status(201).json(convertMongoDoc({ ...newMaterial, _id: result.insertedId }));
+  } catch (err) {
+    console.error('POST /api/materials error:', err);
+    res.status(500).json({ error: 'Fehler beim Anlegen des Materials', details: err.message });
+  }
+});
+
+app.put('/api/materials/:id', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Name ist erforderlich' });
+    }
+
+    const { client, db } = await getDB();
+    
+    // Check if name is already taken by another material
+    const existing = await db.collection('Material').findOne({ 
+      name: name.trim(),
+      _id: { $ne: new ObjectId(req.params.id) }
+    });
+    
+    if (existing) {
+      await client.close();
+      return res.status(409).json({ error: 'Ein anderes Material mit diesem Namen existiert bereits' });
+    }
+
+    const result = await db.collection('Material').findOneAndUpdate(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { name: name.trim() } },
+      { returnDocument: 'after' }
+    );
+    await client.close();
+
+    if (!result) {
+      return res.status(404).json({ error: 'Material nicht gefunden' });
+    }
+
+    res.json(convertMongoDoc(result));
+  } catch (err) {
+    console.error('PUT /api/materials error:', err);
+    res.status(500).json({ error: 'Fehler beim Aktualisieren des Materials', details: err.message });
+  }
+});
+
+app.delete('/api/materials/:id', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const result = await db.collection('Material').deleteOne({ _id: new ObjectId(req.params.id) });
+    await client.close();
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Material nicht gefunden' });
+    }
+
+    res.json({ success: true, message: 'Material gelöscht' });
+  } catch (err) {
+    console.error('DELETE /api/materials error:', err);
+    res.status(500).json({ error: 'Fehler beim Löschen des Materials', details: err.message });
   }
 });
 
