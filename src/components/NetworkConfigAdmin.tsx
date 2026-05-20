@@ -4,6 +4,7 @@ import { Settings, CheckCircle, XCircle, Save, Loader2 } from 'lucide-react';
 
 export default function NetworkConfigAdmin() {
   const { state, dispatch } = useApp();
+  const [useNetworkDrive, setUseNetworkDrive] = useState(false);
   const [networkPath, setNetworkPath] = useState('');
   const [networkPathDescription, setNetworkPathDescription] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<{
@@ -21,6 +22,7 @@ export default function NetworkConfigAdmin() {
           const result = await response.json();
           if (result.success && result.networkPath) {
             setNetworkPath(result.networkPath);
+            setUseNetworkDrive(true);
             setNetworkPathDescription(result.description || '');
           }
         }
@@ -46,7 +48,7 @@ export default function NetworkConfigAdmin() {
       } else {
         setConnectionStatus({ 
           status: 'error', 
-          message: 'Verbindungsfehler: ' + result.message 
+          message: 'Verbindungsfehler: ' + (result.message || result.error || 'Unbekannter Fehler') 
         });
       }
     } catch (error) {
@@ -58,13 +60,11 @@ export default function NetworkConfigAdmin() {
   };
 
   const saveNetworkPath = async () => {
-    if (!networkPath) return;
+    // Wenn Checkbox nicht markiert, leeren String senden, um es zu deaktivieren
+    const pathToSend = useNetworkDrive ? '/app/storage/network' : '';
     
     setIsSaving(true);
     try {
-      // Send the network path as is - let the server handle normalization
-      let pathToSend = networkPath.trim();
-      
       console.log('Sending network path:', pathToSend);
       
       const response = await fetch('/api/admin/network-config', {
@@ -83,18 +83,20 @@ export default function NetworkConfigAdmin() {
         dispatch({
           type: 'SHOW_NOTIFICATION',
           payload: {
-            message: 'Netzwerkpfad wurde erfolgreich gespeichert.',
+            message: 'Netzwerkkonfiguration wurde erfolgreich gespeichert.',
             type: 'success'
           }
         });
         
         setConnectionStatus({ 
           status: 'success', 
-          message: 'Netzwerkpfad konfiguriert und erreichbar' 
+          message: pathToSend ? 'Netzwerkpfad konfiguriert und erreichbar' : 'Netzwerkpfad deaktiviert' 
         });
         
-        // Verbindung testen
-        await testNetworkConnection();
+        // Verbindung testen, falls aktiviert
+        if (pathToSend) {
+          await testNetworkConnection();
+        }
       } else {
         // Verwende das bereits geparste result
         let errorMessage = result.error || result.details || 'Fehler beim Speichern';
@@ -106,7 +108,7 @@ export default function NetworkConfigAdmin() {
       dispatch({
         type: 'SHOW_NOTIFICATION',
         payload: {
-          message: 'Fehler beim Speichern des Netzwerkpfads: ' + 
+          message: 'Fehler beim Speichern der Konfiguration: ' + 
             (error instanceof Error ? error.message : String(error)),
           type: 'error'
         }
@@ -130,29 +132,36 @@ export default function NetworkConfigAdmin() {
       
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Netzwerkpfad
-          </label>
-          <div className="flex">
+          <div className="flex items-center mb-4">
             <input
-              type="text"
-              value={networkPath}
-              onChange={(e) => setNetworkPath(e.target.value)}
-              placeholder="\\fileserver\Freigabe\Aufträge oder Z:\Aufträge"
-              className="flex-grow px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              type="checkbox"
+              id="useNetworkDrive"
+              checked={useNetworkDrive}
+              onChange={(e) => {
+                setUseNetworkDrive(e.target.checked);
+                setNetworkPath(e.target.checked ? '/app/storage/network' : '');
+              }}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
             />
-            <button
-              onClick={testNetworkConnection}
-              disabled={connectionStatus.status === 'testing' || !networkPath}
-              className="px-3 py-2 bg-gray-100 border border-gray-300 border-l-0 rounded-r-md hover:bg-gray-200 focus:outline-none"
-            >
-              {connectionStatus.status === 'testing' ? (
-                <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
-              ) : (
-                'Testen'
-              )}
-            </button>
+            <label htmlFor="useNetworkDrive" className="ml-2 block text-sm font-medium text-gray-700">
+              Netzwerklaufwerk (SMB/CIFS) über Docker verwenden
+            </label>
           </div>
+          
+          {useNetworkDrive && (
+            <div className="mb-4">
+              <button
+                onClick={testNetworkConnection}
+                disabled={connectionStatus.status === 'testing'}
+                className="px-3 py-2 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-200 focus:outline-none flex items-center text-sm"
+              >
+                {connectionStatus.status === 'testing' ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-blue-600 mr-2" />
+                ) : null}
+                Verbindung Testen
+              </button>
+            </div>
+          )}
           
           <div className="mt-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -163,7 +172,8 @@ export default function NetworkConfigAdmin() {
               value={networkPathDescription}
               onChange={(e) => setNetworkPathDescription(e.target.value)}
               placeholder="z.B. 'Hauptnetzwerkordner für Aufträge'"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              disabled={!useNetworkDrive}
             />
           </div>
           
@@ -186,7 +196,7 @@ export default function NetworkConfigAdmin() {
         <div className="flex justify-end">
           <button
             onClick={saveNetworkPath}
-            disabled={isSaving || !networkPath}
+            disabled={isSaving}
             className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
           >
             {isSaving ? (
@@ -204,17 +214,20 @@ export default function NetworkConfigAdmin() {
         </div>
       </div>
       
-      <div className="mt-4 text-sm text-gray-600">
-        <p className="font-medium">Hinweise:</p>
-        <ul className="list-disc pl-5 mt-1 space-y-1">
+      <div className="mt-4 text-sm text-gray-600 bg-blue-50 p-4 rounded-md border border-blue-100">
+        <p className="font-medium text-blue-800">Hinweise zur Docker-Konfiguration:</p>
+        <ul className="list-disc pl-5 mt-2 space-y-2 text-blue-700">
           <li>
-            Für Windows-Netzwerkpfade verwende Hostnamen statt statischer IPs: <code>\\fileserver\Ordner</code>
+            Der Netzwerkordner wird über die <code>.env</code> Datei konfiguriert (SMB_SHARE_PATH, SMB_USERNAME, SMB_PASSWORD).
           </li>
           <li>
-            Für gemappte Laufwerke, verwende den Laufwerksbuchstaben: <code>Z:\Ordner</code>
+            Docker mountet diesen Share automatisch unter <code>/app/storage/network</code> in den Backend-Container.
           </li>
           <li>
-            Der Server muss Lese- und Schreibzugriff auf diesen Ordner haben
+            Falls ein anderer Netzwerkpfad gewünscht ist, muss dieser direkt in der <code>docker-compose.yml</code> sowie in der <code>.env</code> Datei angepasst werden.
+          </li>
+          <li>
+            Stelle sicher, dass der angegebene Nutzer Lese- und Schreibzugriff (bzw. die entsprechenden Berechtigungen) auf den freigegebenen Ordner hat.
           </li>
         </ul>
       </div>
