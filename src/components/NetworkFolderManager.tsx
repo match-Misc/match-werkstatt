@@ -277,12 +277,14 @@ export default function NetworkFolderManager({ orderId, orderNumber, onClose }: 
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
           <h4 className="font-medium text-gray-900 mb-2 text-sm">Ordnerstruktur</h4>
           <div className="text-xs text-gray-600 font-mono space-y-1">
-            <div>📁 {orderNumber}/</div>
-            <div className="ml-4">📁 CAM-Dateien/</div>
-            <div className="ml-4">📁 Zeichnungen/</div>
-            <div className="ml-4">📁 Dokumentation/</div>
-            <div className="ml-4">📁 Fotos/</div>
-            <div className="ml-4">📁 Archiv/</div>
+            <div>📁 F-XXXX-1 - Auftragsname/</div>
+            <div className="ml-4">📄 allgemeine-datei.pdf</div>
+            <div className="ml-4">📁 00_Interne Dokumente/</div>
+            <div className="ml-8">📄 3d-modell.stl, nc-datei.nc ...</div>
+            <div className="ml-4">📁 01_Bauteilname/</div>
+            <div className="ml-8">📄 zeichnung.dwg ...</div>
+            <div className="ml-4">📁 02_Weiteres Bauteil/</div>
+            <div className="ml-8">📄 ...</div>
           </div>
         </div>
       )}

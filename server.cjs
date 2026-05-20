@@ -69,18 +69,7 @@ app.use('/uploads', express.static(uploadsDir, {
   }
 }));
 
-// Static serving for local CAM files
-const camFilesDir = path.join(__dirname, 'storage', 'cam-files');
-app.use('/cam-files', express.static(camFilesDir, {
-  etag: false,
-  lastModified: false,
-  setHeaders: (res) => {
-    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.set('Pragma', 'no-cache');
-    res.set('Expires', '0');
-    res.set('Surrogate-Control', 'no-store');
-  }
-}));
+// (cam-files directory removed – internal documents are now stored in uploads/ORDER/Interne Dokumente/)
 
 // Network folder static files middleware
 app.use('/network-files', async (req, res, next) => {
@@ -186,13 +175,10 @@ async function getOrCreateOrderFolderName(db, order) {
     return order.networkFolderName;
   }
   
-  const orderDate = order.createdAt ? new Date(order.createdAt) : new Date();
-  const year = orderDate.getFullYear();
-  const month = String(orderDate.getMonth() + 1).padStart(2, '0');
-  const day = String(orderDate.getDate()).padStart(2, '0');
-  const dateStr = `${year}_${month}_${day}`;
+  // Folder name: "Auftragsnummer - Name des Auftrags"
+  const orderNumber = order.orderNumber || order._id.toString();
   const sanitizedOrderTitle = (order.title || 'unnamed').trim().replace(/[\\/:*?"<>|]/g, '_');
-  const folderName = `${dateStr} - ${sanitizedOrderTitle}`;
+  const folderName = `${orderNumber} - ${sanitizedOrderTitle}`;
   
   await db.collection('Order').updateOne(
     { _id: order._id },
@@ -220,6 +206,7 @@ async function autoMigrateOrderFiles(db, orderId) {
     const isNetworkActive = networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath);
     
     // Base paths depending on whether we use network or local
+    // All files go under uploads/ (no separate cam-files folder)
     let destBasePath;
     let urlPrefix;
     let isMigrated;
@@ -230,7 +217,7 @@ async function autoMigrateOrderFiles(db, orderId) {
       isMigrated = true;
     } else {
       destBasePath = path.join(__dirname, 'storage');
-      urlPrefix = ''; // Will result in /uploads or /cam-files
+      urlPrefix = ''; // Will result in /uploads/...
       isMigrated = false;
     }
     
@@ -347,9 +334,8 @@ async function autoMigrateOrderFiles(db, orderId) {
         let originalPath;
         const basename = path.basename(compDoc.url);
         
-        const component = await db.collection('Component').findOne({ _id: new ObjectId(compDoc.componentId) });
-        const componentName = component ? (component.title || component.name || 'unnamed_component') : 'unnamed_component';
-        const componentFolderName = componentName.trim().replace(/[\\/:*?"<>|]/g, '_');
+        // Get numbered folder name e.g. "01_Motorhalterung"
+        const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId);
         
         const componentFolderPath = path.join(uploadsFolderPath, componentFolderName);
         if (!fs.existsSync(componentFolderPath)) {
@@ -433,6 +419,23 @@ async function autoMigrateOrderFiles(db, orderId) {
   } catch (err) {
     console.error(`[File-Organization] Global error organizing files for order ${orderId}:`, err);
   }
+}
+
+// Helper function: Get numbered component folder name (e.g. "02_Motorhalterung")
+async function getComponentFolderName(db, orderId, componentId) {
+  // Sort all components for this order by creation time to get a stable index
+  const allComponents = await db.collection('Component').find(
+    { orderId: new ObjectId(orderId) }
+  ).sort({ createdAt: 1, _id: 1 }).toArray();
+  
+  const idx = allComponents.findIndex(c => c._id.toString() === componentId.toString());
+  const number = String(idx >= 0 ? idx + 1 : allComponents.length).padStart(2, '0');
+  
+  const component = allComponents.find(c => c._id.toString() === componentId.toString());
+  const componentName = component ? (component.title || component.name || 'Bauteil') : 'Bauteil';
+  const sanitizedName = componentName.trim().replace(/[\\/:*?"<>|]/g, '_');
+  
+  return `${number}_${sanitizedName}`;
 }
 
 // Initialize MongoDB indexes on startup
@@ -2262,15 +2265,15 @@ app.post('/api/orders/:id/network-folder', async (req, res) => {
     const orderFolderName = await getOrCreateOrderFolderName(ordersDb, order);
     await client.close();
     
-    // Create folders inside uploads and cam-files
+    // Create uploads order folder and Interne Dokumente subfolder
     const uploadsFolderPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
     if (!fs.existsSync(uploadsFolderPath)) {
       fs.mkdirSync(uploadsFolderPath, { recursive: true });
     }
     
-    const camFolderPath = path.join(networkConfig.networkPath, 'cam-files', orderFolderName);
-    if (!fs.existsSync(camFolderPath)) {
-      fs.mkdirSync(camFolderPath, { recursive: true });
+    const interneDocsPath = path.join(uploadsFolderPath, '00_Interne Dokumente');
+    if (!fs.existsSync(interneDocsPath)) {
+      fs.mkdirSync(interneDocsPath, { recursive: true });
     }
     
     res.json({
@@ -2445,19 +2448,17 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
         let localDestPath;
         let localUrl;
         
-        if (document.type === 'model/stl' && document.url.includes('/cam-files/')) {
-          // CAM file
-          const localCamOrderDir = path.join(localStorageDir, 'cam-files', orderFolderName);
-          if (!fs.existsSync(localCamOrderDir)) {
-            fs.mkdirSync(localCamOrderDir, { recursive: true });
+        if (document.url && (document.url.includes('/00_Interne%20Dokumente/') || document.url.includes('/00_Interne Dokumente/'))) {
+          // Internal document
+          const localInterneDirPath = path.join(localStorageDir, 'uploads', orderFolderName, '00_Interne Dokumente');
+          if (!fs.existsSync(localInterneDirPath)) {
+            fs.mkdirSync(localInterneDirPath, { recursive: true });
           }
-          localDestPath = path.join(localCamOrderDir, basename);
-          localUrl = `/cam-files/${orderFolderName}/${encodeURIComponent(basename)}`;
+          localDestPath = path.join(localInterneDirPath, basename);
+          localUrl = `/uploads/${orderFolderName}/00_Interne%20Dokumente/${encodeURIComponent(basename)}`;
         } else if (document.componentId) {
-          // Component document
-          const component = await db.collection('Component').findOne({ _id: new ObjectId(document.componentId) });
-          const componentName = component ? (component.title || component.name || 'unnamed_component') : 'unnamed_component';
-          const componentFolderName = componentName.trim().replace(/[\\/:*?"<>|]/g, '_');
+          // Component document – use numbered folder name
+          const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId);
           
           const localCompDir = path.join(localStorageDir, 'uploads', orderFolderName, componentFolderName);
           if (!fs.existsSync(localCompDir)) {
@@ -2984,12 +2985,9 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
       }
     }
     
-    // Scan both uploads and cam-files
+    // Scan uploads (Interne Dokumente is a subfolder within)
     const uploadsPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
-    const camPath = path.join(networkConfig.networkPath, 'cam-files', orderFolderName);
-    
     readFilesRecursively(uploadsPath, 'uploads');
-    readFilesRecursively(camPath, 'cam-files');
     
     // Sort files by name
     files.sort((a, b) => a.name.localeCompare(b.name));
@@ -3039,23 +3037,15 @@ app.get('/api/orders/:id/network-files/:filename/download', async (req, res) => 
     
     const filename = decodeURIComponent(req.params.filename);
     
-    // Determine target subfolder based on path prefix
-    let targetSubfolder = '';
+    // All files live under uploads/
     let relativeFileSubpath = '';
-    
     if (filename.startsWith('uploads/') || filename.startsWith('uploads\\')) {
-      targetSubfolder = 'uploads';
       relativeFileSubpath = filename.substring(8);
-    } else if (filename.startsWith('cam-files/') || filename.startsWith('cam-files\\')) {
-      targetSubfolder = 'cam-files';
-      relativeFileSubpath = filename.substring(10);
     } else {
-      // Default to uploads if not prefixed
-      targetSubfolder = 'uploads';
       relativeFileSubpath = filename;
     }
     
-    const orderFolderPath = path.join(networkConfig.networkPath, targetSubfolder, orderFolderName);
+    const orderFolderPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
     const filePath = path.join(orderFolderPath, relativeFileSubpath);
     
     // Security check: ensure file is within order folder
@@ -3128,16 +3118,17 @@ const camNetworkStorage = multer.diskStorage({
       
       const isNetworkActive = networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath);
       
-      let baseCamDir;
+      // 00_Interne Dokumente folder lives inside uploads/ORDER/00_Interne Dokumente/
+      let baseUploadsDir;
       if (isNetworkActive) {
-        baseCamDir = path.join(networkConfig.networkPath, 'cam-files');
+        baseUploadsDir = path.join(networkConfig.networkPath, 'uploads');
         req.uploadMode = 'network';
       } else {
-        baseCamDir = path.join(__dirname, 'storage', 'cam-files');
+        baseUploadsDir = path.join(__dirname, 'storage', 'uploads');
         req.uploadMode = 'local';
       }
       
-      const orderFolderPath = path.join(baseCamDir, orderFolderName);
+      const orderFolderPath = path.join(baseUploadsDir, orderFolderName, '00_Interne Dokumente');
       
       // Create folder if it doesn't exist
       if (!fs.existsSync(orderFolderPath)) {
@@ -3176,8 +3167,8 @@ app.post('/api/orders/:id/upload-cam-file', camNetworkUpload.single('file'), asy
     
     const isNetwork = req.uploadMode === 'network';
     
-    // Create document record
-    const relativePath = `cam-files/${req.orderFolderName}/${req.file.filename}`;
+    // Create document record – stored in uploads/ORDER/00_Interne Dokumente/
+    const relativePath = `uploads/${req.orderFolderName}/00_Interne%20Dokumente/${encodeURIComponent(req.file.filename)}`;
     const documentUrl = isNetwork 
       ? `/network-files/${relativePath}`
       : `/${relativePath}`;

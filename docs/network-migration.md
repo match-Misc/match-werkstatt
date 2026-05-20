@@ -4,73 +4,83 @@ Diese Dokumentation beschreibt die Datenhaltung, Dateimigration und Konfiguratio
 
 ---
 
-## 📁 Dateistruktur (Local & Netzwerk)
+## 📁 Ordnerstruktur
 
-Die Match-Werkstatt organisiert hochgeladene Dateien nach einer einheitlichen Struktur. Diese Struktur wird sowohl **lokal** auf dem Server als auch auf dem **Netzwerklaufwerk** identisch abgebildet:
+Alle Dateien eines Auftrags werden in einem einzigen `uploads/`-Verzeichnis organisiert. Die Struktur ist lokal und auf dem Netzwerklaufwerk identisch:
 
 ```
-[Speicherpfad]/
-├── uploads/
-│   └── YYYY_MM_DD - Name des Auftrags/
-│       ├── allgemeine-datei.pdf
-│       └── [Name des Bauteils]/
-│           └── bauteil-zeichnung.dwg
-└── cam-files/
-    └── YYYY_MM_DD - Name des Auftrags/
-        └── OP1.gcode
+uploads/
+└── F-2605-1 - Auftragsname/
+    ├── allgemeine-datei.pdf          ← Direkt auf Auftragsebene (z.B. Angebote, Zeichnungen)
+    ├── 00_Interne Dokumente/         ← Interne Daten (CAM, NC, STL, etc.)
+    │   ├── 3d-modell.stl
+    │   └── fräsprogramm.nc
+    ├── 01_Motorhalterung/            ← Bauteil 1 (01_ = 1. Bauteil)
+    │   ├── zeichnung.dwg
+    │   └── bauteil.pdf
+    └── 02_Antriebswelle/             ← Bauteil 2 (02_ = 2. Bauteil)
+        └── toleranzblatt.xlsx
 ```
 
 ### Ordnernamensgebung
-- Der Ordnername eines Auftrags wird nach dem Muster `YYYY_MM_DD - Name des Auftrags` beim ersten Speichern automatisch generiert und in MongoDB unter dem Feld `networkFolderName` festgeschrieben. 
-- Dies garantiert, dass der Ordnername im Dateisystem konsistent bleibt, selbst wenn der Auftragstitel später geändert wird.
-- **Umlaute und Sonderzeichen** im Dateinamen werden normalisiert und Dateipfade URL-konform kodiert.
-- **CAM-Dateien** werden direkt im CAM-Auftragsordner abgelegt, ohne weitere Unterordner zu erstellen.
+
+| Typ                 | Schema                        | Beispiel                      |
+|---------------------|-------------------------------|-------------------------------|
+| Auftragsordner      | `Auftragsnummer - Titel`      | `F-2605-1 - Mein Auftrag`     |
+| Interne Dokumente   | `00_Interne Dokumente`        | Immer an erster Stelle        |
+| Bauteil-Ordner      | `NN_Bauteilname`              | `01_Motorhalterung`           |
+
+- **Ordnername wird einmalig generiert** und in MongoDB unter `networkFolderName` gespeichert — Titeländerungen haben keinen Einfluss auf das Dateisystem.
+- **Bauteil-Nummerierung** richtet sich nach der Erstellungsreihenfolge der Bauteile (`createdAt` aufsteigend).
+- **Sonderzeichen** (`\ / : * ? " < > |`) werden in Ordnernamen durch `_` ersetzt.
 
 ---
 
 ## ⚙️ Konfiguration des Netzwerklaufwerks
 
-Um ein Netzwerklaufwerk zu verwenden, muss der Pfad im Admin-Bereich hinterlegt und erreichbar sein.
+### Schritt 1: Docker-Volume konfigurieren
 
-### Schritt 1: Einbinden in Docker (Host-seitig)
-Das Netzwerklaufwerk (z. B. SMB/CIFS oder NFS Share) sollte auf dem Docker-Host gemountet und per Volume in den Backend-Container durchgereicht werden. In der Standard `docker-compose.yml` ist dafür das Volume `/app/storage/network` vorgesehen.
+Das Netzwerklaufwerk (SMB/CIFS oder NFS) wird auf dem Docker-Host eingebunden und via Volume an den Container durchgereicht. Nur ein Volume ist nötig — `uploads_data` enthält die gesamte Dateiablage.
 
-Beispiel für den Host-Mount:
+Beispiel Host-Mount (SMB):
 ```bash
-sudo mount -t cifs -o username=USER,password=PASS //192.168.1.100/Freigabe /path/to/local/mount
+sudo mount -t cifs -o username=USER,password=PASS //192.168.1.100/Freigabe /mnt/werkstatt
+```
+
+In der `docker-compose.yml` sind folgende Volumes definiert:
+```yaml
+volumes:
+  - uploads_data:/app/storage/uploads    # Alle Dateien (lokal + Netzwerk)
+  - network_data:/app/storage/network    # Optionales SMB-Mount
 ```
 
 ### Schritt 2: Aktivierung in der Weboberfläche
-1. Navigieren Sie im System zu **Benutzerverwaltung / Einstellungen**.
-2. Aktivieren Sie den Schalter **"Netzwerklaufwerk (SMB/CIFS) über Docker verwenden"**.
-3. Geben Sie den absoluten Pfad im Backend-Container an (z. B. `/app/storage/network`).
-4. Klicken Sie auf **"Verbindung Testen"**. Wenn die Verbindung erfolgreich ist, ist das Laufwerk einsatzbereit.
+
+1. Navigieren Sie zu **Benutzerverwaltung → Einstellungen**.
+2. Aktivieren Sie den Schalter **„Netzwerklaufwerk (SMB/CIFS) über Docker verwenden"**.
+3. Geben Sie den **absoluten Container-Pfad** an, z.B. `/app/storage/network`.
+4. Klicken Sie auf **„Verbindung Testen"** — bei Erfolg ist das Laufwerk einsatzbereit.
 
 ---
 
-## 🚀 Dateimigration
+## 🚀 Dateimigration (Automatisch)
 
-Die Dateimigration sorgt dafür, dass temporär oder lokal hochgeladene Dateien automatisch in die strukturierte Ordnerablage verschoben werden.
+Die Migration wird automatisch ausgelöst bei:
+- **Auftrag erstellen** (`POST /api/orders`)
+- **Auftrag speichern** (`PUT /api/orders/:id`)
+- **Bauteil hinzufügen** (`POST /api/orders/:orderId/components`)
 
-### Automatische Migration (Auto-Migration)
-Der Migrationsprozess läuft vollautomatisch im Hintergrund, sobald:
-- Ein neuer Auftrag erstellt wird (`POST /api/orders`)
-- Ein Auftrag bearbeitet/gespeichert wird (`PUT /api/orders/:id`)
-- Eine neue Komponente zu einem Auftrag hinzugefügt wird (`POST /api/orders/:orderId/components`)
+**Wenn Netzwerk aktiv:** Dateien werden in die strukturierten Ordner auf dem Netzwerklaufwerk kopiert. DB-URLs werden auf `/network-files/uploads/...` umgeschrieben.
 
-Das System prüft bei jedem Durchlauf:
-1. **Netzwerk aktiv**: Die Dateien werden auf das Netzwerklaufwerk kopiert. Die Datenbank-Links werden auf `/network-files/...` umgeschrieben und der Status `migrated: true` gesetzt.
-2. **Netzwerk inaktiv/offline**: Die Dateien werden in die lokale strukturierte Ordnerablage (`storage/uploads/...` und `storage/cam-files/...`) verschoben. Die Links verweisen weiterhin auf lokale Routen (`/uploads/...` bzw. `/cam-files/...`). Die Originaldateien im temporären Upload-Ordner werden gelöscht.
+**Wenn Netzwerk offline:** Dateien werden lokal in `storage/uploads/ORDNER/` organisiert. Das System arbeitet vollständig ohne Netzwerk weiter.
 
-### Ausfallsicherheit (Offline-Resilienz)
-Sollte das Netzwerklaufwerk temporär offline sein oder ausfallen:
-- Das System fängt den Fehler ab und speichert/organisiert die Dateien stattdessen automatisch lokal.
-- Sobald das Netzwerklaufwerk wieder online ist, führt das nächste Speichern des Auftrags oder das manuelle Triggern der Migration dazu, dass alle ausstehenden lokalen Dateien automatisch auf das Netzwerklaufwerk übertragen und die URLs aktualisiert werden.
+---
 
-### Manuelle Migration
-In der Detailansicht eines Auftrags können Sie über den Button **"Dateien in Ordner migrieren"** eine sofortige Migration aller Dateien des Auftrags anstoßen.
+## 🔄 Transition & Ausfallsicherheit
 
-### Migration Rückgängig machen (Rollback)
-Falls das Netzwerklaufwerk deaktiviert oder getauscht werden soll, können Sie die Migration über den Button **"Migration rückgängig machen"** im Auftrag zurückrollen. 
-- Hierbei werden alle Dateien physikalisch vom Netzwerklaufwerk zurück in die lokalen strukturierten Ordner des Servers kopiert.
-- Die Datenbanklinks werden wieder auf die lokalen URLs `/uploads/...` bzw. `/cam-files/...` zurückgesetzt und als nicht migriert markiert.
+| Szenario | Verhalten |
+|----------|-----------|
+| Netzwerk aktiviert (erste Migration) | Beim nächsten Speichern werden alle lokalen Dateien auf das Netzlaufwerk übertragen |
+| Netzwerk temporär offline | Neue Dateien werden lokal gespeichert; nach Rückkehr des Netzwerks werden sie beim nächsten Speichern migriert |
+| Manuelle Migration | Button „Dateien migrieren" in der Auftragsdetailansicht |
+| Migration rückgängig machen | Button „Migration rückgängig machen" — kopiert Dateien zurück in `storage/uploads/` und stellt lokale URLs wieder her |

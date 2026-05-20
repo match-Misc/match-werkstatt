@@ -92,7 +92,7 @@ const NetworkFileUpload = ({
   const getUploadTypeLabel = () => {
     switch (uploadType) {
       case 'document': return 'Dokument';
-      case 'cam': return 'CAM-Datei';
+      case 'cam': return 'Interne Daten';
       case 'component': return 'Bauteil-Dokument';
       case 'auto': return 'Datei (automatische Erkennung)';
       default: return 'Datei';
@@ -103,7 +103,7 @@ const NetworkFileUpload = ({
     if (componentId && uploadType === 'component') {
       return `→ Netzwerkordner/Bauteile/[Bauteil-Name]`;
     } else if (uploadType === 'cam') {
-      return `→ Netzwerkordner/CAM-Dateien`;
+      return `→ Uploads/00_Interne Dokumente`;
     } else {
       return `→ Netzwerkordner/Dokumentation`;
     }

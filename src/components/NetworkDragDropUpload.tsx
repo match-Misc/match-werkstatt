@@ -192,10 +192,10 @@ export default function NetworkDragDropUpload({
           
           <div className="space-y-1">
             <p className="text-lg font-medium text-gray-700">
-              {uploadType === 'cam' ? 'CAM-Datei hochladen' : 'Datei hochladen'}
+              {uploadType === 'cam' ? 'Interne Daten hochladen' : 'Datei hochladen'}
             </p>
             <p className="text-sm text-gray-500">
-              → Netzwerkordner{targetFolder ? `/${targetFolder}` : ''}
+              → Uploads/00_Interne Dokumente{targetFolder ? `/${targetFolder}` : ''}
             </p>
           </div>
           

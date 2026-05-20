@@ -41,7 +41,6 @@ services:
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
     volumes:
       - uploads_data:/app/storage/uploads
-      - cam_files_data:/app/storage/cam-files
       - network_data:/app/storage/network
     depends_on:
       match-werkstatt-mongodb:
@@ -111,8 +110,6 @@ volumes:
   mongodb_data:
     driver: local
   uploads_data:
-    driver: local
-  cam_files_data:
     driver: local
   network_data:
     driver: local

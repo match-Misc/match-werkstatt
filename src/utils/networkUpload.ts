@@ -38,7 +38,7 @@ export const networkUploadUtils = {
     }
   },
   
-  // Upload einer CAM-Datei
+  // Upload einer internen Datei (CAM, NC, etc.) -> uploads/ORDER/00_Interne Dokumente/
   async uploadCAMFile(orderId: string, file: File): Promise<UploadResult> {
     const formData = new FormData();
     formData.append('file', file);
@@ -51,7 +51,7 @@ export const networkUploadUtils = {
       
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'CAM-Upload fehlgeschlagen');
+        throw new Error(error.error || 'Upload fehlgeschlagen');
       }
       
       return await response.json() as UploadResult;
