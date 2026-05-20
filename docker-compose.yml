@@ -18,7 +18,7 @@ services:
     networks:
       - match-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand('ping')" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -42,6 +42,7 @@ services:
     volumes:
       - uploads_data:/app/storage/uploads
       - cam_files_data:/app/storage/cam-files
+      - network_data:/app/storage/network
     depends_on:
       match-werkstatt-mongodb:
         condition: service_healthy
@@ -113,6 +114,12 @@ volumes:
     driver: local
   cam_files_data:
     driver: local
+  network_data:
+    driver: local
+    driver_opts:
+      type: cifs
+      o: "username=${SMB_USERNAME},password=${SMB_PASSWORD},domain=${SMB_DOMAIN},vers=3.0,dir_mode=0777,file_mode=0777"
+      device: "${SMB_SHARE_PATH}"
 
 networks:
   match-network:
