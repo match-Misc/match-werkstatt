@@ -35,7 +35,7 @@ docker compose up -d
 ```
 Anschließend ist die Match-Werkstatt unter `http://localhost:5007` erreichbar. 
 
-Weitere Installationsmethoden (z.B. manuelle Installation ohne Docker) findest du in der [Installationsanleitung](docs/installation.md).
+Weitere Installationsmethoden (z.B. lokale Entwicklung mit Pixi) findest du in der [Installationsanleitung](docs/installation.md).
 
 ---
 
@@ -43,7 +43,7 @@ Weitere Installationsmethoden (z.B. manuelle Installation ohne Docker) findest d
 
 Alle detaillierten Informationen zur Einrichtung, Konfiguration und Nutzung findest du in unserem `docs/` Ordner:
 
-- 📥 **[Installation](docs/installation.md)**: Docker (GHCR), Docker Self-Build & Manuelle Installation
+- 📥 **[Installation](docs/installation.md)**: Docker (GHCR), Docker Self-Build & Lokale Entwicklung mit Pixi
 - ⚙️ **[Konfiguration](docs/configuration.md)**: Environment Variables & Setup
 - 🔐 **[LDAP-Setup](docs/ldap-setup.md)**: Details zur Hybrid-Authentifizierung
 - 🗄️ **[MongoDB-Setup](docs/mongodb-setup.md)**: Manuelle Datenbank-Installation

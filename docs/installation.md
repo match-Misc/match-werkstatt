@@ -68,40 +68,46 @@ docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 
 ---
 
-## Option 3: Manuelle Installation (Ohne Docker - für Entwicklung)
+## Option 3: Lokale Entwicklung mit Pixi
 
-Diese Methode wird hauptsächlich für die lokale Entwicklung empfohlen.
+Für die lokale Entwicklung nutzen wir [Pixi](https://pixi.sh/), einen Paketmanager, der automatisch die richtige Node.js-Version und alle benötigten Abhängigkeiten bereitstellt.
 
 ### Voraussetzungen
-- **Node.js** (v16 oder höher)
-- **MongoDB** (v8.0 oder höher)
-- Optional: **LDAP-Server** für zentrale Authentifizierung
+- **[Pixi](https://pixi.sh/)** installiert.
+- **MongoDB** lokal installiert oder über Docker gestartet.
+- Optional: **LDAP-Server** für zentrale Authentifizierung.
 
 ### Schritte
 
-**1. Repository klonen und Dependencies installieren:**
+**1. Repository klonen:**
 ```bash
 git clone https://github.com/match-Misc/match-werkstatt.git
 cd match-werkstatt
-npm install
 ```
 
-**2. MongoDB einrichten:**
-Details zur lokalen MongoDB-Installation findest du im [MongoDB Setup](mongodb-setup.md).
-
-**3. Umgebungsvariablen konfigurieren:**
+**2. Umgebungsvariablen konfigurieren:**
+Erstelle eine `.local.env` Datei für die lokale Entwicklung:
 ```bash
-cp .env.example .env
+cp .env.example .local.env
 ```
-Konfiguriere ggf. die LDAP-Zugangsdaten in der `.env`. Ohne LDAP-Konfiguration funktioniert das System vollständig mit MongoDB-Authentifizierung.
+*Wichtig:* Passe die `.local.env` an und stelle sicher, dass die `MONGODB_URL` als komplett ausgeschriebener String hinterlegt ist (ohne Variablen-Interpolation wie `${MONGO_APP_USER}`), da der lokale Node-Parser dies nicht auflöst. Füge außerdem `DB_NAME=match-werkstatt-db` hinzu.
 
-**4. Anwendung starten:**
+**3. MongoDB starten:**
+Falls du MongoDB nicht lokal installiert hast, kannst du die Datenbank aus der Docker-Konfiguration im Hintergrund starten:
 ```bash
-# Backend starten (Port 3001)
-node server.cjs
-
-# In einem neuen Terminal: Frontend starten (Port 5173)
-npm run dev
+docker-compose up -d match-werkstatt-mongodb
 ```
 
-Öffnen Sie `http://localhost:5173` im Browser. Auch hier ist der Standard-Login `admin` / `admin123`.
+**4. Dependencies installieren (Nur beim ersten Mal):**
+Dieser Befehl installiert Node.js in der korrekten Version sowie alle NPM-Pakete:
+```bash
+pixi run install
+```
+
+**5. Anwendung starten:**
+Mit einem einzigen Befehl startest du Frontend und Backend gleichzeitig in einem Terminal (dank `concurrently`):
+```bash
+pixi run dev
+```
+
+Öffne `http://localhost:5175` im Browser (oder die im Terminal angezeigte IP-Adresse, um über das Netzwerk darauf zuzugreifen).

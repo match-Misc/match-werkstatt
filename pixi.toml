@@ -1,0 +1,19 @@
+[workspace]
+authors = ["Henrik Lurz <henrik.lurz@web.de>"]
+channels = ["conda-forge"]
+name = "match-werkstatt"
+platforms = ["linux-aarch64"]
+version = "0.1.0"
+
+[tasks]
+# Install NPM dependencies
+install = "npm install"
+# Start the frontend with Vite (enables Hot Module Replacement)
+dev-frontend = "npm run dev"
+# Start the backend with auto-reload and environment variables
+dev-backend = "node --env-file=.local.env --watch server.cjs"
+# Run both frontend and backend concurrently in one terminal
+dev = "npx concurrently -c \"blue,green\" -n \"FRONT,BACK\" \"npm run dev\" \"node --env-file=.local.env --watch server.cjs\""
+
+[dependencies]
+nodejs = ">=20.0.0,<21.0"
