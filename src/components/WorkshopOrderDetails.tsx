@@ -18,7 +18,9 @@ import {
   Edit2,
   Save,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  ArrowRight,
+  Wrench
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
@@ -40,7 +42,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [activeTab, setActiveTab] = useState<'dashboard' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
   const [autoCalculateHours, setAutoCalculateHours] = useState(true);
   const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
-  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentId: string | null}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentId: null});
+  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: []});
 
   const [estimatedHours, setEstimatedHours] = useState(localOrder.estimatedHours?.toString() || '0');
   const [actualHours, setActualHours] = useState(localOrder.actualHours?.toString() || '0');
@@ -54,7 +56,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [assignedTo, setAssignedTo] = useState(localOrder.assignedTo || '');
   const [subTaskAssignedTo, setSubTaskAssignedTo] = useState('');
   const [subTaskScopeType, setSubTaskScopeType] = useState<'order' | 'component'>('order');
-  const [subTaskAssignedComponentId, setSubTaskAssignedComponentId] = useState('');
+  const [subTaskAssignedComponentIds, setSubTaskAssignedComponentIds] = useState<string[]>([]);
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
@@ -334,31 +336,30 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       status: 'pending',
       assignedTo: subTaskAssignedTo, // Mitarbeiter-ID (Pflicht)
       scopeType: subTaskScopeType, // Scope: 'order' oder 'component'
-      assignedComponentId: subTaskScopeType === 'component' ? subTaskAssignedComponentId : null,
-      assignedComponentTitle: subTaskScopeType === 'component' ? (getComponentDisplayById(subTaskAssignedComponentId) || 'Bauteil') : null,
+      assignedComponentIds: subTaskScopeType === 'component' ? subTaskAssignedComponentIds : [],
+      assignedComponentTitles: subTaskScopeType === 'component' ? subTaskAssignedComponentIds.map(id => getComponentDisplayById(id) || 'Bauteil') : [],
       notes: '',
       documents: subTaskDocuments,
       createdAt: new Date(),
       updatedAt: new Date()
     };
     const nextSubTasks = [...localOrder.subTasks, newSubTask];
-    const updatedOrder = {
-      ...localOrder,
+    const payload: Partial<Order> = {
       subTasks: nextSubTasks,
       updatedAt: new Date()
     };
     if (autoCalculateHours) {
       const autoHours = calculateHoursFromSubTasks(nextSubTasks);
-      updatedOrder.estimatedHours = autoHours.estimatedHours;
-      updatedOrder.actualHours = autoHours.actualHours;
+      payload.estimatedHours = autoHours.estimatedHours;
+      payload.actualHours = autoHours.actualHours;
     }
-    await updateOrder(updatedOrder, 'Unteraufgabe wurde erfolgreich hinzugefügt');
+    await updateOrder(payload, 'Unteraufgabe wurde erfolgreich hinzugefügt');
     setSubTaskTitle('');
     setSubTaskDescription('');
     setSubTaskHours('');
     setSubTaskAssignedTo('');
     setSubTaskScopeType('order');
-    setSubTaskAssignedComponentId('');
+    setSubTaskAssignedComponentIds([]);
     setSubTaskDocuments([]);
     setShowAddSubTask(false);
   };
@@ -370,33 +371,31 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       updatedAt: new Date()
     };
     const nextSubTasks = localOrder.subTasks.map(st => st.id === subTask.id ? updatedSubTask : st);
-    const updatedOrder = {
-      ...localOrder,
+    const payload: Partial<Order> = {
       subTasks: nextSubTasks,
       updatedAt: new Date()
     };
     if (autoCalculateHours) {
       const autoHours = calculateHoursFromSubTasks(nextSubTasks);
-      updatedOrder.estimatedHours = autoHours.estimatedHours;
-      updatedOrder.actualHours = autoHours.actualHours;
+      payload.estimatedHours = autoHours.estimatedHours;
+      payload.actualHours = autoHours.actualHours;
     }
-    await updateOrder(updatedOrder, 'Unteraufgabe aktualisiert');
+    await updateOrder(payload, 'Unteraufgabe aktualisiert');
   };
 
   const handleDeleteSubTask = async (subTaskId: string) => {
     if (confirm('Sind Sie sicher, dass Sie diese Unteraufgabe löschen möchten?')) {
       const nextSubTasks = localOrder.subTasks.filter(st => st.id !== subTaskId);
-      const updatedOrder = {
-        ...localOrder,
+      const payload: Partial<Order> = {
         subTasks: nextSubTasks,
         updatedAt: new Date()
       };
       if (autoCalculateHours) {
         const autoHours = calculateHoursFromSubTasks(nextSubTasks);
-        updatedOrder.estimatedHours = autoHours.estimatedHours;
-        updatedOrder.actualHours = autoHours.actualHours;
+        payload.estimatedHours = autoHours.estimatedHours;
+        payload.actualHours = autoHours.actualHours;
       }
-      await updateOrder(updatedOrder, 'Unteraufgabe gelöscht');
+      await updateOrder(payload, 'Unteraufgabe gelöscht');
     }
   };
 
@@ -562,16 +561,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       assignedUser = employee ? `👤 ${employee.name}` : 'Unbekannter Mitarbeiter';
     }
     
-    // Scope anzeigen
-    let scope = '';
-    if (subTask.scopeType === 'component' && subTask.assignedComponentId) {
-      const componentTitle = getComponentDisplayById(subTask.assignedComponentId) || subTask.assignedComponentTitle || 'Bauteil';
-      scope = ` → 🔧 ${componentTitle}`;
-    } else if (subTask.scopeType === 'order') {
-      scope = ' → 📋 Gesamtauftrag';
-    }
-    
-    return assignedUser + scope;
+    return assignedUser;
   };
 
   // PDF generieren und herunterladen
@@ -1139,7 +1129,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       // Use title if available, otherwise name (backwards compatibility)  
                       const componentTitle = component.title || (component as any).name || 'Unbenanntes Bauteil';
                       return (
-                      <div key={componentId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                      <div key={componentId} id={`component-${componentId}`} className="border border-gray-200 rounded-lg p-4 bg-gray-50 transition-all duration-500">
                         <div className="mb-3">
                           <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
                           <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
@@ -1272,6 +1262,58 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                             </div>
                           )}
                         </div>
+                        {/* Subtask Links Section */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <h6 className="text-xs font-medium text-gray-700 mb-2">Unteraufgaben:</h6>
+                          {(() => {
+                            const linkedSubTasks = localOrder.subTasks?.filter(st => 
+                              st.scopeType === 'component' && 
+                              (st.assignedComponentIds?.includes(componentId) || st.assignedComponentId === componentId)
+                            ) || [];
+
+                            if (linkedSubTasks.length > 0) {
+                              return (
+                                <div className="space-y-2">
+                                  {linkedSubTasks.map(st => (
+                                    <div key={st.id} className="flex items-center justify-between text-sm bg-white p-2 border rounded shadow-sm">
+                                      <span className="font-medium text-gray-800">{st.title}</span>
+                                      <div className="flex space-x-3">
+                                        <button onClick={() => { setActiveTab('subtasks'); setEditingSubTaskId(st.id); setEditSubTaskForm({ title: st.title, description: st.description || '', estimatedHours: st.estimatedHours?.toString() || '0', assignedTo: st.assignedTo || null, scopeType: 'component', assignedComponentIds: st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : []) }); }} className="text-blue-600 hover:text-blue-800 flex items-center" title="Bearbeiten"><Edit2 className="w-4 h-4 mr-1" /> Bearbeiten</button>
+                                        <button onClick={() => { setActiveTab('subtasks'); }} className="text-purple-600 hover:text-purple-800 flex items-center" title="Zur Unteraufgabe springen"><Eye className="w-4 h-4 mr-1" /> Anzeigen</button>
+                                        <button onClick={() => { handleUpdateSubTask(st, { assignedComponentIds: (st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : [])).filter(id => id !== componentId) }); }} className="text-red-600 hover:text-red-800 flex items-center" title="Verknüpfung aufheben"><X className="w-4 h-4 mr-1" /> Entfernen</button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            } else {
+                                return (
+                                  <div className="flex items-center space-x-3">
+                                    <button onClick={() => { setActiveTab('subtasks'); setShowAddSubTask(true); setSubTaskScopeType('component'); setSubTaskAssignedComponentIds([componentId]); }} className="text-sm bg-blue-50 text-blue-600 hover:bg-blue-100 px-3 py-2 rounded text-left flex items-center border border-blue-200 font-medium transition-colors whitespace-nowrap"><Plus className="w-4 h-4 mr-2" /> Neue Unteraufgabe für Bauteil erstellen</button>
+                                    <div className="flex-1 items-center flex">
+                                      <select
+                                        className="text-sm border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500 flex-1 py-1 px-2"
+                                        value=""
+                                        onChange={(e) => {
+                                          const stId = e.target.value;
+                                          if (!stId) return;
+                                          const st = localOrder.subTasks?.find(t => t.id === stId);
+                                          if (st) {
+                                            handleUpdateSubTask(st, { scopeType: 'component', assignedComponentIds: [...(st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : [])), componentId] });
+                                          }
+                                        }}
+                                      >
+                                        <option value="">Mit bestehender Unteraufgabe verknüpfen...</option>
+                                        {localOrder.subTasks?.filter(st => !st.assignedComponentIds?.includes(componentId) && st.assignedComponentId !== componentId).map(st => (
+                                          <option key={st.id} value={st.id}>{st.title}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                          })()}
+                        </div>
                       </div>
                       );
                     })}
@@ -1343,21 +1385,32 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   
                   {/* Bauteil-Auswahl (nur bei scopeType='component') */}
                   {subTaskScopeType === 'component' && (
-                    <div className="md:col-span-2">
-                      <select
-                        value={subTaskAssignedComponentId}
-                        onChange={e => setSubTaskAssignedComponentId(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      >
-                        <option value="">Bauteil auswählen</option>
+                    <div className="md:col-span-2 border border-gray-300 rounded-lg p-3 bg-white max-h-48 overflow-y-auto">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Bauteile auswählen:</label>
+                      <div className="space-y-2">
                         {localOrder.components?.map(comp => {
                           const compId = comp.id || (comp as any)._id;
                           const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
+                          const isSelected = subTaskAssignedComponentIds.includes(compId);
                           return (
-                            <option key={compId} value={compId}>{compTitle}</option>
+                            <label key={compId} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-50 rounded">
+                              <input 
+                                type="checkbox" 
+                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSubTaskAssignedComponentIds([...subTaskAssignedComponentIds, compId]);
+                                  } else {
+                                    setSubTaskAssignedComponentIds(subTaskAssignedComponentIds.filter(id => id !== compId));
+                                  }
+                                }}
+                              />
+                              <span className="text-sm text-gray-800">{compTitle}</span>
+                            </label>
                           );
                         })}
-                      </select>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1490,7 +1543,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                               {/* Scope */}
                               <select
                                 value={editSubTaskForm.scopeType}
-                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, scopeType: e.target.value as 'order' | 'component', assignedComponentId: e.target.value === 'order' ? null : editSubTaskForm.assignedComponentId})}
+                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, scopeType: e.target.value as 'order' | 'component', assignedComponentIds: e.target.value === 'order' ? [] : editSubTaskForm.assignedComponentIds})}
                                 className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="order">Gesamtauftrag</option>
@@ -1499,18 +1552,33 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
                               {/* Component (if scope == component) */}
                               {editSubTaskForm.scopeType === 'component' && (
-                                <select
-                                  value={editSubTaskForm.assignedComponentId || ''}
-                                  onChange={(e) => setEditSubTaskForm({...editSubTaskForm, assignedComponentId: e.target.value || null})}
-                                  className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                                >
-                                  <option value="">Bauteil auswählen</option>
-                                  {localOrder.components?.map((comp) => {
-                                    const compId = comp.id || (comp as any)._id;
-                                    const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
-                                    return <option key={compId} value={compId}>{compTitle}</option>;
-                                  })}
-                                </select>
+                                <div className="w-full mt-2 border border-gray-300 rounded p-2 bg-white max-h-32 overflow-y-auto">
+                                  <div className="text-xs text-gray-500 mb-1">Bauteile:</div>
+                                  <div className="space-y-1">
+                                    {localOrder.components?.map((comp) => {
+                                      const compId = comp.id || (comp as any)._id;
+                                      const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
+                                      const isSelected = editSubTaskForm.assignedComponentIds.includes(compId);
+                                      return (
+                                        <label key={compId} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                          <input 
+                                            type="checkbox" 
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: [...editSubTaskForm.assignedComponentIds, compId]});
+                                              } else {
+                                                setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: editSubTaskForm.assignedComponentIds.filter(id => id !== compId)});
+                                              }
+                                            }}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                          />
+                                          <span className="text-gray-800">{compTitle}</span>
+                                        </label>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               )}
                             </div>
                             <div className="flex items-center space-x-2 pt-1">
@@ -1533,8 +1601,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     estimatedHours: parseFloat(editSubTaskForm.estimatedHours) || 0,
                                     assignedTo: editSubTaskForm.assignedTo,
                                     scopeType: editSubTaskForm.scopeType,
-                                    assignedComponentId: editSubTaskForm.assignedComponentId,
-                                    assignedComponentTitle: editSubTaskForm.scopeType === 'order' ? null : (getComponentDisplayById(editSubTaskForm.assignedComponentId) || 'Bauteil')
+                                    assignedComponentIds: editSubTaskForm.assignedComponentIds,
+                                    assignedComponentTitles: editSubTaskForm.scopeType === 'order' ? [] : editSubTaskForm.assignedComponentIds.map(id => getComponentDisplayById(id) || 'Bauteil')
                                   });
                                   setEditingSubTaskId(null);
                                 }}
@@ -1586,7 +1654,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     estimatedHours: subTask.estimatedHours?.toString() || '0',
                                     assignedTo: subTask.assignedTo || null,
                                     scopeType: subTask.scopeType || 'order',
-                                    assignedComponentId: subTask.assignedComponentId || null
+                                    assignedComponentIds: subTask.assignedComponentIds || (subTask.assignedComponentId ? [subTask.assignedComponentId] : [])
                                   });
                                 }}
                                 className="text-blue-600 hover:text-blue-800"
@@ -1659,6 +1727,71 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </div>
                     </div>
 
+                    {subTask.scopeType === 'component' && (
+                      <div className="mt-3">
+                        <div className="space-y-2">
+                          {(subTask.assignedComponentIds && subTask.assignedComponentIds.length > 0) ? (
+                            subTask.assignedComponentIds.map(compId => {
+                              const comp = localOrder.components?.find(c => (c.id || (c as any)._id) === compId);
+                              if (!comp) return null;
+                              return (
+                                <div key={compId} className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 shadow-sm">
+                                  <div className="flex items-center">
+                                    <Wrench className="w-4 h-4 text-gray-500 mr-2" />
+                                    <span className="text-sm font-medium text-gray-800">{comp.title || (comp as any).name || 'Unbenanntes Bauteil'}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setActiveTab('components');
+                                      setTimeout(() => {
+                                        const el = document.getElementById(`component-${compId}`);
+                                        if (el) {
+                                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                          el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+                                          setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2'), 2000);
+                                        }
+                                      }, 100);
+                                    }}
+                                    className="flex items-center text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors font-medium"
+                                  >
+                                    <ArrowRight className="w-3 h-3 mr-1" /> Zum Bauteil
+                                  </button>
+                                </div>
+                              );
+                            })
+                          ) : subTask.assignedComponentId ? (
+                            (() => {
+                              const comp = localOrder.components?.find(c => (c.id || (c as any)._id) === subTask.assignedComponentId);
+                              if (!comp) return null;
+                              return (
+                                <div className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 shadow-sm">
+                                  <div className="flex items-center">
+                                    <Wrench className="w-4 h-4 text-gray-500 mr-2" />
+                                    <span className="text-sm font-medium text-gray-800">{comp.title || (comp as any).name || 'Unbenanntes Bauteil'}</span>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setActiveTab('components');
+                                      setTimeout(() => {
+                                        const el = document.getElementById(`component-${subTask.assignedComponentId}`);
+                                        if (el) {
+                                          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                          el.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2');
+                                          setTimeout(() => el.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2'), 2000);
+                                        }
+                                      }, 100);
+                                    }}
+                                    className="flex items-center text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition-colors font-medium"
+                                  >
+                                    <ArrowRight className="w-3 h-3 mr-1" /> Zum Bauteil
+                                  </button>
+                                </div>
+                              );
+                            })()
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
 
                   </div>
                 ))}

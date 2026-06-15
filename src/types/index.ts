@@ -103,6 +103,8 @@ export interface SubTask {
   scopeType: 'order' | 'component'; // Scope: Gesamtauftrag oder Bauteil
   assignedComponentId?: string | null; // ID des zugewiesenen Bauteils (nur bei scopeType='component')
   assignedComponentTitle?: string | null;
+  assignedComponentIds?: string[]; // IDs der zugewiesenen Bauteile
+  assignedComponentTitles?: string[]; // Titel der zugewiesenen Bauteile
   notes: string;
   documents: PDFDocument[];
   createdAt: Date;
