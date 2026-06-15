@@ -399,6 +399,20 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   };
 
+  const handleViewPDF = (doc: any) => {
+    // We omit cache busters here because adblockers/privacy extensions in Firefox
+    // sometimes block URLs containing tracking-like query parameters like 'cb='.
+    if (doc.id) {
+      const url = `/api/documents/${doc.id}?inline=true`;
+      window.open(url, '_blank');
+    } else if (localOrder.id && doc.name) {
+      const url = `/api/orders/${localOrder.id}/files/${encodeURIComponent(doc.name)}?inline=true`;
+      window.open(url, '_blank');
+    } else if (doc.url) {
+      window.open(doc.url, '_blank');
+    }
+  };
+
   const handleDownload = async (doc: any) => {
     try {
       // Generate a very strong cache-busting identifier
@@ -1166,6 +1180,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                         3D
                                       </button>
                                     )}
+                                    {doc.name.toLowerCase().endsWith('.pdf') && (
+                                      <button
+                                        onClick={() => handleViewPDF(doc)}
+                                        className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                      >
+                                        <Eye className="w-3 h-3 mr-1" />
+                                        Anzeigen
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => handleDownload(doc)}
                                       className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
@@ -1686,13 +1709,24 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 <FileText className="w-4 h-4 text-red-600 mr-2" />
                                 <span className="text-sm text-gray-900">{doc.name}</span>
                               </div>
-                              <button
-                                onClick={() => handleDownload(doc)}
-                                className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
-                              >
-                                <Download className="w-3 h-3 mr-1" />
-                                <span className="text-xs">Download</span>
-                              </button>
+                              <div className="flex items-center space-x-2">
+                                {doc.name.toLowerCase().endsWith('.pdf') && (
+                                  <button
+                                    onClick={() => handleViewPDF(doc)}
+                                    className="text-red-600 hover:text-red-800 transition-colors flex items-center"
+                                  >
+                                    <Eye className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">Anzeigen</span>
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => handleDownload(doc)}
+                                  className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
+                                >
+                                  <Download className="w-3 h-3 mr-1" />
+                                  <span className="text-xs">Download</span>
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>

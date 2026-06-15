@@ -2761,8 +2761,17 @@ app.get('/api/orders/:id/files/:filename', async (req, res) => {
         console.error(`[Download] File access error: ${err.message}`);
         return res.status(404).json({ error: 'Datei nicht verfügbar' });
       }
-      
-      // Strong cache prevention with additional headers
+      if (req.query.inline === 'true') {
+        res.set('Cache-Control', 'public, max-age=3600');
+        if (chosenPath.toLowerCase().endsWith('.pdf')) {
+          res.set('Content-Type', 'application/pdf');
+          res.set('Content-Disposition', 'inline');
+        }
+        console.log(`[Download] Serving inline: ${chosenPath}`);
+        return res.sendFile(chosenPath, { etag: false, lastModified: true });
+      }
+
+      // Strong cache prevention with additional headers (only for downloads)
       res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.set('Pragma', 'no-cache');
       res.set('Expires', '0');
@@ -2777,7 +2786,7 @@ app.get('/api/orders/:id/files/:filename', async (req, res) => {
       res.set('X-File-Path', chosenPath);
       res.set('X-File-Mtime', stats.mtime.toISOString());
       
-      console.log(`[Download] Serving: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
+      console.log(`[Download] Serving download: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
       res.download(chosenPath, filename);
     });
   } catch (err) {
@@ -2836,8 +2845,17 @@ app.get('/api/documents/:id', async (req, res) => {
     }
 
     let uploadsPath = undefined;
-    const pUp = path.join(uploadsDir, path.basename(document.url || ''));
-    if (fs.existsSync(pUp)) uploadsPath = pUp;
+    if (document.url) {
+      const decodedUrl = decodeURIComponent(document.url);
+      if (decodedUrl.startsWith('/uploads/')) {
+        const relativePath = decodedUrl.substring('/uploads/'.length);
+        const pUp = path.join(uploadsDir, relativePath);
+        if (fs.existsSync(pUp)) uploadsPath = pUp;
+      } else {
+        const pUp = path.join(uploadsDir, path.basename(document.url));
+        if (fs.existsSync(pUp)) uploadsPath = pUp;
+      }
+    }
 
     // Choose the newest available file (prefer newer uploads if network is older)
     let chosenPath = undefined;
@@ -2873,8 +2891,17 @@ app.get('/api/documents/:id', async (req, res) => {
         console.error(`[Download by ID] File access error: ${err.message}`);
         return res.status(404).json({ error: 'Datei nicht verfügbar' });
       }
-      
-      // Strong cache prevention with additional headers
+      if (req.query.inline === 'true') {
+        res.set('Cache-Control', 'public, max-age=3600');
+        if (chosenPath.toLowerCase().endsWith('.pdf')) {
+          res.set('Content-Type', 'application/pdf');
+          res.set('Content-Disposition', 'inline');
+        }
+        console.log(`[Download by ID] Serving inline: ${chosenPath}`);
+        return res.sendFile(chosenPath, { etag: false, lastModified: true });
+      }
+
+      // Strong cache prevention with additional headers (only for downloads)
       res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.set('Pragma', 'no-cache');
       res.set('Expires', '0');
@@ -2889,7 +2916,7 @@ app.get('/api/documents/:id', async (req, res) => {
       res.set('X-File-Path', chosenPath);
       res.set('X-File-Mtime', stats.mtime.toISOString());
       
-      console.log(`[Download by ID] Serving: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
+      console.log(`[Download by ID] Serving download: ${chosenPath} (size: ${stats.size}, mtime: ${stats.mtime.toISOString()})`);
       res.download(chosenPath, document.name);
     });
   } catch (err) {

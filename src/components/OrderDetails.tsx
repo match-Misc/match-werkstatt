@@ -219,6 +219,20 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     }
   };
 
+  const handleViewPDF = (doc: any) => {
+    // We omit cache busters here because adblockers/privacy extensions in Firefox
+    // sometimes block URLs containing tracking-like query parameters like 'cb='.
+    if (doc.id) {
+      const url = `/api/documents/${doc.id}?inline=true`;
+      window.open(url, '_blank');
+    } else if (currentOrder.id && doc.name) {
+      const url = `/api/orders/${currentOrder.id}/files/${encodeURIComponent(doc.name)}?inline=true`;
+      window.open(url, '_blank');
+    } else if (doc.url) {
+      window.open(doc.url, '_blank');
+    }
+  };
+
   // Materialstatus aktualisieren (nur für Kunden-Checkbox)
   const handleMaterialStatusUpdate = async (field: 'materialOrderedByClientConfirmed', value: boolean) => {
     try {
@@ -663,9 +677,19 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         {currentOrder.revisionRequest.documents.map((doc) => (
                           <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-100 rounded">
                             <span className="text-sm text-gray-900">{doc.name}</span>
-                            <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 flex items-center text-xs">
-                              <Download className="w-4 h-4 mr-1" />Download
-                            </button>
+                            <div className="flex items-center space-x-2">
+                              {doc.name?.toLowerCase().endsWith('.pdf') && (
+                                <button
+                                  onClick={() => handleViewPDF(doc)}
+                                  className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                >
+                                  <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                </button>
+                              )}
+                              <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 flex items-center text-xs">
+                                <Download className="w-4 h-4 mr-1" />Download
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -782,6 +806,15 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                       >
                                         <Eye className="w-3 h-3 mr-1" />
                                         3D
+                                      </button>
+                                    )}
+                                    {doc.name?.toLowerCase().endsWith('.pdf') && (
+                                      <button
+                                        onClick={() => handleViewPDF(doc)}
+                                        className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                      >
+                                        <Eye className="w-3 h-3 mr-1" />
+                                        Anzeigen
                                       </button>
                                     )}
                                     <button
