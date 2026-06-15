@@ -248,40 +248,79 @@ export class OrderPDFGenerator {
 
   private async addDocumentToMergedPDF(pdfDoc: PDFDocument, document: any, documentType: string): Promise<void> {
     try {
-      // Dokument vom Server laden - korrekter API-Pfad
-      const encodedName = encodeURIComponent(document.name);
-      const response = await fetch(`/api/orders/${this.order.id}/files/${encodedName}`);
+      if (!document.name || !document.name.toLowerCase().endsWith('.pdf')) {
+        // Skip non-PDF files completely (like .stl, .ipt)
+        return;
+      }
+
+      // Construct correct API path (prioritize document.id if available)
+      let fetchUrl = '';
+      if (document.id) {
+        fetchUrl = `/api/documents/${document.id}`;
+      } else if (this.order.id && document.name) {
+        fetchUrl = `/api/orders/${this.order.id}/files/${encodeURIComponent(document.name)}`;
+      } else if (document.url) {
+        fetchUrl = document.url;
+      }
+
+      if (!fetchUrl) {
+        throw new Error('No valid URL found for document');
+      }
+
+      const response = await fetch(fetchUrl);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const docBuffer = await response.arrayBuffer();
-      const docPdf = await PDFDocument.load(docBuffer);
       
-      const docPages = await pdfDoc.copyPages(docPdf, docPdf.getPageIndices());
-      docPages.forEach((page) => pdfDoc.addPage(page));
+      // Instead of copying pages which keeps their original weird sizes,
+      // we embed the PDF and draw it on standard A4 pages.
+      const embeddedPages = await pdfDoc.embedPdf(docBuffer);
+      
+      embeddedPages.forEach((embeddedPage, index) => {
+        // A4 page size
+        const page = pdfDoc.addPage([595.28, 841.89]); 
+        const { width, height } = page.getSize();
+        
+        // Scale the embedded page to fit inside the A4 page (with a small margin)
+        const margin = 40;
+        const availableWidth = width - margin * 2;
+        // Leave more room at the top for the title on the first page
+        const topMargin = index === 0 ? 60 : margin;
+        const availableHeight = height - margin - topMargin;
+        
+        const scale = Math.min(
+          availableWidth / embeddedPage.width, 
+          availableHeight / embeddedPage.height
+        );
+        
+        const scaledWidth = embeddedPage.width * scale;
+        const scaledHeight = embeddedPage.height * scale;
+        
+        // Center the scaled page on the A4 page
+        page.drawPage(embeddedPage, {
+          x: (width - scaledWidth) / 2,
+          y: (height - scaledHeight - topMargin + margin) / 2,
+          width: scaledWidth,
+          height: scaledHeight,
+        });
+
+        if (index === 0) {
+          // Write the document name at the top left of the first page, slightly larger (size 18)
+          page.drawText(`${documentType}: ${document.name}`, {
+            x: margin,
+            y: height - 30,
+            size: 18,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+        }
+      });
 
     } catch (error) {
       console.error(`Fehler beim Hinzufügen des Dokuments ${document.name}:`, error);
-      
-      // Fallback: Eine Seite mit Fehlermeldung hinzufügen
-      const page = pdfDoc.addPage();
-      const { height } = page.getSize();
-      
-      page.drawText(`${documentType}: ${document.name}`, {
-        x: 50,
-        y: height - 100,
-        size: 16,
-        color: rgb(0, 0, 0),
-      });
-      
-      page.drawText('Dokument konnte nicht geladen werden.', {
-        x: 50,
-        y: height - 130,
-        size: 12,
-        color: rgb(0.7, 0, 0),
-      });
+      // We no longer add a fallback error page. If it fails, we simply skip it.
     }
   }
 
