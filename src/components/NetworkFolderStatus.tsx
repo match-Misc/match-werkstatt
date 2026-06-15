@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { FolderOpen, AlertCircle, CheckCircle, FolderPlus, Loader2, Upload } from 'lucide-react';
+import { FolderOpen, AlertCircle, CheckCircle, FolderPlus, Loader2, Upload, Copy } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 interface NetworkFolderStatusProps {
@@ -168,8 +168,20 @@ export default function NetworkFolderStatus({ orderId, orderNumber }: NetworkFol
           </div>
           <div className="ml-3 flex-grow">
             <h3 className="text-sm font-medium text-green-700">Netzwerkordner verfügbar</h3>
-            <div className="mt-2 text-sm text-green-700">
-              <p className="font-mono text-xs">{status.networkPath}</p>
+            <div className="mt-2 text-sm text-green-700 flex items-center space-x-2">
+              <p className="font-mono text-xs break-all">{status.networkPath}</p>
+              <button
+                onClick={() => {
+                  if (status.networkPath) {
+                    navigator.clipboard.writeText(status.networkPath);
+                    dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Pfad in die Zwischenablage kopiert', type: 'success' } });
+                  }
+                }}
+                className="p-1 hover:bg-green-100 rounded text-green-600 transition-colors"
+                title="Pfad kopieren"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
             </div>
             <div className="mt-2">
               <button
@@ -208,7 +220,21 @@ export default function NetworkFolderStatus({ orderId, orderNumber }: NetworkFol
             <h3 className="text-sm font-medium text-yellow-700">Netzwerkordner nicht erstellt</h3>
             <div className="mt-2 text-sm text-yellow-700">
               <p>Der Netzwerkordner wurde noch nicht erstellt. Pfad wäre:</p>
-              <p className="font-mono text-xs mt-1">{status.potentialPath}</p>
+              <div className="flex items-center space-x-2 mt-1">
+                <p className="font-mono text-xs break-all">{status.potentialPath}</p>
+                <button
+                  onClick={() => {
+                    if (status.potentialPath) {
+                      navigator.clipboard.writeText(status.potentialPath);
+                      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Pfad in die Zwischenablage kopiert', type: 'success' } });
+                    }
+                  }}
+                  className="p-1 hover:bg-yellow-100 rounded text-yellow-600 transition-colors"
+                  title="Pfad kopieren"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div className="mt-2">
               <button

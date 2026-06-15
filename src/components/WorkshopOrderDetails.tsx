@@ -12,7 +12,13 @@ import {
   Download,
   Printer,
   Server,
-  Eye
+  Eye,
+  Box,
+  PenTool,
+  Edit2,
+  Save,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
@@ -30,6 +36,11 @@ interface WorkshopOrderDetailsProps {
 export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDetailsProps) {
   const { state, dispatch } = useApp();
   const [localOrder, setLocalOrder] = useState(order);
+
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
+  const [autoCalculateHours, setAutoCalculateHours] = useState(true);
+  const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
+  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentId: string | null}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentId: null});
 
   const [estimatedHours, setEstimatedHours] = useState(localOrder.estimatedHours?.toString() || '0');
   const [actualHours, setActualHours] = useState(localOrder.actualHours?.toString() || '0');
@@ -59,19 +70,30 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     return /\.stl$/i.test(fileName);
   };
 
+  const isIPTFile = (fileName: string) => {
+    return /\.(ipt|iam)$/i.test(fileName);
+  };
+
+  const isDWGFile = (fileName: string) => {
+    return /\.dwg$/i.test(fileName);
+  };
+
   const getFileIcon = (fileName: string, className = "w-5 h-5") => {
     if (isSTLFile(fileName)) return <Server className={`${className} text-purple-600`} />;
+    if (isIPTFile(fileName)) return <Box className={`${className} text-orange-500`} />;
+    if (isDWGFile(fileName)) return <PenTool className={`${className} text-blue-500`} />;
     return <FileText className={`${className} text-red-600`} />;
   };
 
   const getFileTypeDescription = (fileName: string) => {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
+    if (isIPTFile(fileName)) return 'CAD-Modell (IPT/IAM)';
+    if (isDWGFile(fileName)) return 'Zeichnung (DWG)';
     return 'PDF-Dokument';
   };
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
   const [revisionComment, setRevisionComment] = useState('');
   const [revisionError, setRevisionError] = useState('');
-  const [titleImageUrl, setTitleImageUrl] = useState('');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showNetworkFolder, setShowNetworkFolder] = useState(false);
 
@@ -109,15 +131,11 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   }, [state.orders, order.id]);
 
+  // Sync hours to local input states when they are updated externally (e.g. from subtasks)
   useEffect(() => {
-    if (localOrder.titleImage && localOrder.titleImage.hasImage) {
-      // Append a timestamp to break browser cache when the image is updated
-      const url = `/api/orders/${localOrder.id}/title-image?t=${new Date().getTime()}`;
-      setTitleImageUrl(url);
-    } else {
-      setTitleImageUrl('');
-    }
-  }, [localOrder.titleImage, localOrder.id]);
+    setEstimatedHours(localOrder.estimatedHours?.toString() || '0');
+    setActualHours(localOrder.actualHours?.toString() || '0');
+  }, [localOrder.estimatedHours, localOrder.actualHours]);
 
   // Wrapper, um Änderungen zu sammeln
   const handleFieldChange = (field: keyof Order, value: any) => {
@@ -264,47 +282,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     setRevisionComment('');
   };
 
-  const handleTitleImageUpload = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-      const response = await fetch(`/api/orders/${localOrder.id}/upload-title-image`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: `Fehler: ${errorData.error || 'Unbekannt'}`, type: 'error' } });
-        return;
-      }
-
-      // Da das Bild jetzt über einen separaten Endpunkt geladen wird,
-      // müssen wir die URL im lokalen State "künstlich" erzeugen, um eine Neuanzeige zu triggern.
-      // Ein Zeitstempel sorgt für einen einzigartigen Wert.
-      const updatedOrderFromServer = await response.json();
-      setLocalOrder(updatedOrderFromServer);
-
-      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Titelbild erfolgreich aktualisiert.', type: 'success' } });
-
-    } catch (err) {
-      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Netzwerkfehler beim Upload des Titelbildes.', type: 'error' } });
-    }
-  };
-
-  const handleTitleImageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleTitleImageUpload(e.target.files[0]);
-    }
-  };
-
-  const removeTitleImage = async () => {
-    // Create a payload with just the change
-    const payload = { titleImage: null };
-    updateOrder(payload, 'Titelbild entfernt.');
-  };
-
   const handleArchive = async () => {
     // Prüfe ob Endabnahme durch WiMi erfolgt ist (confirmationDate muss gesetzt sein)
     if (!localOrder.confirmationDate) {
@@ -365,14 +342,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       updatedAt: new Date()
     };
     const nextSubTasks = [...localOrder.subTasks, newSubTask];
-    const autoHours = calculateHoursFromSubTasks(nextSubTasks);
     const updatedOrder = {
       ...localOrder,
       subTasks: nextSubTasks,
-      estimatedHours: autoHours.estimatedHours,
-      actualHours: autoHours.actualHours,
       updatedAt: new Date()
     };
+    if (autoCalculateHours) {
+      const autoHours = calculateHoursFromSubTasks(nextSubTasks);
+      updatedOrder.estimatedHours = autoHours.estimatedHours;
+      updatedOrder.actualHours = autoHours.actualHours;
+    }
     await updateOrder(updatedOrder, 'Unteraufgabe wurde erfolgreich hinzugefügt');
     setSubTaskTitle('');
     setSubTaskDescription('');
@@ -391,28 +370,32 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       updatedAt: new Date()
     };
     const nextSubTasks = localOrder.subTasks.map(st => st.id === subTask.id ? updatedSubTask : st);
-    const autoHours = calculateHoursFromSubTasks(nextSubTasks);
     const updatedOrder = {
       ...localOrder,
       subTasks: nextSubTasks,
-      estimatedHours: autoHours.estimatedHours,
-      actualHours: autoHours.actualHours,
       updatedAt: new Date()
     };
+    if (autoCalculateHours) {
+      const autoHours = calculateHoursFromSubTasks(nextSubTasks);
+      updatedOrder.estimatedHours = autoHours.estimatedHours;
+      updatedOrder.actualHours = autoHours.actualHours;
+    }
     await updateOrder(updatedOrder, 'Unteraufgabe aktualisiert');
   };
 
   const handleDeleteSubTask = async (subTaskId: string) => {
     if (confirm('Sind Sie sicher, dass Sie diese Unteraufgabe löschen möchten?')) {
       const nextSubTasks = localOrder.subTasks.filter(st => st.id !== subTaskId);
-      const autoHours = calculateHoursFromSubTasks(nextSubTasks);
       const updatedOrder = {
         ...localOrder,
         subTasks: nextSubTasks,
-        estimatedHours: autoHours.estimatedHours,
-        actualHours: autoHours.actualHours,
         updatedAt: new Date()
       };
+      if (autoCalculateHours) {
+        const autoHours = calculateHoursFromSubTasks(nextSubTasks);
+        updatedOrder.estimatedHours = autoHours.estimatedHours;
+        updatedOrder.actualHours = autoHours.actualHours;
+      }
       await updateOrder(updatedOrder, 'Unteraufgabe gelöscht');
     }
   };
@@ -493,6 +476,24 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       }
     } catch (error) {
       console.error('Download error:', error);
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'high': return 'bg-red-100 text-red-800 border-red-200';
+      case 'medium': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'low': return 'bg-green-100 text-green-800 border-green-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getPriorityText = (priority: string) => {
+    switch (priority) {
+      case 'high': return 'Hoch';
+      case 'medium': return 'Mittel';
+      case 'low': return 'Niedrig';
+      default: return priority;
     }
   };
 
@@ -647,376 +648,123 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           </div>
         </div>
 
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Linke Spalte: Auftragsdetails */}
-            <div className="md:col-span-2 space-y-6">
+        {/* Tabs Navigation */}
+        <div className="border-b border-gray-200 bg-gray-50 px-6">
+          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`${
+                activeTab === 'dashboard'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('components')}
+              className={`${
+                activeTab === 'components'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Bauteilübersicht
+            </button>
+            <button
+              onClick={() => setActiveTab('subtasks')}
+              className={`${
+                activeTab === 'subtasks'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Unteraufgaben
+            </button>
+            <button
+              onClick={() => setActiveTab('internal_files')}
+              className={`${
+                activeTab === 'internal_files'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Interne Dateien
+            </button>
+          </nav>
+        </div>
 
-              {/* Titelbild Sektion */}
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Titelbild</h3>
-                <div className="flex items-center gap-6">
-                  {titleImageUrl ? (
-                    <img 
-                      src={titleImageUrl} 
-                      alt="Titelbild" 
-                      className="w-32 h-32 object-cover rounded-lg shadow-md"
-                      onError={() => {
-                        console.error('Image failed to load:', titleImageUrl);
-                        setTitleImageUrl(''); // Clear the URL on error
-                      }}
-                      onLoad={() => {
-                        // Image loaded successfully
-                      }}
-                    />
-                  ) : (
-                    <div className="w-32 h-32 bg-gray-200 rounded-lg flex items-center justify-center text-gray-500 text-center p-2">
-                      Kein Titelbild
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="title-image-input" className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm text-center">
-                      {titleImageUrl ? 'Bild ändern' : 'Bild hochladen'}
-                    </label>
-                    <input
-                      id="title-image-input"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleTitleImageInputChange}
-                    />
-                    {titleImageUrl && (
-                      <button
-                        onClick={removeTitleImage}
-                        className="text-sm text-red-600 hover:text-red-800"
-                      >
-                        Entfernen
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
+        <div className="p-6">
+          {/* Dashboard Tab */}
+          <div className={activeTab === 'dashboard' ? 'block' : 'hidden'}>
+            <div className="space-y-6">
 
               {/* Auftragsinformationen */}
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm text-gray-600">Status:</span>
-                    <span className={`block px-2 py-1 text-xs rounded-full ${getStatusColor(localOrder.status)}`}>
-                      {getStatusText(localOrder.status)}
-                    </span>
+                <div className="flex flex-col gap-4">
+                  {/* Obere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Auftraggeber:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Deadline:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Auftraggeber:</span>
-                    <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Deadline:</span>
-                    <span className="text-sm font-medium text-gray-900">
-                      {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Kostenstelle:</span>
-                    <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Priorität:</span>
-                    <span className="text-sm font-medium text-gray-900">{localOrder.priority}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Netzwerkordner-Status */}
-              <div className="mt-4">
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Netzwerkordner-Status</h4>
-                <NetworkFolderStatus 
-                  orderId={localOrder.id}
-                  orderNumber={localOrder.orderNumber}
-                />
-              </div>
-
-              {/* Netzwerkdateien */}
-              <div className="mt-4">
-                <NetworkFilesViewer 
-                  orderId={localOrder.id}
-                />
-              </div>
-
-              <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
-                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{localOrder.description}</p>
-              </div>
-
-              {/* Revision History (Werkstatt an Kunde) */}
-              {localOrder.revisionHistory && Array.isArray(localOrder.revisionHistory) && localOrder.revisionHistory.length > 0 && (
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">Werkstatt-Kommentare</h4>
-                  <div className="space-y-3 bg-orange-50 rounded-lg p-4 border border-orange-200">
-                    {localOrder.revisionHistory.map((entry: any, index: number) => (
-                      <div key={index} className="p-3 bg-white rounded-md shadow-sm">
-                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.comment}</p>
-                        <p className="text-xs text-gray-500 mt-2">
-                          <strong>{entry.userName}</strong> am {new Date(entry.createdAt).toLocaleString('de-DE')}
-                        </p>
-                      </div>
-                    ))}
+                  {/* Untere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Status:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(localOrder.status)}`}>
+                        {getStatusText(localOrder.status)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Priorität:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium ${getPriorityColor(localOrder.priority)}`}>
+                        {getPriorityText(localOrder.priority)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              )}
-
-              {/* Rework Comments (Kunde an Werkstatt) */}
-              {localOrder.reworkComments && Array.isArray(localOrder.reworkComments) && localOrder.reworkComments.length > 0 && (
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">Kunden-Kommentare zur Nacharbeit</h4>
-                  <div className="space-y-3 bg-blue-50 rounded-lg p-4 border border-blue-200">
-                    {localOrder.reworkComments.map((entry: any, index: number) => (
-                      <div key={index} className="p-3 bg-white rounded-md shadow-sm">
-                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.comment}</p>
-                        <p className="text-xs text-gray-500 mt-2">
-                          <strong>{entry.userName}</strong> am {new Date(entry.createdAt).toLocaleString('de-DE')}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Dokumente</h4>
-                {localOrder.documents && localOrder.documents.length > 0 ? (
-                  <div className="space-y-2">
-                    {localOrder.documents.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center">
-                          {getFileIcon(doc.name)}
-                          <div className="ml-3">
-                            <span className="text-sm text-gray-900">{doc.name}</span>
-                            <div className="text-xs text-gray-500 mt-1">
-                              {getFileTypeDescription(doc.name)}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          {isSTLFile(doc.name) && (
-                            <button
-                              onClick={() => toggleSTLViewer(doc.id)}
-                              className="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded transition-colors"
-                              title="3D-Ansicht"
-                            >
-                              <Server className="w-3 h-3 mr-1" />
-                              {showSTLViewers[doc.id] ? '3D ausblenden' : '3D anzeigen'}
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDownload(doc)}
-                            className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
-                          >
-                            <Download className="w-4 h-4 mr-1" />
-                            <span className="text-sm">Download</span>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    
-                    {/* STL Viewers */}
-                    {localOrder.documents
-                      .filter(doc => isSTLFile(doc.name) && showSTLViewers[doc.id])
-                      .map((doc) => (
-                        <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
-                          <STLViewer
-                            fileUrl={`${doc.url}`}
-                            fileName={doc.name}
-                            className="w-full"
-                            showControls={true}
-                          />
-                        </div>
-                      ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm">Keine Dokumente hochgeladen</p>
-                )}
               </div>
 
-              {/* Bauteile-Bereich */}
-              {localOrder.components && localOrder.components.length > 0 && (
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">Bauteile</h4>
-                  <div className="space-y-4">
-                    {localOrder.components.map((component) => {
-                      // Use _id if id is not available (backwards compatibility)
-                      const componentId = component.id || (component as any)._id;
-                      // Use title if available, otherwise name (backwards compatibility)  
-                      const componentTitle = component.title || (component as any).name || 'Unbenanntes Bauteil';
-                      return (
-                      <div key={componentId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                        <div className="mb-3">
-                          <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
-                          <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                            <span>Anzahl: {component.quantity || 1}</span>
-                            {component.material && <span>Material: {component.material}</span>}
-                          </div>
-                          {component.description && (
-                            <p className="text-gray-600 text-sm mt-2">{component.description}</p>
-                          )}
-                        </div>
-                        
-                        {component.documents && component.documents.length > 0 && (
-                          <div>
-                            <h6 className="text-xs font-medium text-gray-700 mb-2">Dokumente:</h6>
-                            <div className="space-y-1">
-                              {component.documents.map((doc) => (
-                                <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
-                                  <div className="flex items-center">
-                                    {getFileIcon(doc.name)}
-                                    <div className="ml-2">
-                                      <span className="text-gray-900">{doc.name}</span>
-                                      <div className="text-xs text-gray-500">
-                                        {getFileTypeDescription(doc.name)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center space-x-2">
-                                    {isSTLFile(doc.name) && (
-                                      <button
-                                        onClick={() => toggleSTLViewer(doc.id)}
-                                        className="text-purple-600 hover:text-purple-800 transition-colors flex items-center text-xs"
-                                      >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        3D
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleDownload(doc)}
-                                      className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
-                                    >
-                                      <Download className="w-3 h-3 mr-1" />
-                                      Download
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                              
-                              {/* STL Viewers für Component Documents */}
-                              {component.documents
-                                .filter(doc => isSTLFile(doc.name) && showSTLViewers[doc.id])
-                                .map((doc) => (
-                                  <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
-                                    <STLViewer
-                                      fileUrl={`${doc.url}`}
-                                      fileName={doc.name}
-                                      className="w-full"
-                                      showControls={true}
-                                    />
-                                  </div>
-                                ))}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Component Upload Section */}
-                        <div className="mt-3 pt-3 border-t border-gray-200">
-                          <button
-                            onClick={() => {
-                              if (showComponentUpload && activeComponentId === componentId) {
-                                setShowComponentUpload(false);
-                                setActiveComponentId(null);
-                              } else {
-                                setShowComponentUpload(true);
-                                setActiveComponentId(componentId);
-                              }
-                            }}
-                            className="flex items-center text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            {showComponentUpload && activeComponentId === componentId ? (
-                              <><X className="w-3 h-3 mr-1" /> Abbrechen</>
-                            ) : (
-                              <><Plus className="w-3 h-3 mr-1" /> Datei hochladen</>
-                            )}
-                          </button>
-                          
-                          {showComponentUpload && activeComponentId === componentId && (
-                            <div className="mt-3">
-                              <NetworkDragDropUpload
-                                orderId={localOrder.id}
-                                uploadType="document"
-                                targetFolder="Bauteile"
-                                onUploadSuccess={(fileName) => {
-                                  setShowComponentUpload(false);
-                                  setActiveComponentId(null);
-                                  dispatch({
-                                    type: 'SHOW_NOTIFICATION',
-                                    payload: {
-                                      message: `Bauteil-Dokument "${fileName}" erfolgreich hochgeladen`,
-                                      type: 'success'
-                                    }
-                                  });
-                                  
-                                  // Reload order to get updated components with documents
-                                  fetch(`/api/orders/${localOrder.id}`)
-                                    .then(response => response.json())
-                                    .then(updatedOrder => {
-                                      dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
-                                      setLocalOrder(updatedOrder);
-                                      // Dokumente und Komponenten zu changedFields hinzufügen
-                                      setChangedFields(prev => ({
-                                        ...prev,
-                                        documents: updatedOrder.documents,
-                                        components: updatedOrder.components
-                                      }));
-                                    })
-                                    .catch(error => {
-                                      console.error('Error reloading order:', error);
-                                    });
-                                }}
-                                onUploadError={(error) => {
-                                  dispatch({
-                                    type: 'SHOW_NOTIFICATION',
-                                    payload: {
-                                      message: `Upload-Fehler: ${error}`,
-                                      type: 'error'
-                                    }
-                                  });
-                                }}
-                              />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
+              <hr className="border-t border-gray-200" />
             {/* Right Column */}
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Arbeitsbereich</h3>
                 
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Zugewiesen an
-                    </label>
-                    <select
-                      value={assignedTo}
-                      onChange={(e) => handleFieldChange('assignedTo', e.target.value || null)}
-                      disabled={!canModify && state.currentUser?.role !== 'admin'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                    >
-                      <option value="">Nicht zugewiesen</option>
-                      {state.workshopAccounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Zugewiesen an
+                      </label>
+                      <select
+                        value={assignedTo}
+                        onChange={(e) => handleFieldChange('assignedTo', e.target.value || null)}
+                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                      >
+                        <option value="">Nicht zugewiesen</option>
+                        {state.workshopAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Geschätzte Stunden
@@ -1024,13 +772,17 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <input
                         type="number"
                         value={estimatedHours}
-                        onChange={(e) => handleFieldChange('estimatedHours', e.target.value)}
-                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        onChange={(e) => {
+                          setAutoCalculateHours(false);
+                          handleFieldChange('estimatedHours', e.target.value);
+                        }}
+                        disabled={(!canModify && state.currentUser?.role !== 'admin') || autoCalculateHours}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                         min="0"
                         step="0.5"
                       />
                     </div>
+
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Tatsächliche Stunden
@@ -1038,12 +790,37 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <input
                         type="number"
                         value={actualHours}
-                        onChange={(e) => handleFieldChange('actualHours', e.target.value)}
-                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        onChange={(e) => {
+                          setAutoCalculateHours(false);
+                          handleFieldChange('actualHours', e.target.value);
+                        }}
+                        disabled={(!canModify && state.currentUser?.role !== 'admin') || autoCalculateHours}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                         min="0"
                         step="0.5"
                       />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1 invisible">
+                        Auto
+                      </label>
+                      <button
+                        onClick={() => {
+                          const newValue = !autoCalculateHours;
+                          setAutoCalculateHours(newValue);
+                          if (newValue && localOrder.subTasks) {
+                            const autoSum = calculateHoursFromSubTasks(localOrder.subTasks);
+                            handleFieldChange('estimatedHours', autoSum.estimatedHours.toString());
+                            handleFieldChange('actualHours', autoSum.actualHours.toString());
+                          }
+                        }}
+                        className="flex items-center justify-center h-[42px] text-sm font-medium text-gray-900 hover:text-gray-700 transition-colors w-full"
+                        title="Stunden automatisch aus Unteraufgaben berechnen"
+                      >
+                        {autoCalculateHours ? <ToggleRight className="w-8 h-8 mr-2 text-blue-600" /> : <ToggleLeft className="w-8 h-8 mr-2 text-gray-400" />}
+                        Auto-Berechnung
+                      </button>
                     </div>
                   </div>
 
@@ -1256,8 +1033,254 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                 </div>
               )}
             </div>
+
+              <div>
+                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
+                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{localOrder.description}</p>
+              </div>
+
+              {/* Revision History (Werkstatt an Kunde) */}
+              {localOrder.revisionHistory && Array.isArray(localOrder.revisionHistory) && localOrder.revisionHistory.length > 0 && (
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900 mb-2">Werkstatt-Kommentare</h4>
+                  <div className="space-y-3 bg-orange-50 rounded-lg p-4 border border-orange-200">
+                    {localOrder.revisionHistory.map((entry: any, index: number) => (
+                      <div key={index} className="p-3 bg-white rounded-md shadow-sm">
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.comment}</p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          <strong>{entry.userName}</strong> am {new Date(entry.createdAt).toLocaleString('de-DE')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Rework Comments (Kunde an Werkstatt) */}
+              {localOrder.reworkComments && Array.isArray(localOrder.reworkComments) && localOrder.reworkComments.length > 0 && (
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900 mb-2">Kunden-Kommentare zur Nacharbeit</h4>
+                  <div className="space-y-3 bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    {localOrder.reworkComments.map((entry: any, index: number) => (
+                      <div key={index} className="p-3 bg-white rounded-md shadow-sm">
+                        <p className="text-sm text-gray-800 whitespace-pre-wrap">{entry.comment}</p>
+                        <p className="text-xs text-gray-500 mt-2">
+                          <strong>{entry.userName}</strong> am {new Date(entry.createdAt).toLocaleString('de-DE')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div> {/* End Dashboard Tab */}
+
+
+
+          {/* Internal Files Tab */}
+          <div className={activeTab === 'internal_files' ? 'block' : 'hidden'}>
+            <div className="space-y-6">
+              <div>
+                <NetworkFilesViewer orderId={localOrder.id} />
+              </div>
+
+      {/* Dateiupload Bereich */}
+      <div className="mt-6 border-t pt-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Dateiupload</h3>
+        <NetworkDragDropUpload
+          orderId={localOrder.id}
+          uploadType="cam"
+          targetFolder="Dateien"
+          onUploadSuccess={(fileName) => {
+            dispatch({
+              type: 'SHOW_NOTIFICATION',
+              payload: {
+                message: `Datei "${fileName}" erfolgreich hochgeladen`,
+                type: 'success'
+              }
+            });
+            
+            // Reload order to update documents
+            fetch(`/api/orders/${localOrder.id}`)
+              .then(response => response.json())
+              .then(data => {
+                setLocalOrder(data);
+              })
+              .catch(error => {
+                console.error('Error reloading order:', error);
+              });
+          }}
+          onUploadError={(error) => {
+            dispatch({
+              type: 'SHOW_NOTIFICATION',
+              payload: {
+                message: `Upload-Fehler: ${error}`,
+                type: 'error'
+              }
+            });
+          }}
+        />
+      </div>
+
+            </div>
+          </div>
+          {/* Components Tab */}
+          <div className={activeTab === 'components' ? 'block' : 'hidden'}>
+              {/* Bauteile-Bereich */}
+              {localOrder.components && localOrder.components.length > 0 && (
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900 mb-2">Bauteile</h4>
+                  <div className="space-y-4">
+                    {localOrder.components.map((component) => {
+                      // Use _id if id is not available (backwards compatibility)
+                      const componentId = component.id || (component as any)._id;
+                      // Use title if available, otherwise name (backwards compatibility)  
+                      const componentTitle = component.title || (component as any).name || 'Unbenanntes Bauteil';
+                      return (
+                      <div key={componentId} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                        <div className="mb-3">
+                          <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
+                          <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                            <span>Anzahl: {component.quantity || 1}</span>
+                            {component.material && <span>Material: {component.material}</span>}
+                          </div>
+                          {component.description && (
+                            <p className="text-gray-600 text-sm mt-2">{component.description}</p>
+                          )}
+                        </div>
+                        
+                        {component.documents && component.documents.length > 0 && (
+                          <div>
+                            <h6 className="text-xs font-medium text-gray-700 mb-2">Dokumente:</h6>
+                            <div className="space-y-1">
+                              {component.documents.map((doc) => (
+                                <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
+                                  <div className="flex items-center">
+                                    {getFileIcon(doc.name)}
+                                    <div className="ml-2">
+                                      <span className="text-gray-900">{doc.name}</span>
+                                      <div className="text-xs text-gray-500">
+                                        {getFileTypeDescription(doc.name)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                    {isSTLFile(doc.name) && (
+                                      <button
+                                        onClick={() => toggleSTLViewer(doc.id)}
+                                        className="text-purple-600 hover:text-purple-800 transition-colors flex items-center text-xs"
+                                      >
+                                        <Eye className="w-3 h-3 mr-1" />
+                                        3D
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleDownload(doc)}
+                                      className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
+                                    >
+                                      <Download className="w-3 h-3 mr-1" />
+                                      Download
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                              
+                              {/* STL Viewers für Component Documents */}
+                              {component.documents
+                                .filter(doc => isSTLFile(doc.name) && showSTLViewers[doc.id])
+                                .map((doc) => (
+                                  <div key={`viewer-${doc.id}`} className="mt-2 p-4 bg-gray-50 rounded-lg">
+                                    <STLViewer
+                                      fileUrl={`${doc.url}`}
+                                      fileName={doc.name}
+                                      className="w-full"
+                                      showControls={true}
+                                    />
+                                  </div>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Component Upload Section */}
+                        <div className="mt-3 pt-3 border-t border-gray-200">
+                          <button
+                            onClick={() => {
+                              if (showComponentUpload && activeComponentId === componentId) {
+                                setShowComponentUpload(false);
+                                setActiveComponentId(null);
+                              } else {
+                                setShowComponentUpload(true);
+                                setActiveComponentId(componentId);
+                              }
+                            }}
+                            className="flex items-center text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            {showComponentUpload && activeComponentId === componentId ? (
+                              <><X className="w-3 h-3 mr-1" /> Abbrechen</>
+                            ) : (
+                              <><Plus className="w-3 h-3 mr-1" /> Datei hochladen</>
+                            )}
+                          </button>
+                          
+                          {showComponentUpload && activeComponentId === componentId && (
+                            <div className="mt-3">
+                              <NetworkDragDropUpload
+                                orderId={localOrder.id}
+                                uploadType="document"
+                                targetFolder="Bauteile"
+                                onUploadSuccess={(fileName) => {
+                                  setShowComponentUpload(false);
+                                  setActiveComponentId(null);
+                                  dispatch({
+                                    type: 'SHOW_NOTIFICATION',
+                                    payload: {
+                                      message: `Bauteil-Dokument "${fileName}" erfolgreich hochgeladen`,
+                                      type: 'success'
+                                    }
+                                  });
+                                  
+                                  // Reload order to get updated components with documents
+                                  fetch(`/api/orders/${localOrder.id}`)
+                                    .then(response => response.json())
+                                    .then(updatedOrder => {
+                                      dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
+                                      setLocalOrder(updatedOrder);
+                                      // Dokumente und Komponenten zu changedFields hinzufügen
+                                      setChangedFields(prev => ({
+                                        ...prev,
+                                        documents: updatedOrder.documents,
+                                        components: updatedOrder.components
+                                      }));
+                                    })
+                                    .catch(error => {
+                                      console.error('Error reloading order:', error);
+                                    });
+                                }}
+                                onUploadError={(error) => {
+                                  dispatch({
+                                    type: 'SHOW_NOTIFICATION',
+                                    payload: {
+                                      message: `Upload-Fehler: ${error}`,
+                                      type: 'error'
+                                    }
+                                  });
+                                }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
           </div>
 
+
+          {/* Subtasks Tab */}
+          <div className={activeTab === 'subtasks' ? 'block' : 'hidden'}>
           {/* Sub-tasks Section */}
           <div className="mt-8 border-t pt-6">
             <div className="flex justify-between items-center mb-4">
@@ -1433,22 +1456,153 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   <div key={subTask.id} className="bg-gray-50 rounded-lg p-4">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1">
-                        <h4 className="font-medium text-gray-900">{subTask.title}</h4>
-                        <p className="text-sm text-gray-600 mt-1">{subTask.description}</p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                          {getStatusText(subTask.status)}
-                        </span>
-                        {(canModify || state.currentUser?.role === 'admin') && (
-                          <button
-                            onClick={() => handleDeleteSubTask(subTask.id)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        {editingSubTaskId === subTask.id ? (
+                          <div className="space-y-2 pr-4">
+                            <input
+                              type="text"
+                              value={editSubTaskForm.title}
+                              onChange={e => setEditSubTaskForm({ ...editSubTaskForm, title: e.target.value })}
+                              className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                              placeholder="Titel"
+                            />
+                            <textarea
+                              value={editSubTaskForm.description}
+                              onChange={e => setEditSubTaskForm({ ...editSubTaskForm, description: e.target.value })}
+                              className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                              placeholder="Beschreibung"
+                              rows={2}
+                            />
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {/* Zuweisung */}
+                              <select
+                                value={editSubTaskForm.assignedTo || ''}
+                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, assignedTo: e.target.value || null})}
+                                className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Mitarbeiter auswählen</option>
+                                {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map((account) => (
+                                  <option key={account.id} value={account.id}>{account.name}</option>
+                                ))}
+                              </select>
+
+                              {/* Scope */}
+                              <select
+                                value={editSubTaskForm.scopeType}
+                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, scopeType: e.target.value as 'order' | 'component', assignedComponentId: e.target.value === 'order' ? null : editSubTaskForm.assignedComponentId})}
+                                className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="order">Gesamtauftrag</option>
+                                <option value="component">Bauteil</option>
+                              </select>
+
+                              {/* Component (if scope == component) */}
+                              {editSubTaskForm.scopeType === 'component' && (
+                                <select
+                                  value={editSubTaskForm.assignedComponentId || ''}
+                                  onChange={(e) => setEditSubTaskForm({...editSubTaskForm, assignedComponentId: e.target.value || null})}
+                                  className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="">Bauteil auswählen</option>
+                                  {localOrder.components?.map((comp) => {
+                                    const compId = comp.id || (comp as any)._id;
+                                    const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
+                                    return <option key={compId} value={compId}>{compTitle}</option>;
+                                  })}
+                                </select>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-2 pt-1">
+                              <label className="text-sm text-gray-600">Geschätzte Stunden:</label>
+                              <input
+                                type="number"
+                                value={editSubTaskForm.estimatedHours}
+                                onChange={e => setEditSubTaskForm({ ...editSubTaskForm, estimatedHours: e.target.value })}
+                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                min="0"
+                                step="0.5"
+                              />
+                            </div>
+                            <div className="flex space-x-2 pt-2">
+                              <button
+                                onClick={() => {
+                                  handleUpdateSubTask(subTask, {
+                                    title: editSubTaskForm.title,
+                                    description: editSubTaskForm.description,
+                                    estimatedHours: parseFloat(editSubTaskForm.estimatedHours) || 0,
+                                    assignedTo: editSubTaskForm.assignedTo,
+                                    scopeType: editSubTaskForm.scopeType,
+                                    assignedComponentId: editSubTaskForm.assignedComponentId,
+                                    assignedComponentTitle: editSubTaskForm.scopeType === 'order' ? null : (getComponentDisplayById(editSubTaskForm.assignedComponentId) || 'Bauteil')
+                                  });
+                                  setEditingSubTaskId(null);
+                                }}
+                                className="flex items-center px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                              >
+                                <Save className="w-3 h-3 mr-1" /> Speichern
+                              </button>
+                              <button
+                                onClick={() => setEditingSubTaskId(null)}
+                                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+                              >
+                                Abbrechen
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <h4 className="font-medium text-gray-900">{subTask.title}</h4>
+                            <p className="text-sm text-gray-600 mt-1">{subTask.description}</p>
+                          </>
                         )}
                       </div>
+                      {editingSubTaskId !== subTask.id && (
+                        <div className="flex items-center space-x-3">
+                          {canModify || state.currentUser?.role === 'admin' || subTask.assignedTo === state.currentUser?.id ? (
+                            <select
+                              value={subTask.status}
+                              onChange={(e) => handleUpdateSubTask(subTask, { status: e.target.value as SubTask['status'] })}
+                              className={`text-xs px-2 py-1 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${getStatusColor(subTask.status)}`}
+                              style={{ border: 'none' }}
+                            >
+                              <option value="pending" className="bg-white text-gray-900">Ausstehend</option>
+                              <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
+                              <option value="completed" className="bg-white text-gray-900">Abgeschlossen</option>
+                            </select>
+                          ) : (
+                            <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(subTask.status)}`}>
+                              {getStatusText(subTask.status)}
+                            </span>
+                          )}
+                          {(canModify || state.currentUser?.role === 'admin') && (
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => {
+                                  setEditingSubTaskId(subTask.id);
+                                  setEditSubTaskForm({
+                                    title: subTask.title,
+                                    description: subTask.description || '',
+                                    estimatedHours: subTask.estimatedHours?.toString() || '0',
+                                    assignedTo: subTask.assignedTo || null,
+                                    scopeType: subTask.scopeType || 'order',
+                                    assignedComponentId: subTask.assignedComponentId || null
+                                  });
+                                }}
+                                className="text-blue-600 hover:text-blue-800"
+                                title="Bearbeiten"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSubTask(subTask.id)}
+                                className="text-red-600 hover:text-red-800"
+                                title="Löschen"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                     
                     {/* Subtask Documents */}
@@ -1478,11 +1632,22 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     <div className="grid grid-cols-3 gap-4 text-sm mb-3">
                       <div>
                         <span className="text-gray-600">Geschätzt: </span>
-                        <span className="font-medium">{subTask.estimatedHours}h</span>
+                        <span className="font-medium">
+                          {editingSubTaskId === subTask.id ? editSubTaskForm.estimatedHours : subTask.estimatedHours}h
+                        </span>
                       </div>
-                      <div>
-                        <span className="text-gray-600">Tatsächlich: </span>
-                        <span className="font-medium">{subTask.actualHours}h</span>
+                      <div className="flex items-center">
+                        <span className="text-gray-600 mr-2">Tatsächlich: </span>
+                        <input
+                          type="number"
+                          value={subTask.actualHours}
+                          onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
+                          disabled={!canModify && state.currentUser?.role !== 'admin' && subTask.assignedTo !== state.currentUser?.id}
+                          className="w-16 text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
+                          min="0"
+                          step="0.5"
+                        />
+                        <span className="text-gray-600 ml-1">h</span>
                       </div>
                       <div>
                         <span className="text-gray-600">Zugewiesen: </span>
@@ -1492,94 +1657,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center">
-                      <div className="flex space-x-2 flex-wrap">
-                        {/* Mitarbeiter-Zuweisung (Pflichtfeld) */}
-                        <select
-                          value={subTask.assignedTo || ''}
-                          onChange={(e) => handleUpdateSubTask(subTask, { assignedTo: e.target.value || null })}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
-                        >
-                          <option value="">Mitarbeiter auswählen</option>
-                          {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map((account) => (
-                            <option key={account.id} value={account.id}>
-                              {account.name}
-                            </option>
-                          ))}
-                        </select>
-                        
-                        {/* Scope-Auswahl */}
-                        <select
-                          value={subTask.scopeType || 'order'}
-                          onChange={(e) => {
-                            const newScopeType = e.target.value as 'order' | 'component';
-                            let updates: Partial<SubTask> = { 
-                              scopeType: newScopeType,
-                              assignedComponentId: newScopeType === 'order' ? null : subTask.assignedComponentId,
-                              assignedComponentTitle: newScopeType === 'order'
-                                ? null
-                                : (getComponentDisplayById(subTask.assignedComponentId) || subTask.assignedComponentTitle || 'Bauteil')
-                            };
-                            handleUpdateSubTask(subTask, updates);
-                          }}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
-                        >
-                          <option value="order">Gesamtauftrag</option>
-                          <option value="component">Bauteil</option>
-                        </select>
-                        
-                        {/* Bauteil-Auswahl (nur bei scopeType='component') */}
-                        {subTask.scopeType === 'component' && (
-                          <select
-                            value={subTask.assignedComponentId || ''}
-                            onChange={(e) => {
-                              const selectedComponentId = e.target.value || null;
-                              handleUpdateSubTask(subTask, {
-                                assignedComponentId: selectedComponentId,
-                                assignedComponentTitle: selectedComponentId ? (getComponentDisplayById(selectedComponentId) || 'Bauteil') : null
-                              });
-                            }}
-                            disabled={!canModify && state.currentUser?.role !== 'admin'}
-                            className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
-                          >
-                            <option value="">Bauteil auswählen</option>
-                            {localOrder.components?.map((comp) => {
-                              const compId = comp.id || (comp as any)._id;
-                              const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
-                              return (
-                                <option key={compId} value={compId}>
-                                  {compTitle}
-                                </option>
-                              );
-                            })}
-                          </select>
-                        )}
-                        
-                        <select
-                          value={subTask.status}
-                          onChange={(e) => handleUpdateSubTask(subTask, { status: e.target.value as SubTask['status'] })}
-                          disabled={!canModify && state.currentUser?.role !== 'admin' && subTask.assignedTo !== state.currentUser?.id}
-                          className="text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
-                        >
-                          <option value="pending">Ausstehend</option>
-                          <option value="in_progress">In Bearbeitung</option>
-                          <option value="completed">Abgeschlossen</option>
-                        </select>
-                      </div>
-                      
-                      <input
-                        type="number"
-                        placeholder="Tats. Stunden"
-                        value={subTask.actualHours}
-                        onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
-                        disabled={!canModify && state.currentUser?.role !== 'admin' && subTask.assignedTo !== state.currentUser?.id}
-                        className="w-20 text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
-                        min="0"
-                        step="0.5"
-                      />
-                    </div>
+
                   </div>
                 ))}
               </div>
@@ -1588,8 +1666,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             )}
           </div>
         </div>
+          </div>
+
         {/* Löschen-Button für Admin unten zentriert */}
-        {state.currentUser?.role === 'admin' && (
+        {activeTab === 'dashboard' && state.currentUser?.role === 'admin' && (
           <div className="flex justify-center mt-12 mb-2">
             <button
               onClick={handleDeleteOrder}
@@ -1671,43 +1751,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         </div>
       )}
 
-      {/* Dateiupload Bereich */}
-      <div className="mt-6 border-t pt-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Dateiupload</h3>
-        <NetworkDragDropUpload
-          orderId={localOrder.id}
-          uploadType="cam"
-          targetFolder="Dateien"
-          onUploadSuccess={(fileName) => {
-            dispatch({
-              type: 'SHOW_NOTIFICATION',
-              payload: {
-                message: `Datei "${fileName}" erfolgreich hochgeladen`,
-                type: 'success'
-              }
-            });
-            
-            // Reload order to update documents
-            fetch(`/api/orders/${localOrder.id}`)
-              .then(response => response.json())
-              .then(data => {
-                setLocalOrder(data);
-              })
-              .catch(error => {
-                console.error('Error reloading order:', error);
-              });
-          }}
-          onUploadError={(error) => {
-            dispatch({
-              type: 'SHOW_NOTIFICATION',
-              payload: {
-                message: `Upload-Fehler: ${error}`,
-                type: 'error'
-              }
-            });
-          }}
-        />
-      </div>
     </div>
   );
 }

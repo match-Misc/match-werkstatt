@@ -118,7 +118,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center space-x-2 mb-4">
           <FolderOpen className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold">Netzwerkdateien</h3>
+          <h3 className="text-lg font-semibold">Interne Dokumente</h3>
           <RefreshCw className="w-4 h-4 animate-spin text-gray-400" />
         </div>
         <div className="text-center py-8">
@@ -134,7 +134,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
           <FolderOpen className="w-5 h-5 text-blue-600" />
-          <h3 className="text-lg font-semibold">Netzwerkdateien</h3>
+          <h3 className="text-lg font-semibold">Interne Dokumente</h3>
           <span className="text-sm text-gray-500">({files.length})</span>
         </div>
         <button
@@ -166,9 +166,9 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
       {files.length === 0 && !error ? (
         <div className="text-center py-8">
           <FolderOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Keine Dateien im Netzwerkordner gefunden</p>
+          <p className="text-gray-500">Keine internen Dokumente gefunden</p>
           <p className="text-sm text-gray-400 mt-1">
-            Dateien werden hier angezeigt, sobald sie in den Netzwerkordner hochgeladen werden
+            Dateien werden hier angezeigt, sobald sie hochgeladen werden
           </p>
         </div>
       ) : (
