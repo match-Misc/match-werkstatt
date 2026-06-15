@@ -739,6 +739,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               </div>
 
               <hr className="border-t border-gray-200" />
+
+              <div>
+                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
+                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{localOrder.description}</p>
+              </div>
+
+              <hr className="border-t border-gray-200" />
             {/* Right Column */}
             <div className="space-y-6">
               <div>
@@ -1033,11 +1040,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                 </div>
               )}
             </div>
-
-              <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
-                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{localOrder.description}</p>
-              </div>
 
               {/* Revision History (Werkstatt an Kunde) */}
               {localOrder.revisionHistory && Array.isArray(localOrder.revisionHistory) && localOrder.revisionHistory.length > 0 && (

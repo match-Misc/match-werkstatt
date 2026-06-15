@@ -26,3 +26,7 @@ dist-ssr
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Uploads
+storage/uploads/*
+!storage/uploads/.gitkeep

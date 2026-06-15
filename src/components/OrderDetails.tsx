@@ -5,8 +5,6 @@ import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
 import NetworkFileUpload from './NetworkFileUpload';
 import STLViewer from './STLViewer';
-import FilesMigrationStatus from './FilesMigrationStatus';
-import NetworkFilesViewer from './NetworkFilesViewer';
 
 interface OrderDetailsProps {
   order: Order;
@@ -47,9 +45,9 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
     return 'PDF-Dokument';
   };
-  const [showUploadSection, setShowUploadSection] = useState(false);
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'components'>('dashboard');
 
   useEffect(() => {
     if (currentOrder.titleImage) {
@@ -396,10 +394,35 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
           </button>
         </div>
 
+        {/* Tabs Navigation */}
+        <div className="border-b border-gray-200 bg-gray-50 px-6">
+          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className={`${
+                activeTab === 'dashboard'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('components')}
+              className={`${
+                activeTab === 'components'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Bauteilübersicht
+            </button>
+          </nav>
+        </div>
+
         <div className="p-8 overflow-y-auto flex-grow">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Linke Spalte: Auftragsdetails */}
-            <div className="md:col-span-2 space-y-6">
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
 
               {/* Titelbild (falls vorhanden) */}
               {titleImageUrl && (
@@ -414,41 +437,156 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
               )}
 
               {/* Auftragsinformationen */}
-              <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-sm text-gray-600">Auftrags-Nr.</span>
-                    <h4 className="text-xl font-bold text-gray-900">{currentOrder.orderNumber || currentOrder.id}</h4>
+                <div className="flex flex-col gap-4">
+                  {/* Obere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Erstellt am:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(currentOrder.createdAt).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Deadline:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(currentOrder.deadline).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Status</span>
-                    <span className={`px-3 py-1 text-xs rounded-full ${getStatusColor(currentOrder.status)}`}>
-                      {getStatusText(currentOrder.status)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Erstellt am</span>
-                    <p className="text-sm font-medium text-gray-900">
-                      {new Date(currentOrder.createdAt).toLocaleDateString('de-DE')}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Deadline</span>
-                    <p className="text-sm font-medium text-gray-900">
-                      {new Date(currentOrder.deadline).toLocaleDateString('de-DE')}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Kostenstelle</span>
-                    <p className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</p>
-                  </div>
-                  <div>
-                    <span className="text-sm text-gray-600">Priorität</span>
-                    <p className="text-sm font-medium text-gray-900 capitalize">{currentOrder.priority}</p>
+                  {/* Untere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Status:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(currentOrder.status)}`}>
+                        {getStatusText(currentOrder.status)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Priorität:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium capitalize bg-gray-100 text-gray-800`}>
+                        {currentOrder.priority}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
+
+              <hr className="border-t border-gray-200" />
+
+              {/* Arbeitsbereich */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Arbeitsbereich</h3>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Zugewiesen an
+                      </label>
+                      <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
+                        {currentOrder.assignedTo 
+                          ? (state.workshopAccounts.find(acc => acc.id === currentOrder.assignedTo)?.name || 'Werkstatt Personal')
+                          : 'Nicht zugewiesen'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Geschätzte Stunden
+                      </label>
+                      <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
+                        {currentOrder.estimatedHours}h
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Tatsächliche Stunden
+                      </label>
+                      <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
+                        {currentOrder.actualHours}h
+                      </div>
+                    </div>
+                  </div>
+
+                  {currentOrder.notes && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Notizen
+                      </label>
+                      <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 whitespace-pre-wrap">
+                        {currentOrder.notes}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Materialstatus Sektion */}
+                  <div className="bg-gray-50 rounded-lg p-4 border mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      📦 Materialstatus
+                    </label>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700 flex items-center">
+                          ✅ Material vorhanden
+                        </span>
+                        <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialAvailable ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {currentOrder.materialAvailable ? 'Ja' : 'Nein'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700 flex items-center">
+                          🏭 Material durch Werkstatt bestellt
+                        </span>
+                        <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialOrderedByWorkshop ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {currentOrder.materialOrderedByWorkshop ? 'Ja' : 'Nein'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-700 flex items-center">
+                          👤 Material selbst bestellen
+                        </span>
+                        {currentOrder.materialOrderedByClient ? (
+                          <label className="flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={currentOrder.materialOrderedByClientConfirmed || false}
+                              onChange={(e) => handleMaterialStatusUpdate('materialOrderedByClientConfirmed', e.target.checked)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">Material bestellt ✓</span>
+                          </label>
+                        ) : (
+                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
+                            Nicht erforderlich
+                          </span>
+                        )}
+                      </div>
+
+                      {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-700 flex items-center">
+                            ❌ Kein Material benötigt
+                          </span>
+                          <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                            Bestätigt
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="border-t border-gray-200" />
 
               <div>
                 <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
@@ -485,170 +623,61 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 );
               })()}
 
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="text-md font-semibold text-gray-900">Dokumente</h4>
-                  {state.currentUser && state.currentUser.role !== 'client' && (
-                    <button 
-                      onClick={() => setShowUploadSection(prev => !prev)}
-                      className="flex items-center text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      {showUploadSection ? (
-                        <><X className="w-4 h-4 mr-1" /> Abbrechen</>
-                      ) : (
-                        <><Plus className="w-4 h-4 mr-1" /> Datei hochladen</>
-                      )}
-                    </button>
+              {/* Endabnahme-Kommentar und Nacharbeitsanfrage */}
+              {(currentOrder.confirmationNote || currentOrder.confirmationDate) && (
+                <div>
+                  <h4 className="text-md font-semibold text-green-700 mb-2">Endabnahme durch Kunde</h4>
+                  {currentOrder.confirmationNote && (
+                    <div className="bg-green-50 rounded-lg p-3 mb-2">
+                      <span className="block text-gray-700">Kommentar:</span>
+                      <span className="block text-gray-900">{currentOrder.confirmationNote}</span>
+                    </div>
+                  )}
+                  {currentOrder.confirmationDate && (
+                    <div className="text-xs text-gray-500 mb-2">
+                      Bestätigt am: {new Date(currentOrder.confirmationDate).toLocaleString('de-DE')}
+                    </div>
                   )}
                 </div>
-                
-                {showUploadSection && state.currentUser && state.currentUser.role !== 'client' && (
-                  <div className="mb-4">
-                    <NetworkFileUpload
-                      orderId={currentOrder.id}
-                      uploadType="document"
-                      onUploadSuccess={(_result) => {
-                        setShowUploadSection(false);
-                        dispatch({
-                          type: 'SHOW_NOTIFICATION',
-                          payload: {
-                            message: 'Dokument erfolgreich hochgeladen',
-                            type: 'success'
-                          }
-                        });
-                        
-                        // Reload order to get updated documents
-                        fetch(`/api/orders/${currentOrder.id}`)
-                          .then(response => response.json())
-                          .then(data => {
-                            dispatch({
-                              type: 'UPDATE_ORDER',
-                              payload: data
-                            });
-                          })
-                          .catch(error => {
-                            console.error('Error reloading order:', error);
-                          });
-                      }}
-                      onUploadError={(error) => {
-                        dispatch({
-                          type: 'SHOW_NOTIFICATION',
-                          payload: {
-                            message: `Fehler beim Hochladen: ${error.message}`,
-                            type: 'error'
-                          }
-                        });
-                      }}
-                    />
-                  </div>
-                )}
-                
-                {/* Datei-Migration Status - nur wenn nicht archiviert und Dateien zum Migrieren vorhanden */}
-                {currentOrder.status !== 'archived' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop') && (
-                  <div className="mb-6">
-                    <FilesMigrationStatus 
-                      orderId={currentOrder.id}
-                      hideIfComplete={true}
-                      hideIfNoFiles={true}
-                      onStatusChange={(status) => {
-                        // Optional: Status-Updates verarbeiten
-                        console.log('Migration Status:', status);
-                      }}
-                    />
-                  </div>
-                )}
-                
-                {/* Netzwerkdateien-Viewer für alle Dateien (besonders wichtig für archivierte Aufträge) */}
-                {currentOrder.status === 'archived' && (
-                  <div className="mb-6">
-                    <h4 className="text-md font-semibold text-gray-900 mb-2">Alle Dateien im Netzwerkordner</h4>
-                    <NetworkFilesViewer orderId={currentOrder.id} />
-                  </div>
-                )}
-                
-                {currentOrder.documents && currentOrder.documents.length > 0 ? (
-                  <div className="space-y-4">
-                    {currentOrder.documents.map((doc) => (
-                      <div key={doc.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                        {/* Document Header */}
-                        <div className="p-4 border-b border-gray-200">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-3 flex-1 min-w-0">
-                              <div className={`p-2 rounded-lg ${isSTLFile(doc.name) ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
-                                {getFileIcon(doc.name)}
-                              </div>
-                              
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-medium text-gray-900 truncate">
-                                  {doc.name}
-                                </h4>
-                                <div className="flex items-center space-x-2 mt-1">
-                                  <span className="text-xs text-gray-500">
-                                    {getFileTypeDescription(doc.name)}
-                                  </span>
-                                  <span className="text-xs text-gray-400">•</span>
-                                  <span className="text-xs text-gray-500">
-                                    {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center space-x-2 ml-4">
-                              {/* 3D View Button for STL files */}
-                              {isSTLFile(doc.name) && (
-                                <button
-                                  onClick={() => toggleSTLViewer(doc.id)}
-                                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md transition-colors"
-                                  title="3D-Ansicht"
-                                >
-                                  <Eye className="w-3 h-3 mr-1" />
-                                  {showSTLViewers[doc.id] ? '3D ausblenden' : '3D anzeigen'}
-                                </button>
-                              )}
-                              
-                              {/* Download Button */}
-                              <button
-                                onClick={() => handleDownload(doc)}
-                                className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
-                                title="Herunterladen"
-                              >
-                                <Download className="w-3 h-3 mr-1" />
-                                Download
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* STL Viewer */}
-                        {isSTLFile(doc.name) && showSTLViewers[doc.id] && (
-                          <div className="p-4 bg-gray-50">
-                            <STLViewer
-                              fileUrl={`${doc.url}`}
-                              fileName={doc.name}
-                              className="w-full"
-                              showControls={true}
-                            />
-                          </div>
-                        )}
-                        
-                        {/* Additional Info for STL Files */}
-                        {isSTLFile(doc.name) && (
-                          <div className="px-4 py-2 border-t bg-purple-50 border-purple-100">
-                            <div className="flex items-center text-xs text-purple-700">
-                              <Box className="w-3 h-3 mr-1" />
-                              <span>3D-Modell kann in der Vorschau angezeigt werden</span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-sm">Keine Dokumente hochgeladen</p>
-                )}
-              </div>
+              )}
 
+              {currentOrder.revisionRequest && (
+                <div>
+                  <h4 className="text-md font-semibold text-orange-700 mb-2">Nacharbeitsanfrage</h4>
+                  <div className="bg-orange-50 rounded-lg p-3 mb-2">
+                    <span className="block text-gray-700">Beschreibung:</span>
+                    <span className="block text-gray-900">{currentOrder.revisionRequest.description}</span>
+                    {currentOrder.revisionRequest.newDeadline && (
+                      <div className="text-xs text-gray-500 mt-2">
+                        Neue Deadline: {new Date(currentOrder.revisionRequest.newDeadline).toLocaleDateString('de-DE')}
+                      </div>
+                    )}
+                    <div className="text-xs text-gray-400 mt-2">
+                      Angefordert am: {new Date(currentOrder.revisionRequest.requestedAt).toLocaleString('de-DE')}
+                    </div>
+                  </div>
+                  {currentOrder.revisionRequest.documents && currentOrder.revisionRequest.documents.length > 0 && (
+                    <div className="mb-2">
+                      <span className="block text-gray-700 font-medium mb-1">Neue Dokumente:</span>
+                      <div className="space-y-1">
+                        {currentOrder.revisionRequest.documents.map((doc) => (
+                          <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-100 rounded">
+                            <span className="text-sm text-gray-900">{doc.name}</span>
+                            <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 flex items-center text-xs">
+                              <Download className="w-4 h-4 mr-1" />Download
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'components' && (
+            <div className="space-y-6">
               {/* Bauteile-Bereich */}
               {currentOrder.components && currentOrder.components.length > 0 && (
                 <div>
@@ -790,170 +819,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 </div>
               )}
             </div>
-
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Bearbeitungsstatus</h3>
-                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Geschätzte Stunden:</span>
-                    <span className="text-sm font-medium text-gray-900">{currentOrder.estimatedHours}h</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Tatsächliche Stunden:</span>
-                    <span className="text-sm font-medium text-gray-900">{currentOrder.actualHours}h</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Zugewiesen an:</span>
-                    <span className="text-sm font-medium text-gray-900">
-                      {currentOrder.assignedTo 
-                        ? (state.workshopAccounts.find(acc => acc.id === currentOrder.assignedTo)?.name || 'Werkstatt Personal')
-                        : 'Nicht zugewiesen'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Materialstatus Sektion für Kunden */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">📦 Materialstatus</h3>
-                <div className="bg-gray-50 rounded-lg p-4 space-y-3 border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 flex items-center">
-                      ✅ Material vorhanden
-                    </span>
-                    <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialAvailable ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {currentOrder.materialAvailable ? 'Ja' : 'Nein'}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 flex items-center">
-                      🏭 Material durch Werkstatt bestellt
-                    </span>
-                    <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialOrderedByWorkshop ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                      {currentOrder.materialOrderedByWorkshop ? 'Ja' : 'Nein'}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700 flex items-center">
-                      👤 Material selbst bestellen
-                    </span>
-                    {/* Checkbox nur anzeigen, wenn Werkstatt diese Option aktiviert hat */}
-                    {currentOrder.materialOrderedByClient ? (
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={currentOrder.materialOrderedByClientConfirmed || false}
-                          onChange={(e) => handleMaterialStatusUpdate('materialOrderedByClientConfirmed', e.target.checked)}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Material bestellt ✓</span>
-                      </label>
-                    ) : (
-                      <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-                        Nicht erforderlich
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Kein Material benötigt - nur anzeigen wenn alle anderen false sind */}
-                  {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-700 flex items-center">
-                        ❌ Kein Material benötigt
-                      </span>
-                      <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                        Bestätigt
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {currentOrder.notes && (
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">Notizen</h4>
-                  <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{currentOrder.notes}</p>
-                </div>
-              )}
-
-              {currentOrder.subTasks.length > 0 && (
-                <div>
-                  <h4 className="text-md font-semibold text-gray-900 mb-2">Unteraufgaben</h4>
-                  <div className="space-y-2">
-                    {currentOrder.subTasks.map((subTask) => (
-                      <div key={subTask.id} className="bg-gray-50 rounded-lg p-3">
-                        <div className="flex justify-between items-start mb-2">
-                          <h5 className="font-medium text-gray-900">{subTask.title}</h5>
-                          <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                            {getStatusText(subTask.status)}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 mb-2">{subTask.description}</p>
-                        <div className="flex justify-between text-xs text-gray-500">
-                          <span>Geschätzt: {subTask.estimatedHours}h</span>
-                          <span>Tatsächlich: {subTask.actualHours}h</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Endabnahme-Kommentar und Nacharbeitsanfrage */}
-              {(currentOrder.confirmationNote || currentOrder.confirmationDate) && (
-                <div>
-                  <h4 className="text-md font-semibold text-green-700 mb-2">Endabnahme durch Kunde</h4>
-                  {currentOrder.confirmationNote && (
-                    <div className="bg-green-50 rounded-lg p-3 mb-2">
-                      <span className="block text-gray-700">Kommentar:</span>
-                      <span className="block text-gray-900">{currentOrder.confirmationNote}</span>
-                    </div>
-                  )}
-                  {currentOrder.confirmationDate && (
-                    <div className="text-xs text-gray-500 mb-2">
-                      Bestätigt am: {new Date(currentOrder.confirmationDate).toLocaleString('de-DE')}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {currentOrder.revisionRequest && (
-                <div>
-                  <h4 className="text-md font-semibold text-orange-700 mb-2">Nacharbeitsanfrage</h4>
-                  <div className="bg-orange-50 rounded-lg p-3 mb-2">
-                    <span className="block text-gray-700">Beschreibung:</span>
-                    <span className="block text-gray-900">{currentOrder.revisionRequest.description}</span>
-                    {currentOrder.revisionRequest.newDeadline && (
-                      <div className="text-xs text-gray-500 mt-2">
-                        Neue Deadline: {new Date(currentOrder.revisionRequest.newDeadline).toLocaleDateString('de-DE')}
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-400 mt-2">
-                      Angefordert am: {new Date(currentOrder.revisionRequest.requestedAt).toLocaleString('de-DE')}
-                    </div>
-                  </div>
-                  {currentOrder.revisionRequest.documents && currentOrder.revisionRequest.documents.length > 0 && (
-                    <div className="mb-2">
-                      <span className="block text-gray-700 font-medium mb-1">Neue Dokumente:</span>
-                      <div className="space-y-1">
-                        {currentOrder.revisionRequest.documents.map((doc) => (
-                          <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-100 rounded">
-                            <span className="text-sm text-gray-900">{doc.name}</span>
-                            <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 flex items-center text-xs">
-                              <Download className="w-4 h-4 mr-1" />Download
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Aktionen für Endabnahme */}
