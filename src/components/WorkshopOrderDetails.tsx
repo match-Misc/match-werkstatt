@@ -1163,8 +1163,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
                                   <div className="flex items-center">
                                     {getFileIcon(doc.name)}
-                                    <div className="ml-2">
-                                      <span className="text-gray-900">{doc.name}</span>
+                                    <div className="flex-1 min-w-0 ml-3">
+                                      <div className="flex items-center">
+                                        <span className="text-gray-900">{doc.name}</span>
+                                        {doc.pdfWarning && (
+                                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                            {doc.pdfWarning}
+                                          </span>
+                                        )}
+                                      </div>
                                       <div className="text-xs text-gray-500">
                                         {getFileTypeDescription(doc.name)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
                                       </div>
@@ -1242,7 +1249,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                             <div className="mt-3">
                               <NetworkDragDropUpload
                                 orderId={localOrder.id}
-                                uploadType="document"
+                                componentId={componentId}
+                                uploadType="component"
                                 targetFolder="Bauteile"
                                 onUploadSuccess={(fileName) => {
                                   setShowComponentUpload(false);
@@ -1493,7 +1501,14 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                         <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border">
                           <div className="flex items-center">
                             <FileText className="w-4 h-4 text-red-600 mr-2" />
-                            <span className="text-sm text-gray-900">{doc.name}</span>
+                            <div className="flex items-center">
+                              <span className="text-sm text-gray-900">{doc.name}</span>
+                              {doc.pdfWarning && (
+                                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                  {doc.pdfWarning}
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <button
                             onClick={() => removeSubTaskDocument(doc.id)}
@@ -1707,7 +1722,14 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                             <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border">
                               <div className="flex items-center">
                                 <FileText className="w-4 h-4 text-red-600 mr-2" />
-                                <span className="text-sm text-gray-900">{doc.name}</span>
+                                <div className="flex items-center">
+                                  <span className="text-sm text-gray-900">{doc.name}</span>
+                                  {doc.pdfWarning && (
+                                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                      {doc.pdfWarning}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                               <div className="flex items-center space-x-2">
                                 {doc.name.toLowerCase().endsWith('.pdf') && (

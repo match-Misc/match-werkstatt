@@ -16,9 +16,10 @@ interface UploadResult {
 export const networkUploadUtils = {
   
   // Upload eines allgemeinen Auftragsdokuments
-  async uploadOrderDocument(orderId: string, file: File): Promise<UploadResult> {
+  async uploadOrderDocument(orderId: string, file: File, pdfWarning?: string): Promise<UploadResult> {
     const formData = new FormData();
     formData.append('file', file);
+    if (pdfWarning) formData.append('pdfWarning', pdfWarning);
     
     try {
       const response = await fetch(`/api/orders/${orderId}/upload-document`, {
@@ -62,9 +63,10 @@ export const networkUploadUtils = {
   },
   
   // Upload eines Bauteil-spezifischen Dokuments
-  async uploadComponentDocument(componentId: string, file: File): Promise<UploadResult> {
+  async uploadComponentDocument(componentId: string, file: File, pdfWarning?: string): Promise<UploadResult> {
     const formData = new FormData();
     formData.append('file', file);
+    if (pdfWarning) formData.append('pdfWarning', pdfWarning);
     
     try {
       const response = await fetch(`/api/components/${componentId}/upload-document`, {
@@ -104,18 +106,18 @@ export const networkUploadUtils = {
   },
   
   // Automatischer Upload basierend auf Dateityp
-  async autoUpload(orderId: string, componentId: string | null, file: File): Promise<UploadResult> {
+  async autoUpload(orderId: string, componentId: string | null, file: File, pdfWarning?: string): Promise<UploadResult> {
     const category = this.getFileCategory(file.name);
     
     if (componentId && category !== 'CAM') {
       // Bauteil-spezifische Datei
-      return await this.uploadComponentDocument(componentId, file);
+      return await this.uploadComponentDocument(componentId, file, pdfWarning);
     } else if (category === 'CAM') {
       // CAM-Datei (immer auf Auftragsebene)
       return await this.uploadCAMFile(orderId, file);
     } else {
       // Allgemeines Auftragsdokument
-      return await this.uploadOrderDocument(orderId, file);
+      return await this.uploadOrderDocument(orderId, file, pdfWarning);
     }
   }
 };

@@ -12,6 +12,7 @@ export interface PDFDocument {
   url: string;
   uploadDate: Date;
   file?: File;
+  pdfWarning?: string;
 }
 
 export interface Material {
@@ -150,4 +151,5 @@ export interface ComponentDocument {
   name: string;
   url: string;
   uploadDate: Date;
+  pdfWarning?: string;
 }

@@ -1,5 +1,6 @@
 import { useState, useRef, DragEvent, ChangeEvent } from 'react';
 import { Upload, FileText, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { checkPdfSize } from '../utils/pdfChecker';
 
 interface DroppedFile {
   file: File;
@@ -7,11 +8,13 @@ interface DroppedFile {
   status: 'pending' | 'uploading' | 'success' | 'error';
   error?: string;
   progress?: number;
+  pdfWarning?: string;
 }
 
 interface NetworkDragDropUploadProps {
   orderId: string;
-  uploadType: 'cam' | 'document';
+  componentId?: string | null;
+  uploadType: 'cam' | 'document' | 'component';
   targetFolder?: string; // Optional subfolder like 'CAM-Dateien'
   onUploadSuccess?: (fileName: string) => void;
   onUploadError?: (error: string) => void;
@@ -20,6 +23,7 @@ interface NetworkDragDropUploadProps {
 
 export default function NetworkDragDropUpload({
   orderId,
+  componentId = null,
   uploadType,
   targetFolder = '',
   onUploadSuccess,
@@ -55,17 +59,32 @@ export default function NetworkDragDropUpload({
     }
   };
 
-  const handleFiles = (fileList: File[]) => {
-    const newFiles: DroppedFile[] = fileList.map(file => ({
-      file,
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      status: 'pending'
-    }));
+  const handleFiles = async (fileList: File[]) => {
+    const validFiles: DroppedFile[] = [];
+    
+    for (const file of fileList) {
+      const sizeWarning = await checkPdfSize(file);
+      if (sizeWarning) {
+        const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
+        if (!confirmed) {
+          continue;
+        }
+      }
+      
+      validFiles.push({
+        file,
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        status: 'pending',
+        pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined
+      });
+    }
 
-    setFiles(prev => [...prev, ...newFiles]);
+    if (validFiles.length === 0) return;
+
+    setFiles(prev => [...prev, ...validFiles]);
     
     // Start upload for each file
-    newFiles.forEach(droppedFile => {
+    validFiles.forEach(droppedFile => {
       uploadFile(droppedFile);
     });
   };
@@ -87,10 +106,17 @@ export default function NetworkDragDropUpload({
         formData.append('targetFolder', targetFolder);
       }
 
+      if (droppedFile.pdfWarning) {
+        formData.append('pdfWarning', droppedFile.pdfWarning);
+      }
+
       // Determine upload endpoint based on type
-      const endpoint = uploadType === 'cam' 
-        ? `/api/orders/${orderId}/upload-cam-file`
-        : `/api/orders/${orderId}/upload-document`;
+      let endpoint = `/api/orders/${orderId}/upload-document`;
+      if (uploadType === 'cam') {
+        endpoint = `/api/orders/${orderId}/upload-cam-file`;
+      } else if (uploadType === 'component' && componentId) {
+        endpoint = `/api/components/${componentId}/upload-document`;
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -244,9 +270,14 @@ export default function NetworkDragDropUpload({
               >
                 <div className="flex items-center space-x-3 flex-1 min-w-0">
                   {getFileIcon(droppedFile.file.name)}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 ml-3">
                     <p className="text-sm font-medium text-gray-900 truncate">
                       {droppedFile.file.name}
+                      {droppedFile.pdfWarning && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          {droppedFile.pdfWarning}
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-gray-500">
                       {formatFileSize(droppedFile.file.size)}

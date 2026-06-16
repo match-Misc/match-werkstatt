@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Order, PDFDocument, Component, Material } from '../types';
+import { checkPdfSize } from '../utils/pdfChecker';
 
 interface CreateOrderProps {
   onClose: () => void;
@@ -36,7 +37,15 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     fetchMaterials();
   }, []);
 
-  const uploadSingleFile = async (file: File): Promise<PDFDocument> => {
+  const uploadSingleFile = async (file: File): Promise<PDFDocument | null> => {
+    const sizeWarning = await checkPdfSize(file);
+    if (sizeWarning) {
+      const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
+      if (!confirmed) {
+        return null;
+      }
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -55,7 +64,8 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
       name: data.originalname,
       url: `/uploads/${data.filename}`,
       uploadDate: new Date(),
-      file: undefined
+      file: undefined,
+      pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined
     };
   };
 
@@ -110,7 +120,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     const files = e.target.files;
     if (!files) return;
     try {
-      const uploadedDocs = await Promise.all(Array.from(files).map(uploadSingleFile));
+      const uploadedDocs = (await Promise.all(Array.from(files).map(uploadSingleFile))).filter(Boolean) as PDFDocument[];
       setDocuments(prev => [...prev, ...uploadedDocs]);
     } catch (err) {
       alert('Netzwerkfehler beim Hochladen!');
@@ -121,7 +131,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
   const handleFileListUpload = async (fileList: FileList) => {
     if (!fileList.length) return;
     try {
-      const uploadedDocs = await Promise.all(Array.from(fileList).map(uploadSingleFile));
+      const uploadedDocs = (await Promise.all(Array.from(fileList).map(uploadSingleFile))).filter(Boolean) as PDFDocument[];
       setDocuments(prev => [...prev, ...uploadedDocs]);
     } catch (err) {
       alert('Netzwerkfehler beim Hochladen!');
@@ -197,7 +207,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     if (!files || !files.length) return;
     
     try {
-      const uploadedDocs = await Promise.all(Array.from(files).map(uploadSingleFile));
+      const uploadedDocs = (await Promise.all(Array.from(files).map(uploadSingleFile))).filter(Boolean) as PDFDocument[];
       
       setComponents(prev => prev.map(comp => 
         comp.id === componentId 
@@ -358,6 +368,11 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
                     <div className="flex items-center">
                       <FileText className="w-5 h-5 text-red-600 mr-3" />
                       <span className="text-sm text-gray-900">{doc.name}</span>
+                      {doc.pdfWarning && (
+                        <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          {doc.pdfWarning}
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -522,6 +537,11 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
                               <div className="flex items-center">
                                 <FileText className="w-4 h-4 text-red-600 mr-2" />
                                 <span className="text-sm text-gray-900">{doc.name}</span>
+                                {doc.pdfWarning && (
+                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                    {doc.pdfWarning}
+                                  </span>
+                                )}
                               </div>
                               <button
                                 type="button"

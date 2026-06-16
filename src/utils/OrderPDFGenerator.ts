@@ -53,7 +53,7 @@ export class OrderPDFGenerator {
     // Logo oben links hinzufügen
     try {
       // Logo als Base64 laden
-      const logoResponse = await fetch('/src/assets/match-logo.jpg');
+      const logoResponse = await fetch('/src/assets/match_Logo_2023.png');
       const logoBlob = await logoResponse.blob();
       const logoBase64 = await new Promise<string>((resolve) => {
         const reader = new FileReader();
@@ -61,8 +61,19 @@ export class OrderPDFGenerator {
         reader.readAsDataURL(logoBlob);
       });
       
-      // Logo hinzufügen (oben links, 50x30 px)
-      pdf.addImage(logoBase64, 'JPEG', 20, 10, 50, 30);
+      // Logo-Eigenschaften auslesen um es proportional zu skalieren
+      const imgProps = pdf.getImageProperties(logoBase64);
+      let imgWidth = 50;
+      let imgHeight = (imgProps.height * imgWidth) / imgProps.width;
+      
+      // Wenn es höher als 30px wird, nach Höhe skalieren
+      if (imgHeight > 30) {
+        imgHeight = 30;
+        imgWidth = (imgProps.width * imgHeight) / imgProps.height;
+      }
+      
+      // Logo hinzufügen (oben links, max 50x30 px, nicht gestaucht)
+      pdf.addImage(logoBase64, 'PNG', 20, 10, imgWidth, imgHeight);
     } catch (error) {
       console.warn('Logo konnte nicht geladen werden:', error);
       // Fallback: "MATCH" Text als Logo-Ersatz
@@ -84,15 +95,13 @@ export class OrderPDFGenerator {
 
     let yPosition = 70;
 
-    // Grunddaten
-    pdf.setFontSize(14);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Grunddaten:', 20, yPosition);
-    yPosition += 10;
+    const checkPageBreak = (requiredHeight: number) => {
+      if (yPosition + requiredHeight > 280) {
+        pdf.addPage();
+        yPosition = 20; // Top margin for new pages
+      }
+    };
 
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'normal');
-    
     const basicData = [
       `Kunde: ${this.order.clientName || 'Nicht angegeben'}`,
       `Kostenstelle: ${this.order.costCenter || 'Nicht angegeben'}`,
@@ -102,6 +111,16 @@ export class OrderPDFGenerator {
       `Priorität: ${this.order.priority || 'medium'}`
     ];
 
+    // Grunddaten
+    checkPageBreak(10 + basicData.length * 8 + 10);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Grunddaten:', 20, yPosition);
+    yPosition += 10;
+
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'normal');
+    
     basicData.forEach(line => {
       pdf.text(line, 20, yPosition);
       yPosition += 8;
@@ -111,6 +130,9 @@ export class OrderPDFGenerator {
 
     // Beschreibung
     if (this.order.description) {
+      const lines = pdf.splitTextToSize(this.order.description, pageWidth - 40);
+      checkPageBreak(10 + lines.length * 6 + 10);
+      
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.text('Beschreibung:', 20, yPosition);
@@ -119,13 +141,13 @@ export class OrderPDFGenerator {
       pdf.setFontSize(12);
       pdf.setFont('helvetica', 'normal');
       
-      const lines = pdf.splitTextToSize(this.order.description, pageWidth - 40);
       pdf.text(lines, 20, yPosition);
       yPosition += lines.length * 6 + 10;
     }
 
     // Komponenten/Bauteile
     if (this.options.includeComponents && this.order.components && this.order.components.length > 0) {
+      checkPageBreak(15);
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.text('Komponenten/Bauteile:', 20, yPosition);
@@ -139,11 +161,15 @@ export class OrderPDFGenerator {
         const description = component.description || 'Keine Beschreibung';
         const quantity = component.quantity || 1;
         
+        const descLines = description && description !== 'Keine Beschreibung' ? pdf.splitTextToSize(`   ${description}`, pageWidth - 60) : [];
+        const requiredHeight = 6 + (descLines.length * 6) + 4;
+        
+        checkPageBreak(requiredHeight);
+        
         pdf.text(`${index + 1}. ${name} (Anzahl: ${quantity})`, 25, yPosition);
         yPosition += 6;
         
-        if (description && description !== 'Keine Beschreibung') {
-          const descLines = pdf.splitTextToSize(`   ${description}`, pageWidth - 60);
+        if (descLines.length > 0) {
           pdf.text(descLines, 25, yPosition);
           yPosition += descLines.length * 6;
         }
@@ -154,6 +180,10 @@ export class OrderPDFGenerator {
 
     // Netzlaufwerk-Ordner Information (entfernt, da nicht im Order-Type vorhanden)
     // Stattdessen Auftragstyp und weitere Details
+    // Weitere Details
+    const actualHoursHeight = this.order.actualHours ? 8 : 0;
+    checkPageBreak(10 + 8 + 8 + actualHoursHeight + 10);
+    
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
     pdf.text('Weitere Details:', 20, yPosition);
@@ -173,6 +203,7 @@ export class OrderPDFGenerator {
 
     // Dokumente
     if (this.options.includeDocuments && this.order.documents && this.order.documents.length > 0) {
+      checkPageBreak(15);
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.text('Anhänge:', 20, yPosition);
@@ -182,6 +213,7 @@ export class OrderPDFGenerator {
       pdf.setFont('helvetica', 'normal');
       
       this.order.documents.forEach((doc: any, index: number) => {
+        checkPageBreak(8);
         const fileName = doc.name || `Dokument ${index + 1}`;
         pdf.text(`${index + 1}. ${fileName}`, 25, yPosition);
         yPosition += 8;
@@ -206,9 +238,10 @@ export class OrderPDFGenerator {
       // Neues PDF-Dokument erstellen
       const pdfDoc = await PDFDocument.create();
 
-      // Deckblatt hinzufügen
+      // Deckblatt hinzufügen (können mittlerweile mehrere Seiten sein)
       const coverPdfDoc = await PDFDocument.load(coverBytes);
-      const coverPages = await pdfDoc.copyPages(coverPdfDoc, [0]);
+      const pageIndices = Array.from({ length: coverPdfDoc.getPageCount() }, (_, i) => i);
+      const coverPages = await pdfDoc.copyPages(coverPdfDoc, pageIndices);
       coverPages.forEach((page) => pdfDoc.addPage(page));
 
       // Dokumente hinzufügen
@@ -275,42 +308,18 @@ export class OrderPDFGenerator {
 
       const docBuffer = await response.arrayBuffer();
       
-      // Instead of copying pages which keeps their original weird sizes,
-      // we embed the PDF and draw it on standard A4 pages.
-      const embeddedPages = await pdfDoc.embedPdf(docBuffer);
+      // We load the source document to copy its pages in their original size
+      const sourcePdfDoc = await PDFDocument.load(docBuffer);
+      const copiedPages = await pdfDoc.copyPages(sourcePdfDoc, sourcePdfDoc.getPageIndices());
       
-      embeddedPages.forEach((embeddedPage, index) => {
-        // A4 page size
-        const page = pdfDoc.addPage([595.28, 841.89]); 
-        const { width, height } = page.getSize();
+      copiedPages.forEach((page, index) => {
+        pdfDoc.addPage(page);
         
-        // Scale the embedded page to fit inside the A4 page (with a small margin)
-        const margin = 40;
-        const availableWidth = width - margin * 2;
-        // Leave more room at the top for the title on the first page
-        const topMargin = index === 0 ? 60 : margin;
-        const availableHeight = height - margin - topMargin;
-        
-        const scale = Math.min(
-          availableWidth / embeddedPage.width, 
-          availableHeight / embeddedPage.height
-        );
-        
-        const scaledWidth = embeddedPage.width * scale;
-        const scaledHeight = embeddedPage.height * scale;
-        
-        // Center the scaled page on the A4 page
-        page.drawPage(embeddedPage, {
-          x: (width - scaledWidth) / 2,
-          y: (height - scaledHeight - topMargin + margin) / 2,
-          width: scaledWidth,
-          height: scaledHeight,
-        });
-
         if (index === 0) {
-          // Write the document name at the top left of the first page, slightly larger (size 18)
+          const { height } = page.getSize();
+          // Write the document name at the top left of the first page
           page.drawText(`${documentType}: ${document.name}`, {
-            x: margin,
+            x: 40,
             y: height - 30,
             size: 18,
             color: rgb(0.2, 0.2, 0.2),

@@ -1631,6 +1631,7 @@ app.put('/api/orders/:id', async (req, res) => {
             const componentDocuments = component.documents.map(doc => ({
               name: doc.name,
               url: doc.url,
+              pdfWarning: doc.pdfWarning,
               uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
               componentId: componentResult.insertedId,
               orderId: new ObjectId(req.params.id)
@@ -1981,6 +1982,7 @@ app.post('/api/orders', async (req, res) => {
       const documentObjects = documents.map(doc => ({
         name: doc.name,
         url: doc.url,
+        pdfWarning: doc.pdfWarning,
         uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
         orderId: result.insertedId
       }));
@@ -2010,6 +2012,7 @@ app.post('/api/orders', async (req, res) => {
           const componentDocuments = component.documents.map(doc => ({
             name: doc.name,
             url: doc.url,
+            pdfWarning: doc.pdfWarning,
             uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
             componentId: componentResult.insertedId,
             orderId: result.insertedId
@@ -2132,6 +2135,7 @@ app.post('/api/orders/:orderId/components', async (req, res) => {
       const documentObjects = documents.map(doc => ({
         name: doc.name,
         url: doc.url,
+        pdfWarning: doc.pdfWarning,
         uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
         componentId: result.insertedId,
         orderId: new ObjectId(req.params.orderId)
@@ -2200,6 +2204,7 @@ app.put('/api/components/:id', async (req, res) => {
         const documentObjects = documents.map(doc => ({
           name: doc.name,
           url: doc.url,
+          pdfWarning: doc.pdfWarning,
           uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
           componentId: new ObjectId(req.params.id),
           orderId: component.orderId
@@ -2305,7 +2310,7 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
     await client.close();
     
     // Check if order folder exists under uploads/
-    const potentialPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
+    const potentialPath = path.join(networkConfig.networkPath, orderFolderName);
     const orderFolderExists = fs.existsSync(potentialPath);
     
     res.json({
@@ -2362,7 +2367,7 @@ app.post('/api/orders/:id/network-folder', async (req, res) => {
     await client.close();
     
     // Create uploads order folder and Interne Dokumente subfolder
-    const uploadsFolderPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
+    const uploadsFolderPath = path.join(networkConfig.networkPath, orderFolderName);
     if (!fs.existsSync(uploadsFolderPath)) {
       fs.mkdirSync(uploadsFolderPath, { recursive: true });
     }
@@ -2452,6 +2457,7 @@ app.get('/api/orders/:id/migration-status', async (req, res) => {
         _id: doc.id || doc._id || `embedded-${index}`,
         name: doc.name,
         url: doc.url,
+        pdfWarning: doc.pdfWarning,
         migrated: doc.migrated || false,
         migratedAt: doc.migratedAt,
         originalUrl: doc.originalUrl,
@@ -3109,8 +3115,8 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
     }
     
     // Scan uploads (Interne Dokumente is a subfolder within)
-    const uploadsPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
-    readFilesRecursively(uploadsPath, 'uploads');
+    const uploadsPath = path.join(networkConfig.networkPath, orderFolderName);
+    readFilesRecursively(uploadsPath, '');
     
     // Sort files by name
     files.sort((a, b) => a.name.localeCompare(b.name));
@@ -3168,7 +3174,7 @@ app.get('/api/orders/:id/network-files/:filename/download', async (req, res) => 
       relativeFileSubpath = filename;
     }
     
-    const orderFolderPath = path.join(networkConfig.networkPath, 'uploads', orderFolderName);
+    const orderFolderPath = path.join(networkConfig.networkPath, orderFolderName);
     const filePath = path.join(orderFolderPath, relativeFileSubpath);
     
     // Security check: ensure file is within order folder
@@ -3244,7 +3250,7 @@ const camNetworkStorage = multer.diskStorage({
       // 00_Interne Dokumente folder lives inside uploads/ORDER/00_Interne Dokumente/
       let baseUploadsDir;
       if (isNetworkActive) {
-        baseUploadsDir = path.join(networkConfig.networkPath, 'uploads');
+        baseUploadsDir = networkConfig.networkPath;
         req.uploadMode = 'network';
       } else {
         baseUploadsDir = path.join(__dirname, 'storage', 'uploads');
@@ -3275,6 +3281,104 @@ const camNetworkStorage = multer.diskStorage({
 const camNetworkUpload = multer({
   storage: camNetworkStorage,
   limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+});
+
+// POST /api/orders/:id/upload-document - Upload a document and add it to the order
+app.post('/api/orders/:id/upload-document', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Keine Datei hochgeladen' });
+    }
+    
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    
+    const orderId = req.params.id;
+    const order = await db.collection('Order').findOne({ _id: new ObjectId(orderId) });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    const newDocument = {
+      name: req.file.originalname,
+      url: `/uploads/${req.file.filename}`,
+      uploadDate: new Date(),
+      orderId: new ObjectId(orderId)
+    };
+    
+    if (req.body && req.body.pdfWarning) {
+      newDocument.pdfWarning = req.body.pdfWarning;
+    }
+    
+    const result = await db.collection('Document').insertOne(newDocument);
+    await client.close();
+    
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      path: `/uploads/${req.file.filename}`,
+      networkPath: '',
+      documentId: result.insertedId.toString(),
+      message: 'Dokument erfolgreich hochgeladen und verknüpft'
+    });
+  } catch (error) {
+    console.error('Error in /api/orders/:id/upload-document:', error);
+    res.status(500).json({ error: 'Interner Serverfehler' });
+  }
+});
+
+// POST /api/components/:id/upload-document - Upload a document and add it to a component
+app.post('/api/components/:id/upload-document', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Keine Datei hochgeladen' });
+    }
+    
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    
+    const componentId = req.params.id;
+    const component = await db.collection('Component').findOne({ _id: new ObjectId(componentId) });
+    
+    if (!component) {
+      await client.close();
+      return res.status(404).json({ error: 'Bauteil nicht gefunden' });
+    }
+    
+    const newDocument = {
+      name: req.file.originalname,
+      url: `/uploads/${req.file.filename}`,
+      uploadDate: new Date(),
+      componentId: new ObjectId(componentId),
+      orderId: component.orderId
+    };
+    
+    if (req.body && req.body.pdfWarning) {
+      newDocument.pdfWarning = req.body.pdfWarning;
+    }
+    
+    const result = await db.collection('Document').insertOne(newDocument);
+    await client.close();
+    
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      originalname: req.file.originalname,
+      path: `/uploads/${req.file.filename}`,
+      networkPath: '',
+      documentId: result.insertedId.toString(),
+      componentName: component.title || component.name,
+      message: 'Bauteil-Dokument erfolgreich hochgeladen und verknüpft'
+    });
+  } catch (error) {
+    console.error('Error in /api/components/:id/upload-document:', error);
+    res.status(500).json({ error: 'Interner Serverfehler' });
+  }
 });
 
 // POST /api/orders/:id/upload-cam-file - Upload CAM file directly to network folder or local folder

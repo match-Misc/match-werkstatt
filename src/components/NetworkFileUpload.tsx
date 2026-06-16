@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { networkUploadUtils } from '../utils/networkUpload';
+import { checkPdfSize } from '../utils/pdfChecker';
 
 interface NetworkFileUploadProps {
   orderId: string;
@@ -24,13 +25,21 @@ const NetworkFileUpload = ({
   const handleFileUpload = async (file: File) => {
     if (!file) return;
 
+    const sizeWarning = await checkPdfSize(file);
+    if (sizeWarning) {
+      const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
+      if (!confirmed) {
+        return;
+      }
+    }
+
     setUploading(true);
     try {
       let result;
       
       switch (uploadType) {
         case 'document':
-          result = await networkUploadUtils.uploadOrderDocument(orderId, file);
+          result = await networkUploadUtils.uploadOrderDocument(orderId, file, sizeWarning || undefined);
           break;
         case 'cam':
           result = await networkUploadUtils.uploadCAMFile(orderId, file);
@@ -39,11 +48,11 @@ const NetworkFileUpload = ({
           if (!componentId) {
             throw new Error('Component ID ist erforderlich für Bauteil-Upload');
           }
-          result = await networkUploadUtils.uploadComponentDocument(componentId, file);
+          result = await networkUploadUtils.uploadComponentDocument(componentId, file, sizeWarning || undefined);
           break;
         case 'auto':
         default:
-          result = await networkUploadUtils.autoUpload(orderId, componentId, file);
+          result = await networkUploadUtils.autoUpload(orderId, componentId, file, sizeWarning || undefined);
           break;
       }
 

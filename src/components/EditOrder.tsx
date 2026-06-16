@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Upload, FileText, Trash2, Save, Box, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Order, PDFDocument, RevisionComment, Component } from '../types';
+import { checkPdfSize } from '../utils/pdfChecker';
 
 interface EditOrderProps {
   order: Order;
@@ -178,20 +179,29 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
     }
   };
 
-  const handleFileUpload = (files: FileList | null) => {
+  const handleFileUpload = async (files: FileList | null) => {
     if (!files) return;
 
-    Array.from(files).forEach(file => {
+    for (const file of Array.from(files)) {
+      const sizeWarning = await checkPdfSize(file);
+      if (sizeWarning) {
+        const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
+        if (!confirmed) {
+          continue;
+        }
+      }
+
       // Alle Dateitypen akzeptieren (nicht nur PDF)
       const document: PDFDocument = {
         id: `doc_${Date.now()}_${Math.random()}`,
         name: file.name,
         url: URL.createObjectURL(file),
         uploadDate: new Date(),
-        file: file
+        file: file,
+        pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined
       };
       setDocuments(prev => [...prev, document]);
-    });
+    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -237,16 +247,27 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
   };
 
   // Datei zu Bauteil hinzufügen
-  const handleComponentFileUpload = (componentId: string, files: FileList | null) => {
+  const handleComponentFileUpload = async (componentId: string, files: FileList | null) => {
     if (!files) return;
 
-    const newDocs: PDFDocument[] = Array.from(files).map(file => ({
-      id: `comp_doc_${Date.now()}_${Math.random()}`,
-      name: file.name,
-      url: URL.createObjectURL(file),
-      uploadDate: new Date(),
-      file: file
-    }));
+    const newDocs: PDFDocument[] = [];
+    for (const file of Array.from(files)) {
+      const sizeWarning = await checkPdfSize(file);
+      if (sizeWarning) {
+        const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
+        if (!confirmed) {
+          continue;
+        }
+      }
+      newDocs.push({
+        id: `comp_doc_${Date.now()}_${Math.random()}`,
+        name: file.name,
+        url: URL.createObjectURL(file),
+        uploadDate: new Date(),
+        file: file,
+        pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined
+      });
+    }
 
     setComponents(prev => prev.map(comp => 
       comp.id === componentId 
@@ -419,6 +440,11 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                     <div className="flex items-center">
                       <FileText className="w-5 h-5 text-red-600 mr-3" />
                       <span className="text-sm text-gray-900">{doc.name}</span>
+                      {doc.pdfWarning && (
+                        <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                          {doc.pdfWarning}
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -489,6 +515,11 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                               <div className="flex items-center flex-1 min-w-0">
                                 <FileText className="w-4 h-4 text-red-600 mr-2 flex-shrink-0" />
                                 <span className="text-sm text-gray-700 truncate">{doc.name}</span>
+                                {doc.pdfWarning && (
+                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                    {doc.pdfWarning}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center space-x-2 ml-2">
                                 {!doc.file && (
