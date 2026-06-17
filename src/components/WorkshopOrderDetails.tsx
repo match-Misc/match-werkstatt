@@ -133,6 +133,40 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   }, [state.orders, order.id]);
 
+  // Automatische Synchronisation des physischen Ordners mit der Datenbank
+  useEffect(() => {
+    let isMounted = true;
+    
+    const syncFolder = async () => {
+      try {
+        const syncRes = await fetch(`/api/orders/${order.id}/sync`, { method: 'POST' });
+        const syncData = await syncRes.json();
+        
+        // Wenn Dateien hinzugefügt oder entfernt wurden, Auftrag neu laden
+        if (syncData.success && (syncData.added > 0 || syncData.deleted > 0) && isMounted) {
+          const freshRes = await fetch(`/api/orders/${order.id}`);
+          if (freshRes.ok) {
+            const freshOrder = await freshRes.json();
+            dispatch({ type: 'UPDATE_ORDER', payload: freshOrder });
+          }
+        }
+      } catch (err) {
+        console.error('Fehler bei der Ordner-Synchronisation:', err);
+      }
+    };
+
+    // Sofort beim Öffnen syncen
+    syncFolder();
+    
+    // Alle 10 Sekunden prüfen (Live-Sync, solange das Fenster offen ist)
+    const intervalId = setInterval(syncFolder, 10000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [order.id, dispatch]);
+
   // Sync hours to local input states when they are updated externally (e.g. from subtasks)
   useEffect(() => {
     setEstimatedHours(localOrder.estimatedHours?.toString() || '0');
@@ -864,74 +898,40 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   </div>
 
                   {/* Materialstatus Sektion */}
-                  <div className="bg-gray-50 rounded-lg p-4 border">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      📦 Materialstatus
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Materialstatus
                     </label>
                     <div className="space-y-3">
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={localOrder.materialAvailable || false}
-                          onChange={(e) => handleFieldChange('materialAvailable', e.target.checked)}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
-                        />
-                        <span className="ml-3 text-sm text-gray-700">
-                          ✅ Material vorhanden
-                        </span>
-                      </label>
+                      <select
+                        value={
+                          localOrder.materialAvailable ? 'available' :
+                          localOrder.materialOrderedByWorkshop ? 'workshop' :
+                          localOrder.materialOrderedByClient ? 'client' :
+                          'none'
+                        }
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          handleFieldChange('materialAvailable', val === 'available');
+                          handleFieldChange('materialOrderedByWorkshop', val === 'workshop');
+                          handleFieldChange('materialOrderedByClient', val === 'client');
+                        }}
+                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      >
+                        <option value="available">Material vorhanden</option>
+                        <option value="workshop">Material durch Werkstatt bestellt</option>
+                        <option value="client">Material selbst bestellen</option>
+                        <option value="none">Kein Material benötigt</option>
+                      </select>
                       
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={localOrder.materialOrderedByWorkshop || false}
-                          onChange={(e) => handleFieldChange('materialOrderedByWorkshop', e.target.checked)}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
-                        />
-                        <span className="ml-3 text-sm text-gray-700">
-                          🏭 Material durch Werkstatt bestellt
-                        </span>
-                      </label>
-                      
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={localOrder.materialOrderedByClient || false}
-                          onChange={(e) => handleFieldChange('materialOrderedByClient', e.target.checked)}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
-                        />
-                        <span className="ml-3 text-sm text-gray-700">
-                          👤 Material selbst bestellen
-                        </span>
-                        {localOrder.materialOrderedByClient && localOrder.materialOrderedByClientConfirmed && (
-                          <span className="ml-2 px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
-                            ✓ Bestätigt
+                      {localOrder.materialOrderedByClient && localOrder.materialOrderedByClientConfirmed && (
+                        <div className="mt-2">
+                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                            ✓ Bestätigt vom Kunden
                           </span>
-                        )}
-                      </label>
-                      
-                      <label className="flex items-center">
-                        <input
-                          type="checkbox"
-                          checked={!localOrder.materialAvailable && !localOrder.materialOrderedByWorkshop && !localOrder.materialOrderedByClient}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              // Wenn "kein Material benötigt" aktiviert wird, alle anderen deaktivieren
-                              handleFieldChange('materialAvailable', false);
-                              handleFieldChange('materialOrderedByWorkshop', false);
-                              handleFieldChange('materialOrderedByClient', false);
-                            }
-                          }}
-                          disabled={!canModify && state.currentUser?.role !== 'admin'}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50"
-                        />
-                        <span className="ml-3 text-sm text-gray-700">
-                          ❌ Kein Material benötigt
-                        </span>
-                      </label>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -965,22 +965,22 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               {(canModify || state.currentUser?.role === 'admin') && (
                 <div className="border-t pt-6">
                   <h4 className="text-md font-semibold text-gray-900 mb-4">Aktionen</h4>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-wrap gap-3">
                     {localOrder.status === 'pending' && (
                       <>
                         <button
                           onClick={() => handleStatusChange('accepted')}
-                          className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          className="flex-1 flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
                         >
                           <Check className="w-4 h-4 mr-2" />
                           Annehmen
                         </button>
                         <button
                           onClick={() => handleStatusChange('revision')}
-                          className="flex items-center justify-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                          className="flex-1 flex items-center justify-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors whitespace-nowrap"
                         >
                           <RotateCcw className="w-4 h-4 mr-2" />
-                          Überarbeitung
+                          Überarbeiten
                         </button>
                       </>
                     )}
@@ -988,7 +988,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     {localOrder.status === 'accepted' || localOrder.status === 'rework' ? (
                       <button
                         onClick={() => handleStatusChange('in_progress')}
-                        className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
                       >
                         <Clock className="w-4 h-4 mr-2" />
                         Starten
@@ -1011,7 +1011,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           handleStatusChange('waiting_confirmation');
                         }}
                         disabled={!allSubTasksCompleted()}
-                        className={`flex items-center justify-center px-4 py-2 rounded-lg transition-colors ${
+                        className={`flex-1 flex items-center justify-center px-4 py-2 rounded-lg transition-colors whitespace-nowrap ${
                           allSubTasksCompleted() 
                             ? 'bg-green-600 text-white hover:bg-green-700' 
                             : 'bg-gray-400 text-gray-200 cursor-not-allowed'
@@ -1026,7 +1026,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     {localOrder.status === 'completed' && state.currentUser?.role === 'admin' && (
                       <button
                         onClick={handleArchive}
-                        className="flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors whitespace-nowrap"
                       >
                         <Archive className="w-4 h-4 mr-2" />
                         Archivieren
@@ -1035,7 +1035,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     
                     <button
                       onClick={() => handleStatusChange('revision')}
-                      className="flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                      className="flex-1 flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
                     >
                       <XCircle className="w-4 h-4 mr-2" />
                       Ablehnen

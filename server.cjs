@@ -49,7 +49,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Static files
-const uploadsDir = path.join(__dirname, 'storage', 'uploads');
+const uploadsDir = path.join(__dirname, 'storage');
 app.use('/uploads', express.static(uploadsDir, {
   etag: false,
   lastModified: false,
@@ -258,7 +258,7 @@ async function autoMigrateOrderFiles(db, orderId) {
     const componentDocuments = await db.collection('Document').find(compDocQuery).toArray();
     
     // Destination folder paths
-    const uploadsFolderPath = path.join(destBasePath, 'uploads', orderFolderName);
+    const uploadsFolderPath = path.join(destBasePath, orderFolderName);
     if (!fs.existsSync(uploadsFolderPath)) {
       fs.mkdirSync(uploadsFolderPath, { recursive: true });
     }
@@ -290,10 +290,10 @@ async function autoMigrateOrderFiles(db, orderId) {
         fs.copyFileSync(originalPath, destinationPath);
         
         const encodedFileName = encodeURIComponent(normalizedFileName);
-        const relativeUrlPath = `/uploads/${orderFolderName}/${encodedFileName}`;
+        const relativeUrlPath = `/${orderFolderName}/${encodedFileName}`;
         const targetUrl = isNetworkActive 
-          ? `${urlPrefix}${relativeUrlPath}`
-          : relativeUrlPath;
+          ? `/network-files${relativeUrlPath}`
+          : `/uploads${relativeUrlPath}`;
         
         if (documentsAreEmbedded) {
           migratedDocuments.push({
@@ -361,10 +361,10 @@ async function autoMigrateOrderFiles(db, orderId) {
         
         const encodedFileName = encodeURIComponent(normalizedFileName);
         const encodedComponentFolderName = encodeURIComponent(componentFolderName);
-        const relativeUrlPath = `/uploads/${orderFolderName}/${encodedComponentFolderName}/${encodedFileName}`;
+        const relativeUrlPath = `/${orderFolderName}/${encodedComponentFolderName}/${encodedFileName}`;
         const targetUrl = isNetworkActive 
-          ? `${urlPrefix}${relativeUrlPath}`
-          : relativeUrlPath;
+          ? `/network-files${relativeUrlPath}`
+          : `/uploads${relativeUrlPath}`;
         
         await db.collection('Document').updateOne(
           { _id: compDoc._id },
@@ -1925,22 +1925,25 @@ app.post('/api/orders', async (req, res) => {
     const { client, db } = await getDB();
     const { documents, components, ...orderData } = req.body;
     
-    // Generate order number: F-YYMM-X (Year-Month-Sequential)
+    // Generate order number: F-0001-YYMM
     const today = new Date();
     const yearMonth = today.toISOString().slice(2, 7).replace('-', ''); // YYMM
     const prefix = orderData.orderType === 'fertigung' ? 'F' : 'S';
     
-    // Find highest sequential number for this month
-    const yearMonthPattern = `${prefix}-${yearMonth}-`;
-    const existingOrders = await db.collection('Order').find({
-      orderNumber: { $regex: `^${yearMonthPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}` }
-    }).toArray();
+    // Find highest sequential number across all orders
+    const existingOrders = await db.collection('Order').find({}, { projection: { orderNumber: 1 } }).toArray();
     
     let nextNumber = 1;
     if (existingOrders.length > 0) {
       const numbers = existingOrders.map(order => {
-        const match = order.orderNumber.match(new RegExp(`^${yearMonthPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`));
-        return match ? parseInt(match[1]) : 0;
+        if (!order.orderNumber) return 0;
+        // Old format: F-YYMM-X or S-YYMM-X (extract X)
+        let match = order.orderNumber.match(/^[FS]-\d{4}-(\d+)$/);
+        if (match) return parseInt(match[1]);
+        // New format: F-XXXX-YYMM or S-XXXX-YYMM (extract XXXX)
+        match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
+        if (match) return parseInt(match[1]);
+        return 0;
       }).filter(num => num > 0);
       
       if (numbers.length > 0) {
@@ -1948,7 +1951,8 @@ app.post('/api/orders', async (req, res) => {
       }
     }
     
-    const orderNumber = `${prefix}-${yearMonth}-${nextNumber}`;
+    const paddedNumber = String(nextNumber).padStart(4, '0');
+    const orderNumber = `${prefix}-${paddedNumber}-${yearMonth}`;
     
     // Create new order
     const newOrder = {
@@ -2386,6 +2390,167 @@ app.post('/api/orders/:id/network-folder', async (req, res) => {
   } catch (err) {
     console.error('POST /api/orders/:id/network-folder error:', err);
     res.status(500).json({ success: false, error: 'Fehler beim Erstellen des Netzwerkordners' });
+  }
+});
+
+// POST /api/orders/:id/sync - Synchronize physical folder with DB
+app.post('/api/orders/:id/sync', async (req, res) => {
+  try {
+    const { MongoClient, ObjectId } = require('mongodb');
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    
+    const orderId = req.params.id;
+    const order = await db.collection('Order').findOne({ _id: new ObjectId(orderId) });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    const orderFolderName = await getOrCreateOrderFolderName(db, order);
+    const networkConfig = await db.collection('settings').findOne({ type: 'network-config' });
+    
+    const isNetworkActive = networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath);
+    let baseUploadsDir;
+    
+    // Automatically migrate any offline files if the network is active
+    if (isNetworkActive) {
+      await autoMigrateOrderFiles(db, orderId);
+      baseUploadsDir = networkConfig.networkPath;
+    } else {
+      baseUploadsDir = path.join(__dirname, 'storage');
+    }
+    
+    const targetFolderPath = path.join(baseUploadsDir, orderFolderName);
+    
+    if (!fs.existsSync(targetFolderPath)) {
+      // Folder doesn't exist yet, nothing to sync
+      await client.close();
+      return res.json({ success: true, message: 'Ordner existiert noch nicht, kein Sync notwendig' });
+    }
+    
+    // Get all components for this order
+    const components = await db.collection('Component').find({ orderId: new ObjectId(orderId) }).toArray();
+    
+    // Get all existing documents in DB for this order
+    const existingDocs = await db.collection('Document').find({ orderId: new ObjectId(orderId) }).toArray();
+    const existingDocMap = new Map(); // Key: decoded URL or path identifier, Value: document
+    
+    // Create a normalized path identifier for each existing document
+    for (const doc of existingDocs) {
+      if (!doc.url) continue;
+      // Extract the relative path from the URL, decode it
+      let relativeUrl = decodeURIComponent(doc.url.replace(/^\/(network-files|uploads)\//, ''));
+      existingDocMap.set(relativeUrl, doc);
+    }
+    
+    const foundPhysicalPaths = new Set();
+    const newDocsToInsert = [];
+    
+    // Helper to process a directory
+    const processDirectory = (dirPath, relativeDirUrl, componentId, isCam = false) => {
+      if (!fs.existsSync(dirPath)) return;
+      
+      const files = fs.readdirSync(dirPath);
+      for (const file of files) {
+        const fullPath = path.join(dirPath, file);
+        const stat = fs.statSync(fullPath);
+        
+        if (stat.isFile()) {
+          // It's a file!
+          const relativeFilePathUrl = relativeDirUrl ? `${relativeDirUrl}/${file}` : file;
+          foundPhysicalPaths.add(relativeFilePathUrl);
+          
+          if (!existingDocMap.has(relativeFilePathUrl)) {
+            // Document doesn't exist in DB! Let's add it
+            const isNetwork = isNetworkActive;
+            const documentUrl = isNetwork 
+              ? `/network-files/${relativeDirUrl ? `${relativeDirUrl}/` : ''}${encodeURIComponent(file)}`
+              : `/uploads/${relativeDirUrl ? `${relativeDirUrl}/` : ''}${encodeURIComponent(file)}`; // keep /uploads/ route since express still mounts /uploads to storage
+              
+            const mimeType = file.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 
+                             file.toLowerCase().endsWith('.stl') ? 'model/stl' : 
+                             file.toLowerCase().endsWith('.stp') || file.toLowerCase().endsWith('.step') ? 'model/step' : 
+                             'application/octet-stream';
+                             
+            const newDoc = {
+              name: file,
+              url: documentUrl,
+              networkPath: isNetwork ? fullPath : undefined,
+              uploadDate: stat.mtime,
+              orderId: new ObjectId(orderId),
+              size: stat.size,
+              mimetype: mimeType,
+              migrated: isNetwork,
+              migratedAt: isNetwork ? new Date() : undefined
+            };
+            
+            if (componentId) {
+              newDoc.componentId = new ObjectId(componentId);
+            }
+            if (isCam) {
+              newDoc.type = 'model/stl';
+            }
+            
+            newDocsToInsert.push(newDoc);
+          }
+        }
+      }
+    };
+    
+    // 1. Process root directory (General Order Documents)
+    processDirectory(targetFolderPath, orderFolderName, null, false);
+    
+    // 2. Process 00_Interne Dokumente (CAM files)
+    const internePath = path.join(targetFolderPath, '00_Interne Dokumente');
+    processDirectory(internePath, `${orderFolderName}/00_Interne Dokumente`, null, true);
+    
+    // 3. Process each component's subdirectory
+    for (const comp of components) {
+      const componentFolderName = await getComponentFolderName(db, orderId, comp._id);
+      
+      const compPath = path.join(targetFolderPath, componentFolderName);
+      processDirectory(compPath, `${orderFolderName}/${componentFolderName}`, comp._id, false);
+    }
+    
+    // Now determine which documents to delete from DB (they exist in DB but not physically)
+    const docsToDelete = [];
+    for (const [relPath, doc] of existingDocMap.entries()) {
+      if (!foundPhysicalPaths.has(relPath)) {
+        // ONLY delete if the document belongs to the storage we are currently scanning!
+        // This prevents deleting network docs when falling back to local storage,
+        // and prevents deleting local docs when network is active.
+        if (isNetworkActive && doc.migrated) {
+          docsToDelete.push(doc._id);
+        } else if (!isNetworkActive && !doc.migrated) {
+          docsToDelete.push(doc._id);
+        }
+      }
+    }
+    
+    // Execute DB operations
+    if (newDocsToInsert.length > 0) {
+      await db.collection('Document').insertMany(newDocsToInsert);
+    }
+    
+    if (docsToDelete.length > 0) {
+      await db.collection('Document').deleteMany({ _id: { $in: docsToDelete } });
+    }
+    
+    await client.close();
+    
+    res.json({ 
+      success: true, 
+      added: newDocsToInsert.length, 
+      deleted: docsToDelete.length,
+      message: `Sync abgeschlossen: ${newDocsToInsert.length} hinzugefügt, ${docsToDelete.length} entfernt`
+    });
+    
+  } catch (err) {
+    console.error('POST /api/orders/:id/sync error:', err);
+    res.status(500).json({ success: false, error: 'Fehler beim Synchronisieren des Ordners' });
   }
 });
 
@@ -3253,7 +3418,7 @@ const camNetworkStorage = multer.diskStorage({
         baseUploadsDir = networkConfig.networkPath;
         req.uploadMode = 'network';
       } else {
-        baseUploadsDir = path.join(__dirname, 'storage', 'uploads');
+        baseUploadsDir = path.join(__dirname, 'storage');
         req.uploadMode = 'local';
       }
       
@@ -3314,6 +3479,10 @@ app.post('/api/orders/:id/upload-document', upload.single('file'), async (req, r
     }
     
     const result = await db.collection('Document').insertOne(newDocument);
+    
+    // Immediately organize the file into the correct order folder
+    await autoMigrateOrderFiles(db, orderId);
+    
     await client.close();
     
     res.json({
@@ -3363,6 +3532,10 @@ app.post('/api/components/:id/upload-document', upload.single('file'), async (re
     }
     
     const result = await db.collection('Document').insertOne(newDocument);
+    
+    // Immediately organize the file into the correct order/component folder
+    await autoMigrateOrderFiles(db, component.orderId.toString());
+    
     await client.close();
     
     res.json({

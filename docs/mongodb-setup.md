@@ -98,3 +98,20 @@ node server.cjs
 ```
 
 Der Server erstellt automatisch alle benötigten Indizes beim Start.
+
+---
+
+## Datenbank zurücksetzen (Reset)
+
+Falls Sie während der Entwicklung oder Einrichtung die Datenbank komplett leeren möchten (Löschen aller Aufträge, Bauteile und Dokumente), können Sie das beiliegende Reset-Skript verwenden:
+
+```bash
+# 1. Beenden Sie gegebenenfalls den laufenden Server
+# 2. Führen Sie das Reset-Skript mit Pixi aus (liest .local.env)
+pixi run node --env-file=.local.env scripts/reset-db.cjs
+
+# 3. Danach können Sie den Server wieder starten
+pixi run dev
+```
+
+Dieses Skript löscht die Collections `Order`, `Component` und `Document`, sodass Sie wieder bei einem leeren System ohne alte Aufträge starten.

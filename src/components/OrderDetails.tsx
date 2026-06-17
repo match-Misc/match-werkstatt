@@ -541,60 +541,32 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   )}
 
                   {/* Materialstatus Sektion */}
-                  <div className="bg-gray-50 rounded-lg p-4 border mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      📦 Materialstatus
+                  <div className="mt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Materialstatus
                     </label>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700 flex items-center">
-                          ✅ Material vorhanden
-                        </span>
-                        <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialAvailable ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                          {currentOrder.materialAvailable ? 'Ja' : 'Nein'}
-                        </span>
-                      </div>
+                    <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
+                      {currentOrder.materialAvailable && "Material vorhanden"}
+                      {currentOrder.materialOrderedByWorkshop && "Material durch Werkstatt bestellt"}
                       
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700 flex items-center">
-                          🏭 Material durch Werkstatt bestellt
-                        </span>
-                        <span className={`px-2 py-1 text-xs rounded-full ${currentOrder.materialOrderedByWorkshop ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
-                          {currentOrder.materialOrderedByWorkshop ? 'Ja' : 'Nein'}
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-700 flex items-center">
-                          👤 Material selbst bestellen
-                        </span>
-                        {currentOrder.materialOrderedByClient ? (
-                          <label className="flex items-center">
+                      {currentOrder.materialOrderedByClient && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center text-sm text-gray-800">
+                            Material selbst bestellen
+                          </div>
+                          <label className="flex items-center p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer">
                             <input
                               type="checkbox"
                               checked={currentOrder.materialOrderedByClientConfirmed || false}
                               onChange={(e) => handleMaterialStatusUpdate('materialOrderedByClientConfirmed', e.target.checked)}
                               className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                             />
-                            <span className="ml-2 text-sm text-gray-700">Material bestellt ✓</span>
+                            <span className="ml-2 text-sm text-gray-700 font-medium">Ich bestätige, dass ich das Material bestellt habe</span>
                           </label>
-                        ) : (
-                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-                            Nicht erforderlich
-                          </span>
-                        )}
-                      </div>
-
-                      {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-700 flex items-center">
-                            ❌ Kein Material benötigt
-                          </span>
-                          <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
-                            Bestätigt
-                          </span>
                         </div>
                       )}
+
+                      {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && "Kein Material benötigt"}
                     </div>
                   </div>
                 </div>
