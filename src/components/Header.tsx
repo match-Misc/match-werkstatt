@@ -13,10 +13,13 @@ export default function Header() {
     <header className="bg-white shadow-sm border-b">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <div className="flex items-center">
+          <button 
+            onClick={() => window.location.href = '/'}
+            className="flex items-center hover:opacity-80 transition-opacity"
+          >
             <Building2 className="w-8 h-8 text-blue-600 mr-3" />
             <h1 className="text-xl font-bold text-gray-900">Werkstatt-Verwaltung</h1>
-          </div>
+          </button>
           
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">

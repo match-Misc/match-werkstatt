@@ -13,6 +13,7 @@ export interface PDFDocument {
   uploadDate: Date;
   file?: File;
   pdfWarning?: string;
+  componentId?: string;
 }
 
 export interface Material {
@@ -144,6 +145,7 @@ export interface Component {
   material?: string;
   notes?: string;
   documents: PDFDocument[];
+  status?: 'pending' | 'in_progress' | 'completed';
 }
 
 export interface ComponentDocument {

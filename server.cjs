@@ -8,7 +8,7 @@ const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
 
 // Hybrid LDAP Integration
-const SimpleLDAPAuth = require('./simple-ldap-auth.cjs');
+const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
 
 // LDAP Konfiguration
 const ldapConfig = {
@@ -1213,12 +1213,17 @@ app.get('/api/orders', async (req, res) => {
     
     // Enrich with relations
     const enrichedOrders = await Promise.all(orders.map(async (order) => {
-      // Load documents (embedded or referenced)
-      let documents = order.documents || [];
-      if (documents.length === 0) {
-        documents = await db.collection('Document').find({ 
-          orderId: new ObjectId(order._id) 
-        }).toArray();
+      // Load documents from Document collection
+      let extDocs = await db.collection('Document').find({ 
+        orderId: new ObjectId(order._id) 
+      }).toArray();
+      let documents = [...extDocs];
+      if (order.documents && order.documents.length > 0) {
+        for (const embDoc of order.documents) {
+          if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+            documents.push(embDoc);
+          }
+        }
       }
       
       // Enrich documents with IDs
@@ -1303,12 +1308,17 @@ app.get('/api/orders/:id', async (req, res) => {
       return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     }
     
-    // Load relations
-    let documents = order.documents || [];
-    if (documents.length === 0) {
-      documents = await db.collection('Document').find({ 
-        orderId: new ObjectId(req.params.id) 
-      }).toArray();
+    // Load documents from Document collection
+    let extDocs = await db.collection('Document').find({ 
+      orderId: new ObjectId(req.params.id) 
+    }).toArray();
+    let documents = [...extDocs];
+    if (order.documents && order.documents.length > 0) {
+      for (const embDoc of order.documents) {
+        if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+          documents.push(embDoc);
+        }
+      }
     }
     
     const components = await db.collection('Component').find({ 
@@ -1406,12 +1416,17 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
       return res.status(404).json({ error: 'Auftrag mit diesem Code nicht gefunden' });
     }
     
-    // Load relations (similar to GET /api/orders/:id)
-    let documents = order.documents || [];
-    if (documents.length === 0) {
-      documents = await db.collection('Document').find({ 
-        orderId: new ObjectId(order._id) 
-      }).toArray();
+    // Load documents from Document collection
+    let extDocs = await db.collection('Document').find({ 
+      orderId: new ObjectId(order._id) 
+    }).toArray();
+    let documents = [...extDocs];
+    if (order.documents && order.documents.length > 0) {
+      for (const embDoc of order.documents) {
+        if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+          documents.push(embDoc);
+        }
+      }
     }
     
     const components = await db.collection('Component').find({ 
@@ -1600,45 +1615,64 @@ app.put('/api/orders/:id', async (req, res) => {
         orderId: new ObjectId(req.params.id) 
       }).toArray();
       
-      for (const comp of existingComponents) {
-        await db.collection('Document').deleteMany({ 
-          componentId: new ObjectId(comp._id) 
-        });
-      }
-      
-      await db.collection('Component').deleteMany({ 
-        orderId: new ObjectId(req.params.id) 
-      });
-      
-      // Create new components
       if (components && components.length > 0) {
+        // IDs, die im Request gesendet wurden
+        const sentIds = components.map(c => c.id || c._id).filter(id => id).map(id => new ObjectId(id));
+        
+        // Lösche alle Komponenten (und deren Dokumente), die NICHT im Request sind
+        const componentsToDelete = existingComponents.filter(ec => !sentIds.some(id => id.equals(ec._id)));
+        for (const comp of componentsToDelete) {
+          await db.collection('Document').deleteMany({ componentId: comp._id });
+          await db.collection('Component').deleteOne({ _id: comp._id });
+        }
+        
         for (const component of components) {
-          const newComponent = {
+          const compId = component.id || component._id;
+          const componentData = {
             title: component.title || component.name,
             description: component.description || '',
             material: component.material || '',
             quantity: parseQuantity(component.quantity),
             notes: component.notes || '',
+            status: component.status || 'pending',
             orderId: new ObjectId(req.params.id),
-            createdAt: new Date(),
             updatedAt: new Date()
           };
           
-          const componentResult = await db.collection('Component').insertOne(newComponent);
+          let finalComponentId;
+          if (compId) {
+            finalComponentId = new ObjectId(compId);
+            await db.collection('Component').updateOne(
+              { _id: finalComponentId },
+              { $set: componentData }
+            );
+          } else {
+            componentData.createdAt = new Date();
+            const result = await db.collection('Component').insertOne(componentData);
+            finalComponentId = result.insertedId;
+          }
           
-          // Create component documents if provided
+          // Dokumente des Bauteils neu anlegen
+          await db.collection('Document').deleteMany({ componentId: finalComponentId });
+          
           if (component.documents && component.documents.length > 0) {
             const componentDocuments = component.documents.map(doc => ({
               name: doc.name,
               url: doc.url,
               pdfWarning: doc.pdfWarning,
               uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
-              componentId: componentResult.insertedId,
+              componentId: finalComponentId,
               orderId: new ObjectId(req.params.id)
             }));
             await db.collection('Document').insertMany(componentDocuments);
           }
         }
+      } else {
+        // Wenn ein leeres Array gesendet wurde, lösche alle
+        for (const comp of existingComponents) {
+          await db.collection('Document').deleteMany({ componentId: comp._id });
+        }
+        await db.collection('Component').deleteMany({ orderId: new ObjectId(req.params.id) });
       }
     }
     
@@ -1811,12 +1845,17 @@ app.post('/api/orders/:id/upload-title-image', memoryUpload.single('file'), asyn
     // Fetch updated order to return
     const updatedOrder = await db.collection('Order').findOne({ _id: new ObjectId(orderId) });
     
-    // Load relations like in GET /api/orders/:id
-    let documents = updatedOrder.documents || [];
-    if (documents.length === 0) {
-      documents = await db.collection('Document').find({ 
-        orderId: new ObjectId(orderId) 
-      }).toArray();
+    // Load documents from Document collection
+    let extDocs = await db.collection('Document').find({ 
+      orderId: new ObjectId(orderId) 
+    }).toArray();
+    let documents = [...extDocs];
+    if (updatedOrder.documents && updatedOrder.documents.length > 0) {
+      for (const embDoc of updatedOrder.documents) {
+        if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+          documents.push(embDoc);
+        }
+      }
     }
     
     const components = await db.collection('Component').find({ 
@@ -2004,6 +2043,7 @@ app.post('/api/orders', async (req, res) => {
           material: component.material || '',
           quantity: parseQuantity(component.quantity),
           notes: component.notes || '',
+          status: component.status || 'pending',
           orderId: result.insertedId,
           createdAt: new Date(),
           updatedAt: new Date()
@@ -2717,7 +2757,7 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
         
         if (document.url && (document.url.includes('/00_Interne%20Dokumente/') || document.url.includes('/00_Interne Dokumente/'))) {
           // Internal document
-          const localInterneDirPath = path.join(localStorageDir, 'uploads', orderFolderName, '00_Interne Dokumente');
+          const localInterneDirPath = path.join(localStorageDir, orderFolderName, '00_Interne Dokumente');
           if (!fs.existsSync(localInterneDirPath)) {
             fs.mkdirSync(localInterneDirPath, { recursive: true });
           }
@@ -2727,7 +2767,7 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
           // Component document – use numbered folder name
           const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId);
           
-          const localCompDir = path.join(localStorageDir, 'uploads', orderFolderName, componentFolderName);
+          const localCompDir = path.join(localStorageDir, orderFolderName, componentFolderName);
           if (!fs.existsSync(localCompDir)) {
             fs.mkdirSync(localCompDir, { recursive: true });
           }
@@ -2735,7 +2775,7 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
           localUrl = `/uploads/${orderFolderName}/${encodeURIComponent(componentFolderName)}/${encodeURIComponent(basename)}`;
         } else {
           // Standard order document
-          const localOrderDir = path.join(localStorageDir, 'uploads', orderFolderName);
+          const localOrderDir = path.join(localStorageDir, orderFolderName);
           if (!fs.existsSync(localOrderDir)) {
             fs.mkdirSync(localOrderDir, { recursive: true });
           }
@@ -3233,22 +3273,7 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
     const networkConfig = await db.collection('settings').findOne({ type: 'network-config' });
     await client.close();
     
-    if (!networkConfig || !networkConfig.networkPath) {
-      return res.json({
-        success: false,
-        message: 'Kein Netzwerkpfad konfiguriert',
-        files: []
-      });
-    }
-    
-    // Check if network path is accessible
-    if (!fs.existsSync(networkConfig.networkPath)) {
-      return res.json({
-        success: false,
-        message: 'Netzwerkpfad nicht erreichbar',
-        files: []
-      });
-    }
+    let isNetworkActive = networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath);
     
     const files = [];
     
@@ -3280,7 +3305,13 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
     }
     
     // Scan uploads (Interne Dokumente is a subfolder within)
-    const uploadsPath = path.join(networkConfig.networkPath, orderFolderName);
+    let uploadsPath;
+    if (isNetworkActive) {
+      uploadsPath = path.join(networkConfig.networkPath, orderFolderName, '00_Interne Dokumente');
+    } else {
+      uploadsPath = path.join(__dirname, 'storage', orderFolderName, '00_Interne Dokumente');
+    }
+    
     readFilesRecursively(uploadsPath, '');
     
     // Sort files by name

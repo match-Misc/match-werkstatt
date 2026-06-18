@@ -21,17 +21,20 @@ interface NetworkFilesResponse {
 
 interface NetworkFilesViewerProps {
   orderId: string;
+  refreshTrigger?: number;
 }
 
-export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps) {
+export default function NetworkFilesViewer({ orderId, refreshTrigger = 0 }: NetworkFilesViewerProps) {
   const [files, setFiles] = useState<NetworkFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState<string>('');
   const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
 
-  const loadNetworkFiles = async () => {
-    setLoading(true);
+  const loadNetworkFiles = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     setError(null);
     
     try {
@@ -55,7 +58,13 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
 
   useEffect(() => {
     loadNetworkFiles();
-  }, [orderId]);
+    
+    const intervalId = setInterval(() => {
+      loadNetworkFiles(true);
+    }, 3000);
+    
+    return () => clearInterval(intervalId);
+  }, [orderId, refreshTrigger]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
@@ -115,7 +124,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="">
         <div className="flex items-center space-x-2 mb-4">
           <FolderOpen className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold">Interne Dokumente</h3>
@@ -130,7 +139,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
   }
 
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-2">
           <FolderOpen className="w-5 h-5 text-blue-600" />
@@ -138,7 +147,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
           <span className="text-sm text-gray-500">({files.length})</span>
         </div>
         <button
-          onClick={loadNetworkFiles}
+          onClick={() => loadNetworkFiles(false)}
           className="flex items-center space-x-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
@@ -181,7 +190,7 @@ export default function NetworkFilesViewer({ orderId }: NetworkFilesViewerProps)
               <div className="flex items-center space-x-3 flex-1 min-w-0">
                 {getFileIcon(file.extension)}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-sm font-medium text-gray-900 truncate" title={(file.relativePath || file.name).replace(/uploads[/\\]?/gi, '')}>
                     {file.name}
                   </p>
                   <div className="flex items-center space-x-4 text-xs text-gray-500">

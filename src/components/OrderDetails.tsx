@@ -45,9 +45,51 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
     return 'PDF-Dokument';
   };
+
+  const getDisplayPath = (doc: any) => {
+    if (!doc.url) return doc.name;
+    let decoded = decodeURIComponent(doc.url);
+    let path = decoded.replace(/^\/(?:uploads|network-files)\//, '');
+    path = path.replace(/uploads\/?/gi, '');
+    if (path.startsWith('/')) path = path.substring(1);
+    return path || doc.name;
+  };
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'components'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components'>('dashboard');
+
+  useEffect(() => {
+    let isMounted = true;
+    
+    const syncFolder = async () => {
+      try {
+        const syncRes = await fetch(`/api/orders/${order.id}/sync`, { method: 'POST' });
+        const syncData = await syncRes.json();
+        
+        // Wenn Dateien hinzugefügt oder entfernt wurden, Auftrag neu laden
+        if (syncData.success && (syncData.added > 0 || syncData.deleted > 0) && isMounted) {
+          const freshRes = await fetch(`/api/orders/${order.id}`);
+          if (freshRes.ok) {
+            const freshOrder = await freshRes.json();
+            dispatch({ type: 'UPDATE_ORDER', payload: freshOrder });
+          }
+        }
+      } catch (err) {
+        console.error('Fehler bei der Ordner-Synchronisation:', err);
+      }
+    };
+
+    // Sofort beim Öffnen syncen
+    syncFolder();
+    
+    // Alle 3 Sekunden prüfen (Live-Sync, solange das Fenster offen ist)
+    const intervalId = setInterval(syncFolder, 3000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [order.id, dispatch]);
 
   useEffect(() => {
     if (currentOrder.titleImage) {
@@ -392,8 +434,8 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b bg-gray-50 rounded-t-lg">
           <div>
@@ -420,6 +462,16 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
               Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab('order_info')}
+              className={`${
+                activeTab === 'order_info'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Auftragsinformationen
             </button>
             <button
               onClick={() => setActiveTab('components')}
@@ -450,48 +502,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 </div>
               )}
 
-              {/* Auftragsinformationen */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
-                <div className="flex flex-col gap-4">
-                  {/* Obere Zeile */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Erstellt am:</span>
-                      <span className="text-sm font-medium text-gray-900">
-                        {new Date(currentOrder.createdAt).toLocaleDateString('de-DE')}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Deadline:</span>
-                      <span className="text-sm font-medium text-gray-900">
-                        {new Date(currentOrder.deadline).toLocaleDateString('de-DE')}
-                      </span>
-                    </div>
-                  </div>
-                  {/* Untere Zeile */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Status:</span>
-                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(currentOrder.status)}`}>
-                        {getStatusText(currentOrder.status)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Priorität:</span>
-                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium capitalize bg-gray-100 text-gray-800`}>
-                        {currentOrder.priority}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <hr className="border-t border-gray-200" />
+              {/* The contents have been moved to the order_info tab */}
 
               {/* Arbeitsbereich */}
               <div>
@@ -572,12 +583,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 </div>
               </div>
 
-              <hr className="border-t border-gray-200" />
-
-              <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
-                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{currentOrder.description}</p>
-              </div>
+              {/* Beschreibung has been moved to order_info tab */}
 
               {/* Kombinierter und sortierter Kommentarverlauf */}
               {(() => {
@@ -648,7 +654,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       <div className="space-y-1">
                         {currentOrder.revisionRequest.documents.map((doc) => (
                           <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-100 rounded">
-                            <span className="text-sm text-gray-900">{doc.name}</span>
+                            <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                             <div className="flex items-center space-x-2">
                               {doc.name?.toLowerCase().endsWith('.pdf') && (
                                 <button
@@ -672,6 +678,104 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
             </div>
           )}
 
+          {/* Order Info Tab */}
+          {activeTab === 'order_info' && (
+            <div className="space-y-6">
+              {/* Auftragsinformationen */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
+                <div className="flex flex-col gap-4">
+                  {/* Obere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Erstellt am:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(currentOrder.createdAt).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Deadline:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(currentOrder.deadline).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Untere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Status:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(currentOrder.status)}`}>
+                        {getStatusText(currentOrder.status)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Priorität:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium capitalize bg-gray-100 text-gray-800`}>
+                        {currentOrder.priority}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="border-t border-gray-200" />
+
+              <div>
+                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
+                <p className="text-gray-700 bg-gray-50 rounded-lg p-4 whitespace-pre-wrap">{currentOrder.description}</p>
+              </div>
+
+              {/* Allgemeine Dateien Section */}
+              {currentOrder.documents && currentOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).length > 0 && (
+                <>
+                  <hr className="border-t border-gray-200" />
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">Allgemeine Dateien</h4>
+                    <div className="flex flex-col gap-3">
+                      {currentOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).map((doc: any) => (
+                        <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                          <div className="flex items-center space-x-3 overflow-hidden">
+                            <div className="flex-shrink-0">
+                              <FileText className="w-5 h-5 text-blue-600" />
+                            </div>
+                            <div className="truncate">
+                              <p className="text-sm font-medium text-gray-900 truncate" title={getDisplayPath(doc)}>
+                                {doc.name}
+                              </p>
+                              <div className="text-xs text-gray-500">
+                                {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
+                                {doc.pdfWarning && (
+                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                    {doc.pdfWarning}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0 ml-4 flex space-x-2">
+                            <a
+                              href={`/api/documents/${doc.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-gray-500 hover:text-blue-600 transition-colors p-1"
+                              title="Herunterladen"
+                            >
+                              <Download className="w-4 h-4" />
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {activeTab === 'components' && (
             <div className="space-y-6">
               {/* Bauteile-Bereich */}
@@ -682,7 +786,12 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                     {currentOrder.components.map((component) => (
                       <div key={component.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
                         <div className="mb-3">
-                          <h5 className="font-medium text-gray-900 text-sm">{component.title}</h5>
+                          <div className="flex justify-between items-start">
+                            <h5 className="font-medium text-gray-900 text-sm">{component.title}</h5>
+                            <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(component.status || 'pending')}`}>
+                              {getStatusText(component.status || 'pending')}
+                            </span>
+                          </div>
                           <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span>Anzahl: {component.quantity || 1}</span>
                             {component.material && <span>Material: {component.material}</span>}
@@ -693,6 +802,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         </div>
                         
                         {/* Component Documents */}
+                        <hr className="my-3 border-gray-200" />
                         <div>
                           <div className="flex justify-between items-center mb-2">
                             <h6 className="text-xs font-medium text-gray-700">Dokumente:</h6>
@@ -764,7 +874,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                   <div className="flex items-center">
                                     {getFileIcon(doc.name)}
                                     <div className="ml-2">
-                                      <span className="text-gray-900">{doc.name}</span>
+                                      <span className="text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                                       <div className="text-xs text-gray-500">
                                         {getFileTypeDescription(doc.name)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
                                       </div>

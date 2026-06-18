@@ -39,7 +39,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const { state, dispatch } = useApp();
   const [localOrder, setLocalOrder] = useState(order);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
   const [autoCalculateHours, setAutoCalculateHours] = useState(true);
   const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
   const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: []});
@@ -60,6 +60,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
+  const [internalFilesRefreshTrigger, setInternalFilesRefreshTrigger] = useState(0);
 
   const toggleSTLViewer = (docId: string) => {
     setShowSTLViewers(prev => ({
@@ -101,6 +102,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
   // Zustand für bearbeitete Felder
   const [changedFields, setChangedFields] = useState<Partial<Order>>({});
+
+  const getDisplayPath = (doc: any) => {
+    if (!doc.url) return doc.name;
+    let decoded = decodeURIComponent(doc.url);
+    let path = decoded.replace(/^\/(?:uploads|network-files)\//, '');
+    path = path.replace(/uploads\/?/gi, '');
+    if (path.startsWith('/')) path = path.substring(1);
+    return path || doc.name;
+  };
 
   const getComponentDisplayById = (componentId?: string | null) => {
     if (!componentId) {
@@ -158,8 +168,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     // Sofort beim Öffnen syncen
     syncFolder();
     
-    // Alle 10 Sekunden prüfen (Live-Sync, solange das Fenster offen ist)
-    const intervalId = setInterval(syncFolder, 10000);
+    // Alle 3 Sekunden prüfen (Live-Sync, solange das Fenster offen ist)
+    const intervalId = setInterval(syncFolder, 3000);
     
     return () => {
       isMounted = false;
@@ -197,7 +207,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             case 'materialOrderedByClient':
             case 'materialOrderedByClientConfirmed':
             case 'materialAvailable':
-                // Aktualisiere direkt den lokalen Order-State für Checkboxen
+            case 'components':
+                // Aktualisiere direkt den lokalen Order-State für Checkboxen & Komponenten
                 setLocalOrder(prev => ({ ...prev, [field]: value }));
                 break;
         }
@@ -433,6 +444,21 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   };
 
+  const handleUpdateComponentStatus = async (componentId: string, newStatus: string) => {
+    const updatedComponents = localOrder.components?.map(c => {
+      if ((c.id || (c as any)._id) === componentId) {
+        return { ...c, status: newStatus as any };
+      }
+      return c;
+    });
+    
+    // Optisch sofort updaten
+    setLocalOrder(prev => ({ ...prev, components: updatedComponents }));
+    
+    // Direkt in DB speichern, genau wie bei Unteraufgaben
+    await updateOrder({ components: updatedComponents }, 'Bauteil-Status aktualisiert');
+  };
+
   const handleViewPDF = (doc: any) => {
     // We omit cache busters here because adblockers/privacy extensions in Firefox
     // sometimes block URLs containing tracking-like query parameters like 'cb='.
@@ -652,7 +678,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="flex justify-between items-center p-6 border-b">
           <div>
@@ -700,6 +726,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               Dashboard
             </button>
             <button
+              onClick={() => setActiveTab('order_info')}
+              className={`${
+                activeTab === 'order_info'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
+            >
+              Auftragsinformationen
+            </button>
+            <button
               onClick={() => setActiveTab('components')}
               className={`${
                 activeTab === 'components'
@@ -737,54 +773,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           <div className={activeTab === 'dashboard' ? 'block' : 'hidden'}>
             <div className="space-y-6">
 
-              {/* Auftragsinformationen */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
-                <div className="flex flex-col gap-4">
-                  {/* Obere Zeile */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Auftraggeber:</span>
-                      <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Deadline:</span>
-                      <span className="text-sm font-medium text-gray-900">
-                        {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
-                    </div>
-                  </div>
-                  {/* Untere Zeile */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Status:</span>
-                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(localOrder.status)}`}>
-                        {getStatusText(localOrder.status)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Priorität:</span>
-                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium ${getPriorityColor(localOrder.priority)}`}>
-                        {getPriorityText(localOrder.priority)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <hr className="border-t border-gray-200" />
-
-              <div>
-                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
-                <p className="text-gray-700 bg-gray-50 rounded-lg p-4">{localOrder.description}</p>
-              </div>
-
-              <hr className="border-t border-gray-200" />
-            {/* Right Column */}
+              {/* Right Column (Arbeitsbereich) */}
             <div className="space-y-6">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Arbeitsbereich</h3>
@@ -1083,11 +1072,114 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
 
 
+          {/* Order Info Tab */}
+          <div className={activeTab === 'order_info' ? 'block' : 'hidden'}>
+            <div className="space-y-6">
+              {/* Auftragsinformationen */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Auftragsinformationen</h3>
+                <div className="flex flex-col gap-4">
+                  {/* Obere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Auftraggeber:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Deadline:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
+                    </div>
+                  </div>
+                  {/* Untere Zeile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Status:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(localOrder.status)}`}>
+                        {getStatusText(localOrder.status)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Priorität:</span>
+                      <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium ${getPriorityColor(localOrder.priority)}`}>
+                        {getPriorityText(localOrder.priority)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <hr className="border-t border-gray-200" />
+
+              <div>
+                <h4 className="text-md font-semibold text-gray-900 mb-2">Beschreibung</h4>
+                <p className="text-gray-700 bg-gray-50 rounded-lg p-4 whitespace-pre-wrap">{localOrder.description}</p>
+              </div>
+              
+              {/* Allgemeine Dateien Section */}
+              {localOrder.documents && localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).length > 0 && (
+                <>
+                  <hr className="border-t border-gray-200" />
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">Allgemeine Dateien</h4>
+                    <div className="flex flex-col gap-3">
+                      {localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).map((doc: any) => (
+                        <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                          <div className="flex items-center space-x-3 overflow-hidden">
+                            <div className="flex-shrink-0">
+                              {getFileIcon(doc.name)}
+                            </div>
+                            <div className="truncate">
+                              <p className="text-sm font-medium text-gray-900 truncate" title={getDisplayPath(doc)}>
+                                {doc.name}
+                              </p>
+                              <div className="text-xs text-gray-500">
+                                {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
+                                {doc.pdfWarning && (
+                                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                    {doc.pdfWarning}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0 ml-4 flex space-x-2">
+                            {isSTLFile(doc.name) && (
+                              <button
+                                onClick={() => toggleSTLViewer(doc.id)}
+                                className="text-purple-600 hover:text-purple-800 transition-colors p-1"
+                                title="3D Ansicht"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDownload(doc)}
+                              className="text-gray-500 hover:text-blue-600 transition-colors p-1"
+                              title="Herunterladen"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
           {/* Internal Files Tab */}
           <div className={activeTab === 'internal_files' ? 'block' : 'hidden'}>
             <div className="space-y-6">
               <div>
-                <NetworkFilesViewer orderId={localOrder.id} />
+                <NetworkFilesViewer orderId={localOrder.id} refreshTrigger={internalFilesRefreshTrigger} />
               </div>
 
       {/* Dateiupload Bereich */}
@@ -1098,6 +1190,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           uploadType="cam"
           targetFolder="Dateien"
           onUploadSuccess={(fileName) => {
+            setInternalFilesRefreshTrigger(prev => prev + 1);
             dispatch({
               type: 'SHOW_NOTIFICATION',
               payload: {
@@ -1145,7 +1238,28 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       return (
                       <div key={componentId} id={`component-${componentId}`} className="border border-gray-200 rounded-lg p-4 bg-gray-50 transition-all duration-500">
                         <div className="mb-3">
-                          <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
+                          <div className="flex justify-between items-start">
+                            <h5 className="font-medium text-gray-900 text-sm">{componentTitle}</h5>
+                            
+                            {(canModify || state.currentUser?.role === 'admin') ? (
+                              <select
+                                value={component.status || 'pending'}
+                                onChange={(e) => {
+                                  handleUpdateComponentStatus(componentId, e.target.value);
+                                }}
+                                className={`text-xs px-2 py-1 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${getStatusColor(component.status || 'pending')}`}
+                                style={{ border: 'none' }}
+                              >
+                                <option value="pending" className="bg-white text-gray-900">Ausstehend</option>
+                                <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
+                                <option value="completed" className="bg-white text-gray-900">Abgeschlossen</option>
+                              </select>
+                            ) : (
+                              <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(component.status || 'pending')}`}>
+                                {getStatusText(component.status || 'pending')}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-gray-600 text-sm mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span>Anzahl: {component.quantity || 1}</span>
                             {component.material && <span>Material: {component.material}</span>}
@@ -1157,6 +1271,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                         
                         {component.documents && component.documents.length > 0 && (
                           <div>
+                            <hr className="my-3 border-gray-200" />
                             <h6 className="text-xs font-medium text-gray-700 mb-2">Dokumente:</h6>
                             <div className="space-y-1">
                               {component.documents.map((doc) => (
@@ -1165,7 +1280,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     {getFileIcon(doc.name)}
                                     <div className="flex-1 min-w-0 ml-3">
                                       <div className="flex items-center">
-                                        <span className="text-gray-900">{doc.name}</span>
+                                        <span className="text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                                         {doc.pdfWarning && (
                                           <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
                                             {doc.pdfWarning}
@@ -1225,7 +1340,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                         )}
                         
                         {/* Component Upload Section */}
-                        <div className="mt-3 pt-3 border-t border-gray-200">
+                        <div className="mt-3">
                           <button
                             onClick={() => {
                               if (showComponentUpload && activeComponentId === componentId) {
@@ -1502,7 +1617,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           <div className="flex items-center">
                             <FileText className="w-4 h-4 text-red-600 mr-2" />
                             <div className="flex items-center">
-                              <span className="text-sm text-gray-900">{doc.name}</span>
+                              <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                               {doc.pdfWarning && (
                                 <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
                                   {doc.pdfWarning}
@@ -1723,7 +1838,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                               <div className="flex items-center">
                                 <FileText className="w-4 h-4 text-red-600 mr-2" />
                                 <div className="flex items-center">
-                                  <span className="text-sm text-gray-900">{doc.name}</span>
+                                  <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                                   {doc.pdfWarning && (
                                     <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
                                       {doc.pdfWarning}
