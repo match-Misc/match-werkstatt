@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, FileText, Calendar, DollarSign, Clock, Eye, Edit2 } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Plus, Clock, Eye, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import CreateOrder from './CreateOrder';
 import OrderDetails from './OrderDetails';
 import EditOrder from './EditOrder';
 import EndabnahmeActions from './EndabnahmeActions';
@@ -11,10 +10,46 @@ import { Order } from '../types';
 export default function ClientDashboard() {
   const { state, dispatch } = useApp();
   const location = useLocation();
-  const [showCreateOrder, setShowCreateOrder] = useState(false);
+  const navigate = useNavigate();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [orders, setOrders] = useState<Order[]>(state.orders);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Order | 'orderNumber', direction: 'asc' | 'desc' }>({ 
+    key: 'orderNumber', 
+    direction: 'desc' 
+  });
+
+  const handleSort = (key: keyof Order | 'orderNumber') => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const getSortedOrders = (ordersToSort: Order[]) => {
+    return [...ordersToSort].sort((a, b) => {
+      let aVal: any = a[sortConfig.key as keyof Order];
+      let bVal: any = b[sortConfig.key as keyof Order];
+
+      if (sortConfig.key === 'orderNumber') {
+        aVal = a.orderNumber || a.id;
+        bVal = b.orderNumber || b.id;
+      } else if (sortConfig.key === 'title') {
+        aVal = a.title?.toLowerCase() || '';
+        bVal = b.title?.toLowerCase() || '';
+      } else if (sortConfig.key === 'deadline') {
+        aVal = new Date(a.deadline).getTime();
+        bVal = new Date(b.deadline).getTime();
+      } else if (sortConfig.key === 'status') {
+        aVal = a.status || '';
+        bVal = b.status || '';
+      }
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
 
   // Orders nach jedem Öffnen/Schließen des Modals neu laden
   const fetchOrders = async () => {
@@ -56,12 +91,9 @@ export default function ClientDashboard() {
     order.clientId === state.currentUser?.id && order.status !== 'archived'
   );
 
-  const waitingOrders = userOrders.filter(order => order.status === 'waiting_confirmation');
+  const waitingOrders = getSortedOrders(userOrders.filter(order => order.status === 'waiting_confirmation'));
   // Aufträge zur Überarbeitung oder Nacharbeit werden im Dashboard angezeigt
-  const otherOrders = userOrders.filter(order => order.status !== 'waiting_confirmation');
-
-  // Archivierte Aufträge des aktuellen Kunden
-  const archivedOrders = state.orders.filter(order => order.clientId === state.currentUser?.id && order.status === 'archived');
+  const otherOrders = getSortedOrders(userOrders.filter(order => order.status !== 'waiting_confirmation'));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -86,10 +118,6 @@ export default function ClientDashboard() {
     }
   };
 
-  if (showCreateOrder) {
-    return <CreateOrder onClose={() => { setShowCreateOrder(false); fetchOrders(); }} />;
-  }
-
   if (editingOrder) {
     return <EditOrder 
       order={editingOrder} 
@@ -103,14 +131,14 @@ export default function ClientDashboard() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Meine Aufträge</h2>
           <p className="text-gray-600 mt-1">Verwalten Sie Ihre Werkstattaufträge</p>
         </div>
         <button
-          onClick={() => setShowCreateOrder(true)}
+          onClick={() => navigate('/orders/new')}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
         >
           <Plus className="w-4 h-4 mr-2" />
@@ -120,171 +148,152 @@ export default function ClientDashboard() {
 
       {/* Aktuelle Aufträge */}
       {otherOrders.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Aktuelle Aufträge</h3>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {otherOrders.map((order) => (
-              <div
-                key={order.id}
-                className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-shadow ${
-                  order.status === 'revision' ? 'border-orange-300 bg-orange-50' : 'border-gray-200'
-                }`}
-              >
-                <div className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900 truncate">{order.title}</h3>
-                    <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
-                      {getStatusText(order.status)}
-                    </span>
-                  </div>
-                  
-                  {order.status === 'revision' && (
-                    <div className="mb-4 p-3 bg-orange-100 border border-orange-200 rounded-lg">
-                      <p className="text-sm text-orange-800 font-medium">
-                        Überarbeitung erforderlich
-                      </p>
-                      <p className="text-xs text-orange-700 mt-1">
-                        Bitte überarbeiten Sie den Auftrag und reichen Sie ihn erneut ein.
-                      </p>
+        <div className="bg-white rounded-lg shadow-sm border mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Auftrag</span>
+                      {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
-                  )}
-                  
-                  {order.status === 'rework' && (
-                    <div className="mb-4 p-3 bg-blue-100 border border-blue-200 rounded-lg">
-                      <p className="text-sm text-blue-800 font-medium">
-                        Auftrag in Nacharbeit
-                      </p>
-                      <p className="text-xs text-blue-700 mt-1">
-                        Die Werkstatt bearbeitet Ihre Anmerkungen.
-                      </p>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Deadline</span>
+                      {sortConfig.key === 'deadline' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
-                  )}
-
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-2">{order.description}</p>
-                  
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-2" />
-                      Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <DollarSign className="w-4 h-4 mr-2" />
-                      Kostenstelle: {order.costCenter}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Clock className="w-4 h-4 mr-2" />
-                      Geschätzt: {order.estimatedHours}h
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-gray-500">
-                      {order.documents.length} Dokument(e)
-                    </span>
-                    <div className="flex space-x-2">
-                      {(order.status === 'revision' || order.status === 'rework') && (
-                        <button
-                          onClick={() => setEditingOrder(order)}
-                          className="text-orange-600 hover:text-orange-800 text-sm flex items-center"
-                        >
-                          <Edit2 className="w-4 h-4 mr-1" />
-                          Bearbeiten
-                        </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Geschätzt</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {otherOrders.map((order) => (
+                  <tr key={order.id} className={`hover:bg-gray-50 ${order.status === 'revision' ? 'bg-orange-50' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{order.title}</div>
+                      <div className="text-xs text-gray-500 font-mono">{order.orderNumber || order.id}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{new Date(order.deadline).toLocaleDateString('de-DE')}</div>
+                      <div className="text-xs text-gray-500">{order.costCenter}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
+                        {getStatusText(order.status)}
+                      </span>
+                      {order.status === 'revision' && (
+                        <div className="mt-1 text-xs text-orange-600 font-medium">Bitte überarbeiten</div>
                       )}
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                      >
-                        <Eye className="w-4 h-4 mr-1" />
-                        Anzeigen
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Archivierte Aufträge */}
-      {archivedOrders.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Archivierte Aufträge</h3>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {archivedOrders.map((order) => (
-              <div key={order.id} className="bg-gray-100 border border-gray-300 rounded-lg shadow-sm p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900 truncate">{order.title}</h3>
-                  <span className="px-2 py-1 text-xs rounded-full bg-gray-200 text-gray-700">Archiviert</span>
-                </div>
-                <div className="mb-2 text-gray-700">{order.description}</div>
-                <div className="flex justify-end mt-4">
-                  <button
-                    className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
-                    onClick={() => setSelectedOrder(order)}
-                  >
-                    Anzeigen
-                  </button>
-                </div>
-              </div>
-            ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center text-sm text-gray-900">
+                        <Clock className="w-4 h-4 text-gray-400 mr-1" />
+                        {order.estimatedHours}h
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-3">
+                        {(order.status === 'revision' || order.status === 'rework') && (
+                          <button
+                            onClick={() => setEditingOrder(order)}
+                            className="text-orange-600 hover:text-orange-800 flex items-center"
+                          >
+                            <Edit2 className="w-4 h-4 mr-1" />
+                            Bearbeiten
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setSelectedOrder(order)}
+                          className="text-blue-600 hover:text-blue-800 flex items-center"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />
+                          Anzeigen
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
       {waitingOrders.length > 0 && (
-        <div className="mb-8">
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Aufträge zur Endabnahme</h3>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {waitingOrders.map((order) => (
-              <div key={order.id} className="bg-yellow-50 border-yellow-300 border rounded-lg shadow-sm p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900 truncate">{order.title}</h3>
-                  <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">Warten auf Endabnahme</span>
-                </div>
-                <div className="mb-2 text-gray-700">{order.description}</div>
-                <EndabnahmeActions
-                  onConfirm={async (note) => {
-                    const updatedOrder = { ...order, status: 'completed', confirmationNote: note || '', confirmationDate: new Date() };
-                    await fetch(`/api/orders/${order.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(updatedOrder)
-                    });
-                    // Nach erfolgreichem Abschluss: Aufträge neu laden
-                    if (typeof window !== 'undefined') window.location.reload();
-                  }}
-                  onRequestRevision={async (revisionComment, newDeadlineStr) => {
-                    if (!revisionComment) return;
-                    let newDeadline: Date | undefined = undefined;
-                    if (newDeadlineStr) {
-                      const d = new Date(newDeadlineStr);
-                      if (!isNaN(d.getTime())) newDeadline = d;
-                    }
-                    
-                    // Sende nur die notwendigen Felder für Nacharbeitskommentare
-                    const requestBody = {
-                      status: 'rework',
-                      revisionComment: revisionComment, // Das Backend erwartet revisionComment
-                      userId: state.currentUser?.id,
-                      userName: state.currentUser?.name,
-                      updatedAt: new Date(),
-                    };
-                    
-                    console.log('ClientDashboard: Sending rework request:', requestBody);
-                    
-                    await fetch(`/api/orders/${order.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(requestBody)
-                    });
-                    // Nach erfolgreichem Abschluss: Aufträge neu laden
-                    if (typeof window !== 'undefined') window.location.reload();
-                  }}
-                />
-              </div>
-            ))}
+        <div className="bg-white rounded-lg shadow-sm border mb-8">
+          <div className="p-4 border-b">
+            <h3 className="text-lg font-bold text-gray-900">Aufträge zur Endabnahme</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftrag</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[300px]">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {waitingOrders.map((order) => (
+                  <tr key={order.id} className="hover:bg-gray-50 bg-yellow-50/50">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-900">{order.title}</div>
+                      <div className="text-xs text-gray-500 font-mono mb-1">{order.orderNumber || order.id}</div>
+                      <div className="text-sm text-gray-700 line-clamp-2">{order.description}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">
+                        Warten auf Endabnahme
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 min-w-[350px]">
+                      <EndabnahmeActions
+                        onConfirm={async (note) => {
+                          const updatedOrder = { ...order, status: 'completed', confirmationNote: note || '', confirmationDate: new Date() };
+                          await fetch(`/api/orders/${order.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(updatedOrder)
+                          });
+                          // Nach erfolgreichem Abschluss: Aufträge neu laden
+                          if (typeof window !== 'undefined') window.location.reload();
+                        }}
+                        onRequestRevision={async (revisionComment) => {
+                          if (!revisionComment) return;
+                          // Sende nur die notwendigen Felder für Nacharbeitskommentare
+                          const requestBody = {
+                            status: 'rework',
+                            revisionComment: revisionComment, // Das Backend erwartet revisionComment
+                            userId: state.currentUser?.id,
+                            userName: state.currentUser?.name,
+                            updatedAt: new Date(),
+                          };
+                          
+                          console.log('ClientDashboard: Sending rework request:', requestBody);
+                          
+                          await fetch(`/api/orders/${order.id}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(requestBody)
+                          });
+                          // Nach erfolgreichem Abschluss: Aufträge neu laden
+                          if (typeof window !== 'undefined') window.location.reload();
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

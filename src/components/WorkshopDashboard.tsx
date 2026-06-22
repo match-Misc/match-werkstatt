@@ -1,31 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Clock, User, Eye, Filter, Search, Settings, QrCode } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { Clock, User, Eye, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import WorkshopOrderDetails from './WorkshopOrderDetails';
-import AccountManagement from './AccountManagement';
-import ArchiveView from './ArchiveView';
-import CreateOrder from './CreateOrder';
 import QRCodeScanner from './QRCodeScanner';
 import { Order } from '../types';
 
 export default function WorkshopDashboard() {
   const { state, dispatch } = useApp();
   const location = useLocation();
+  const navigate = useNavigate();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [activeTab, setActiveTab] = useState<'orders' | 'admin_tasks'>(
-    state.currentUser?.role === 'admin' ? 'admin_tasks' : 'orders'
-  );
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [showAccountManagement, setShowAccountManagement] = useState(false);
   const [viewMode, setViewMode] = useState<'all' | 'assigned'>('all');
-  const [showArchive, setShowArchive] = useState(false);
-  const [showCreateOrder, setShowCreateOrder] = useState(false);
   const [orders, setOrders] = useState<Order[]>(Array.isArray(state.orders) ? state.orders : []);
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: keyof Order | 'orderNumber', direction: 'asc' | 'desc' }>({ 
+    key: 'orderNumber', 
+    direction: 'desc' 
+  });
 
-  // Orders nach jedem Öffnen/Schließen des Modals neu laden
+  const handleSort = (key: keyof Order | 'orderNumber') => {
+    setSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
   const fetchOrders = async () => {
     try {
       const viewerRole = state.currentUser?.role || 'workshop';
@@ -53,6 +54,12 @@ export default function WorkshopDashboard() {
       }
     }
   };
+
+  // Aufträge initial laden
+  useEffect(() => {
+    fetchOrders();
+    setOrders(Array.isArray(state.orders) ? state.orders : []);
+  }, [state.orders]);
 
   // QR-Code-Scanner Handler
   const handleBarcodeScanned = async (code: string) => {
@@ -117,12 +124,6 @@ export default function WorkshopDashboard() {
     }
   }, [state.orders, location.state, orders, dispatch]);
 
-  useEffect(() => {
-    if (state.currentUser?.role === 'admin') {
-      setActiveTab('admin_tasks');
-    }
-  }, [state.currentUser?.role]);
-
   // Filter orders based on user role and view mode
   const getFilteredOrders = () => {
     // Stelle sicher, dass orders ein Array ist
@@ -145,12 +146,35 @@ export default function WorkshopDashboard() {
 
   const activeOrders = getFilteredOrders();
   
-  // Sort orders by deadline priority
+  // Sort orders by selected criteria
   const sortedOrders = [...activeOrders].sort((a, b) => {
-    // First by deadline
-    const deadlineA = new Date(a.deadline).getTime();
-    const deadlineB = new Date(b.deadline).getTime();
-    return deadlineA - deadlineB;
+      let aVal: any = a[sortConfig.key as keyof Order];
+      let bVal: any = b[sortConfig.key as keyof Order];
+
+      if (sortConfig.key === 'orderNumber') {
+        aVal = a.orderNumber || a.id;
+        bVal = b.orderNumber || b.id;
+      } else if (sortConfig.key === 'title') {
+        aVal = a.title?.toLowerCase() || '';
+        bVal = b.title?.toLowerCase() || '';
+      } else if (sortConfig.key === 'clientName') {
+        aVal = a.clientName?.toLowerCase() || '';
+        bVal = b.clientName?.toLowerCase() || '';
+      } else if (sortConfig.key === 'deadline') {
+        aVal = new Date(a.deadline).getTime();
+        bVal = new Date(b.deadline).getTime();
+      } else if (sortConfig.key === 'status') {
+        aVal = a.status || '';
+        bVal = b.status || '';
+      } else if (sortConfig.key === 'priority') {
+        const priorityScore = { high: 3, medium: 2, low: 1 };
+        aVal = priorityScore[a.priority] || 0;
+        bVal = priorityScore[b.priority] || 0;
+      }
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
   });
 
   const filteredOrders = sortedOrders.filter(order => {
@@ -159,87 +183,6 @@ export default function WorkshopDashboard() {
                          order.clientName.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesStatus && matchesSearch;
   });
-
-  // Get user's assigned subtasks
-  const getMySubTasks = () => {
-    if (!['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '')) return [];
-    
-    const mySubTasks: Array<{order: Order, subTask: any}> = [];
-    state.orders.forEach(order => {
-      if (Array.isArray(order.subTasks)) {
-        order.subTasks.forEach(subTask => {
-          if (subTask.assignedTo === state.currentUser?.id && subTask.status !== 'completed') {
-            mySubTasks.push({ order, subTask });
-          }
-        });
-      }
-    });
-    return mySubTasks;
-  };
-
-  const mySubTasks = getMySubTasks();
-
-  const getAdminOwnSubTasks = () => {
-    if (state.currentUser?.role !== 'admin') return [];
-
-    const ownSubTasks: Array<{ order: Order; subTask: any; deadline: number }> = [];
-    state.orders.forEach((order) => {
-      if (!Array.isArray(order.subTasks)) return;
-      order.subTasks.forEach((subTask) => {
-        if (subTask.assignedTo === state.currentUser?.id && subTask.status !== 'completed') {
-          ownSubTasks.push({
-            order,
-            subTask,
-            deadline: new Date(order.deadline).getTime()
-          });
-        }
-      });
-    });
-
-    return ownSubTasks.sort((a, b) => a.deadline - b.deadline);
-  };
-
-  const getAdminTeamPlannedSubTasks = () => {
-    if (state.currentUser?.role !== 'admin') return [];
-
-    const plannedSubTasks: Array<{ order: Order; subTask: any; assigneeName: string; deadline: number }> = [];
-    state.orders.forEach((order) => {
-      if (!Array.isArray(order.subTasks)) return;
-      order.subTasks.forEach((subTask) => {
-        if (subTask.status === 'pending' && subTask.assignedTo && subTask.assignedTo !== state.currentUser?.id) {
-          const assigneeName = state.workshopAccounts.find(acc => acc.id === subTask.assignedTo)?.name || 'Unbekannt';
-          plannedSubTasks.push({
-            order,
-            subTask,
-            assigneeName,
-            deadline: new Date(order.deadline).getTime()
-          });
-        }
-      });
-    });
-
-    return plannedSubTasks.sort((a, b) => a.deadline - b.deadline);
-  };
-
-  const adminOwnSubTasks = getAdminOwnSubTasks();
-  const adminTeamPlannedSubTasks = getAdminTeamPlannedSubTasks();
-
-  const getSubTaskScopeText = (order: Order, subTask: any) => {
-    if (subTask.scopeType !== 'component') {
-      return '📋 Gesamtauftrag';
-    }
-
-    const component = order.components?.find((comp: any) => {
-      const compId = comp.id || comp._id;
-      return compId === subTask.assignedComponentId;
-    });
-
-    const componentTitle = component
-      ? (component.title || component.name || 'Bauteil')
-      : (subTask.assignedComponentTitle || 'Bauteil');
-
-    return `🔧 ${componentTitle}`;
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -352,232 +295,69 @@ export default function WorkshopDashboard() {
     }
   }, [location.search, orders, handleBarcodeScanned, dispatch]);
 
-  if (showAccountManagement) {
-    return <AccountManagement onClose={() => setShowAccountManagement(false)} />;
-  }
-
-  if (showArchive) {
-    return <ArchiveView onClose={() => setShowArchive(false)} />;
-  }
-
-  if (showCreateOrder) {
-    return <CreateOrder onClose={() => { setShowCreateOrder(false); fetchOrders(); }} />;
-  }
-
   if (selectedOrder) {
     return <WorkshopOrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Werkstattaufträge</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Werkstattaufträge</h2>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowBarcodeScanner(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-            title="QR-Code-Scanner öffnen - Sie werden zur Kamera-Berechtigung aufgefordert"
-          >
-            <QrCode className="w-4 h-4 mr-2" />
-            📷 QR-Code scannen
-          </button>
-          <button
-            onClick={() => setShowArchive(true)}
-            className="bg-gray-700 text-white px-4 py-2 rounded-lg hover:bg-gray-900 transition-colors"
-          >
-            Archiv
-          </button>
-          {state.currentUser?.role === 'admin' && (
-            <button
-              onClick={() => setShowAccountManagement(true)}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center"
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              Benutzerverwaltung
-            </button>
-          )}
-          {['admin', 'workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
-            <button
-              onClick={() => setShowCreateOrder(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-            >
-              + Auftrag anlegen
-            </button>
-          )}
-        </div>
-      </div>
-
-      {state.currentUser?.role === 'admin' && (
-        <div className="bg-white rounded-lg shadow-sm border mb-6 p-2">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'orders'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Auftragsübersicht
-            </button>
-            <button
-              onClick={() => setActiveTab('admin_tasks')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'admin_tasks'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Admin-Unteraufgaben
-            </button>
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Suchen..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            />
           </div>
-        </div>
-      )}
-
-      {state.currentUser?.role === 'admin' && activeTab === 'admin_tasks' && (
-        <div className="space-y-6">
-          <div className="bg-blue-50 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
-            {adminOwnSubTasks.length === 0 ? (
-              <p className="text-sm text-gray-500">Keine offenen eigenen Unteraufgaben.</p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {adminOwnSubTasks.map(({ order, subTask }) => (
-                  <div key={subTask.id} className="bg-white rounded-lg p-4 shadow-sm border">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                        <p className="text-xs text-gray-600 mt-1">{subTask.description}</p>
-                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
-                      </div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                        {getStatusText(subTask.status)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 mb-2">Hauptauftrag: {order.title}</div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                      >
-                        Öffnen
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400 hidden sm:block" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value="all">Alle Status</option>
+              <option value="pending">Ausstehend</option>
+              <option value="accepted">Angenommen</option>
+              <option value="in_progress">In Bearbeitung</option>
+              <option value="revision">Überarbeitung</option>
+              <option value="rework">Nacharbeit</option>
+              <option value="completed">Abgeschlossen</option>
+            </select>
           </div>
-
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Geplante Team-Unteraufgaben (Statusübersicht)</h3>
-            {adminTeamPlannedSubTasks.length === 0 ? (
-              <p className="text-sm text-gray-500">Keine geplanten Team-Unteraufgaben.</p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {adminTeamPlannedSubTasks.map(({ order, subTask, assigneeName }) => (
-                  <div key={subTask.id} className="bg-gray-50 rounded-lg p-4 border">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                        <p className="text-xs text-gray-600 mt-1">Mitarbeiter: {assigneeName}</p>
-                        <p className="text-xs text-gray-600">Auftrag: {order.title}</p>
-                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
-                      </div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                        {getStatusText(subTask.status)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                      >
-                        Öffnen
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {!(state.currentUser?.role === 'admin' && activeTab === 'admin_tasks') && (
-      <>
-      {/* My Subtasks Section for Workshop Users */}
-      {['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && mySubTasks.length > 0 && (
-        <div className="bg-blue-50 rounded-lg p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {mySubTasks.map(({ order, subTask }) => (
-              <div key={subTask.id} className="bg-white rounded-lg p-4 shadow-sm border">
-                <div className="flex justify-between items-start mb-2">
-                  <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                  <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                    {getStatusText(subTask.status)}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-600 mb-2">{subTask.description}</p>
-                <div className="text-xs text-gray-500 mb-2">
-                  Hauptauftrag: {order.title}
-                </div>
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span>{subTask.estimatedHours}h geschätzt</span>
-                  <button
-                    onClick={() => setSelectedOrder(order)}
-                    className="text-blue-600 hover:text-blue-800"
-                  >
-                    Öffnen
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Suchleiste separat */}
-      <div className="bg-white rounded-lg shadow-sm border mb-6 p-4 flex flex-col sm:flex-row gap-4 items-center">
-        <div className="flex-1 relative w-full">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <input
-            type="text"
-            placeholder="Auftrag oder Auftraggeber suchen..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="all">Alle Status</option>
-            <option value="pending">Ausstehend</option>
-            <option value="accepted">Angenommen</option>
-            <option value="in_progress">In Bearbeitung</option>
-            <option value="revision">Überarbeitung</option>
-            <option value="rework">Nacharbeit</option>
-            <option value="completed">Abgeschlossen</option>
-          </select>
           {['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
             <select
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as 'all' | 'assigned')}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             >
               <option value="all">Alle Aufträge</option>
               <option value="assigned">Meine Aufträge</option>
             </select>
+          )}
+          <button
+            onClick={() => setShowBarcodeScanner(true)}
+            className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors flex items-center text-sm"
+            title="QR-Code-Scanner öffnen"
+          >
+            <QrCode className="w-4 h-4 sm:mr-2" />
+            <span className="hidden sm:inline">Scannen</span>
+          </button>
+          {['admin', 'workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
+            <button
+              onClick={() => navigate('/orders/new')}
+              className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center text-sm"
+            >
+              <Plus className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Auftrag anlegen</span>
+            </button>
           )}
         </div>
       </div>
@@ -592,11 +372,36 @@ export default function WorkshopDashboard() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftrag</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftraggeber</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priorität</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Auftrag</span>
+                      {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Auftraggeber</span>
+                      {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Deadline</span>
+                      {sortConfig.key === 'deadline' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('priority')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Priorität</span>
+                      {sortConfig.key === 'priority' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zugewiesen</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zeit</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
@@ -679,11 +484,36 @@ export default function WorkshopDashboard() {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftrag</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftraggeber</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Priorität</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Auftrag</span>
+                      {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Auftraggeber</span>
+                      {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Deadline</span>
+                      {sortConfig.key === 'deadline' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Status</span>
+                      {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('priority')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Priorität</span>
+                      {sortConfig.key === 'priority' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zugewiesen</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zeit</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
@@ -762,8 +592,6 @@ export default function WorkshopDashboard() {
           onScan={handleBarcodeScanned}
           onClose={() => setShowBarcodeScanner(false)}
         />
-      )}
-      </>
       )}
     </div>
   );

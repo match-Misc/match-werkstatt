@@ -375,8 +375,8 @@ async function autoMigrateOrderFiles(db, orderId) {
     for (const compDoc of componentDocuments) {
       try {
         console.log(`[File-Organization] Processing component document: ${compDoc.url}`);
-        // Get numbered folder name e.g. "01_Motorhalterung"
-        const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId);
+        // Get numbered folder name e.g. "01_Motorhalterung_x3" or "01_Motorhalterung" if it already exists
+        const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId, uploadsFolderPath);
         
         const componentFolderPath = path.join(uploadsFolderPath, componentFolderName);
         if (!fs.existsSync(componentFolderPath)) {
@@ -475,8 +475,8 @@ async function autoMigrateOrderFiles(db, orderId) {
   }
 }
 
-// Helper function: Get numbered component folder name (e.g. "02_Motorhalterung")
-async function getComponentFolderName(db, orderId, componentId) {
+// Helper function: Get numbered component folder name (e.g. "02_Motorhalterung_x3" or "02_Motorhalterung" fallback)
+async function getComponentFolderName(db, orderId, componentId, basePath = null) {
   // Sort all components for this order by creation time to get a stable index
   const allComponents = await db.collection('Component').find(
     { orderId: new ObjectId(orderId) }
@@ -489,7 +489,21 @@ async function getComponentFolderName(db, orderId, componentId) {
   const componentName = component ? (component.title || component.name || 'Bauteil') : 'Bauteil';
   const sanitizedName = componentName.trim().replace(/[\\/:*?"<>|]/g, '_');
   
-  return `${number}_${sanitizedName}`;
+  const quantity = component && component.quantity ? component.quantity : 1;
+  
+  const newName = `${number}_${sanitizedName}_x${quantity}`;
+  const oldName = `${number}_${sanitizedName}`;
+
+  if (basePath) {
+    if (fs.existsSync(path.join(basePath, newName))) {
+      return newName;
+    }
+    if (fs.existsSync(path.join(basePath, oldName))) {
+      return oldName;
+    }
+  }
+  
+  return newName;
 }
 
 // Initialize MongoDB indexes on startup
@@ -2701,7 +2715,7 @@ app.post('/api/orders/:id/sync', async (req, res) => {
     
     // 3. Process each component's subdirectory
     for (const comp of components) {
-      const componentFolderName = await getComponentFolderName(db, orderId, comp._id);
+      const componentFolderName = await getComponentFolderName(db, orderId, comp._id, targetFolderPath);
       
       const compPath = path.join(targetFolderPath, componentFolderName);
       processDirectory(compPath, `${orderFolderName}/${componentFolderName}`, comp._id, false);
@@ -2917,7 +2931,8 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
           localUrl = `/uploads/${orderFolderName}/00_Interne%20Dokumente/${encodeURIComponent(basename)}`;
         } else if (document.componentId) {
           // Component document – use numbered folder name
-          const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId);
+          const orderDir = path.join(localStorageDir, orderFolderName);
+          const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId, orderDir);
           
           const localCompDir = path.join(localStorageDir, orderFolderName, componentFolderName);
           if (!fs.existsSync(localCompDir)) {

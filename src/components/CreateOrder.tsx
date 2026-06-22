@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Order, PDFDocument, Component, Material } from '../types';
+import { useNavigate } from 'react-router-dom';
+import { PDFDocument, Component, Material } from '../types';
 import { checkPdfSize } from '../utils/pdfChecker';
 
 interface CreateOrderProps {
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 export default function CreateOrder({ onClose }: CreateOrderProps) {
   const { state } = useApp();
+  const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState('');
@@ -117,11 +119,17 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
         alert(`Fehler beim Anlegen des Auftrags: ${errorData.error || 'Unbekannter Fehler'}`);
         return;
       }
-      onClose();
+      if (onClose) onClose();
+      else navigate(-1);
     } catch (err) {
       console.error('Network error:', err);
       alert('Netzwerkfehler beim Anlegen des Auftrags!');
     }
+  };
+
+  const handleClose = () => {
+    if (onClose) onClose();
+    else navigate(-1);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -241,7 +249,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
         <div className="flex justify-between items-center p-6 border-b">
           <h2 className="text-xl font-bold text-gray-900">Neuen Auftrag erstellen</h2>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
             <X className="w-6 h-6" />
@@ -572,7 +580,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
           <div className="flex justify-between pt-6 border-t mt-6">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
               style={{ minWidth: 120 }}
             >

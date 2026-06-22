@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -289,7 +289,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         const isInternalOrder = !localOrder.clientId || 
                                localOrder.clientId === state.currentUser?.id ||
                                state.currentUser?.role === 'admin' ||
-                               state.currentUser?.role === 'workshop';
+                               (state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager');
         
         if (isInternalOrder) {
           // Direct completion for internal orders
@@ -597,8 +597,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   };
 
   const canModify = state.currentUser?.role === 'admin' || 
-                   (state.currentUser?.role === 'workshop' && localOrder.assignedTo === state.currentUser?.id);
-  const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop';
+                   ((state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && localOrder.assignedTo === state.currentUser?.id);
+  const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager';
 
   // Auftrag löschen (nur für Admin)
   const handleDeleteOrder = async () => {
@@ -1475,7 +1475,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           <div className="mt-8 border-t pt-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Unteraufgaben</h3>
-              {(canModify || state.currentUser?.role === 'admin') && (
+              {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && (
                 <button
                   onClick={() => setShowAddSubTask(true)}
                   className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1796,7 +1796,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                               {getStatusText(subTask.status)}
                             </span>
                           )}
-                          {(canModify || state.currentUser?.role === 'admin') && (
+                          {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && (
                             <div className="flex items-center space-x-2">
                               <button
                                 onClick={() => {
