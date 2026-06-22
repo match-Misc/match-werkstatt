@@ -9,6 +9,8 @@ const { MongoClient, ObjectId } = require('mongodb');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
+const LDAPSearch = require('./scripts/ldap-search.cjs');
+const nodemailer = require('nodemailer');
 
 // LDAP Konfiguration
 const ldapConfig = {
@@ -27,10 +29,31 @@ const ldapConfig = {
 
 // LDAP Authenticator initialisieren
 const ldapAuth = new SimpleLDAPAuth(ldapConfig);
+const ldapSearch = new LDAPSearch(ldapConfig);
 console.log('[HYBRID-AUTH] LDAP-Konfiguration geladen:', {
   host: ldapConfig.host,
   port: ldapConfig.port,
   baseDN: ldapConfig.baseDN
+});
+
+// Nodemailer Transporter konfigurieren
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'email.uni-hannover.de',
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: false, // TLS requires STARTTLS, false usually means STARTTLS if port 587
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+  }
+});
+
+// Transporter testen
+transporter.verify((error, success) => {
+  if (error) {
+    console.log('[SMTP] Konfigurationsfehler:', error.message);
+  } else {
+    console.log('[SMTP] Server ist bereit für den E-Mail-Versand');
+  }
 });
 
 const app = express();
@@ -776,6 +799,19 @@ app.post('/api/login', async (req, res) => {
       if (userInfo) {
         authSource = 'ldap';
         console.log('[HYBRID-AUTH] LDAP-Authentifizierung erfolgreich');
+
+        // Fetch real email using the user's credentials
+        try {
+          const realEmail = await ldapSearch.findUserEmailWithCredentials(username, username, password);
+          if (realEmail) {
+            userInfo.email = realEmail;
+            console.log(`[HYBRID-AUTH] Echte E-Mail aus LDAP geladen: ${realEmail}`);
+          } else {
+            console.log(`[HYBRID-AUTH] Keine E-Mail im LDAP gefunden, nutze Fallback: ${userInfo.email}`);
+          }
+        } catch (emailErr) {
+          console.error('[HYBRID-AUTH] Fehler beim Abrufen der echten E-Mail:', emailErr.message);
+        }
         
         // Hole oder erstelle lokalen Benutzer-Eintrag für Rollen-Management
         const { client, db } = await getDB();
@@ -1776,8 +1812,24 @@ app.put('/api/orders/:id', async (req, res) => {
     .sort({ createdAt: -1 })
     .toArray();
     
-    await client.close();
+    // Trigger email notifications if status changed
+    if (status !== undefined && status !== existingOrder.status) {
+      const emailScript = require('./scripts/email-notifications.cjs');
+      const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
+      
+      console.log(`[EMAIL] Status changed from ${existingOrder.status} to ${status}. Triggering emails...`);
+      
+      if (status === 'waiting_confirmation') {
+        await emailScript.sendWaitingConfirmationEmail(transporter, db, req.params.id, orderDataForEmail);
+      } else if (status === 'completed' || status === 'rework') {
+        const commentData = status === 'completed' 
+          ? { userName: effectiveUserName, comment: confirmationNote }
+          : { userName: effectiveUserName, comment: revisionRequest || revisionComment };
+        await emailScript.sendWorkshopStatusUpdateEmail(transporter, db, req.params.id, orderDataForEmail, status, commentData);
+      }
+    }
 
+    await client.close();
     const responseOrder = {
       ...updatedOrder,
       id: updatedOrder._id.toString(),
@@ -1976,12 +2028,9 @@ app.post('/api/orders', async (req, res) => {
     if (existingOrders.length > 0) {
       const numbers = existingOrders.map(order => {
         if (!order.orderNumber) return 0;
-        // Old format: F-YYMM-X or S-YYMM-X (extract X)
-        let match = order.orderNumber.match(/^[FS]-\d{4}-(\d+)$/);
-        if (match) return parseInt(match[1]);
-        // New format: F-XXXX-YYMM or S-XXXX-YYMM (extract XXXX)
-        match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
-        if (match) return parseInt(match[1]);
+        // Format: F-XXXX-YYMM or S-XXXX-YYMM (extract XXXX)
+        const match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
+        if (match) return parseInt(match[1], 10);
         return 0;
       }).filter(num => num > 0);
       
@@ -1990,8 +2039,15 @@ app.post('/api/orders', async (req, res) => {
       }
     }
     
-    const paddedNumber = String(nextNumber).padStart(4, '0');
-    const orderNumber = `${prefix}-${paddedNumber}-${yearMonth}`;
+    let orderNumber;
+    while (true) {
+      const paddedNumber = String(nextNumber).padStart(4, '0');
+      orderNumber = `${prefix}-${paddedNumber}-${yearMonth}`;
+      if (!existingOrders.some(o => o.orderNumber === orderNumber)) {
+        break;
+      }
+      nextNumber++;
+    }
     
     // Create new order
     const newOrder = {
@@ -3647,6 +3703,48 @@ console.log('✅ No Prisma dependencies');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+
+// === EMAIL AND LDAP TESTING API ===
+app.post('/api/test/email', async (req, res) => {
+  try {
+    const { to, subject, text } = req.body;
+    if (!to) {
+      return res.status(400).json({ error: 'Empfänger (to) fehlt.' });
+    }
+
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to,
+      subject: subject || 'Test-E-Mail von Match-Werkstatt',
+      text: text || 'Dies ist eine Test-E-Mail.',
+      encoding: 'utf-8'
+    });
+
+    res.json({ success: true, messageId: info.messageId });
+  } catch (error) {
+    console.error('Test-E-Mail Fehler:', error);
+    res.status(500).json({ error: 'Fehler beim Senden der E-Mail', details: error.message });
+  }
+});
+
+app.get('/api/test/ldap-email', async (req, res) => {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ error: 'Benutzername (username) fehlt.' });
+    }
+
+    const email = await ldapSearch.findUserEmail(username);
+    if (email) {
+      res.json({ success: true, email });
+    } else {
+      res.status(404).json({ error: 'E-Mail nicht gefunden oder Benutzer existiert nicht.' });
+    }
+  } catch (error) {
+    console.error('LDAP-E-Mail-Suche Fehler:', error);
+    res.status(500).json({ error: 'Fehler bei der LDAP-Abfrage', details: error.message });
+  }
+});
 
 const server = http.createServer(app);
 
