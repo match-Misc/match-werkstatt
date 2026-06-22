@@ -22,7 +22,6 @@ RUN npm install --omit=dev
 
 # Backend-Dateien kopieren
 COPY server.cjs ./
-COPY simple-ldap-auth.cjs ./
 COPY mongo-init.js ./
 COPY scripts/ ./scripts/
 
