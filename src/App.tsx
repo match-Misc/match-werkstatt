@@ -7,6 +7,8 @@ import ClientDashboard from './components/ClientDashboard';
 import WorkshopDashboard from './components/WorkshopDashboard';
 import Notification from './components/Notification';
 
+import GuestDashboard from './components/GuestDashboard';
+
 // Component for handling QR-Code direct links
 function OrderDirectAccess() {
   const { orderId } = useParams<{ orderId: string }>();
@@ -22,8 +24,8 @@ function OrderDirectAccess() {
 
     if (orderId && state.isAuthenticated) {
       // Navigate to the appropriate dashboard with the order selected
-      if (state.currentUser?.role === 'client') {
-        navigate('/', { state: { openOrderId: orderId } });
+      if (state.currentUser?.role === 'guest') {
+        navigate('/'); // Guests can't see orders
       } else {
         navigate('/', { state: { openOrderId: orderId } });
       }
@@ -52,6 +54,17 @@ function AppContent() {
     }
   }, [state.isAuthenticated, navigate]);
 
+  const renderDashboard = () => {
+    const role = state.currentUser?.role;
+    if (role === 'guest') {
+      return <GuestDashboard />;
+    } else if (role === 'client') {
+      return <ClientDashboard />;
+    } else {
+      return <WorkshopDashboard />;
+    }
+  };
+
   return (
     <Routes>
       <Route path="/order/:orderId" element={<OrderDirectAccess />} />
@@ -63,11 +76,7 @@ function AppContent() {
             <div className="min-h-screen bg-gray-50">
               <Header />
               <main>
-                {state.currentUser?.role === 'client' ? (
-                  <ClientDashboard />
-                ) : (
-                  <WorkshopDashboard />
-                )}
+                {renderDashboard()}
               </main>
               <Notification />
             </div>

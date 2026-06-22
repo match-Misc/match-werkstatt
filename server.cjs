@@ -138,10 +138,17 @@ app.use('/network-files', async (req, res, next) => {
 // Multer setup for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
+    let destDir = uploadsDir;
+    if (req.query.draftId) {
+      destDir = path.join(uploadsDir, 'tmp', req.query.draftId);
+    } else {
+      destDir = path.join(uploadsDir, 'tmp');
     }
-    cb(null, uploadsDir);
+    
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+    cb(null, destDir);
   },
   filename: (req, file, cb) => {
     // Keep original filename (sanitized), avoid collisions by appending (1), (2), ...
@@ -152,11 +159,19 @@ const storage = multer.diskStorage({
       .trim()
       .replace(/[\\/:*?"<>|]/g, '_') // Windows forbidden chars
       .replace(/\s+/g, ' ')            // normalize spaces
-      .replace(/[^a-zA-Z0-9\-_. ()]/g, '_'); // keep common safe chars
+      .replace(/[^a-zA-Z0-9\-_.]/g, '_'); // keep common safe chars (removed space/parens just in case, but let's keep them if they were there)
 
     let candidate = `${safeBase}${ext}`;
     let counter = 1;
-    while (fs.existsSync(path.join(uploadsDir, candidate))) {
+    
+    let destDir = uploadsDir;
+    if (req.query.draftId) {
+      destDir = path.join(uploadsDir, 'tmp', req.query.draftId);
+    } else {
+      destDir = path.join(uploadsDir, 'tmp');
+    }
+
+    while (fs.existsSync(path.join(destDir, candidate))) {
       candidate = `${safeBase} (${counter})${ext}`;
       counter += 1;
     }
@@ -239,7 +254,7 @@ async function autoMigrateOrderFiles(db, orderId) {
       urlPrefix = '/network-files';
       isMigrated = true;
     } else {
-      destBasePath = path.join(__dirname, 'storage');
+      destBasePath = uploadsDir;
       urlPrefix = ''; // Will result in /uploads/...
       isMigrated = false;
     }
@@ -263,7 +278,7 @@ async function autoMigrateOrderFiles(db, orderId) {
       if (isNetworkActive) {
         docQuery.migrated = { $ne: true };
       } else {
-        docQuery.url = { $regex: /^\/uploads\/[^\/]+$/ };
+        docQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
       }
       documents = await db.collection('Document').find(docQuery).toArray();
     }
@@ -276,7 +291,7 @@ async function autoMigrateOrderFiles(db, orderId) {
     if (isNetworkActive) {
       compDocQuery.migrated = { $ne: true };
     } else {
-      compDocQuery.url = { $regex: /^\/uploads\/[^\/]+$/ };
+      compDocQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
     }
     const componentDocuments = await db.collection('Document').find(compDocQuery).toArray();
     
@@ -293,18 +308,22 @@ async function autoMigrateOrderFiles(db, orderId) {
       const document = documents[i];
       try {
         let originalPath;
-        const basename = path.basename(document.url);
-        
-        const flatPath = path.join(uploadsDir, basename);
-        const localOrganizedPath = path.join(uploadsDir, orderFolderName, basename);
-        
-        if (fs.existsSync(flatPath)) {
-          originalPath = flatPath;
-        } else if (fs.existsSync(localOrganizedPath)) {
-          originalPath = localOrganizedPath;
-        } else {
-          continue;
+        if (document.url && document.url.startsWith('/uploads/')) {
+          const relativePath = decodeURIComponent(document.url.substring('/uploads/'.length));
+          originalPath = path.join(uploadsDir, relativePath);
         }
+        
+        if (!originalPath || !fs.existsSync(originalPath)) {
+          // fallback to old logic
+          const basename = path.basename(document.url);
+          const flatPath = path.join(uploadsDir, basename);
+          const localOrganizedPath = path.join(uploadsDir, orderFolderName, basename);
+          if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(localOrganizedPath)) originalPath = localOrganizedPath;
+          else continue;
+        }
+        
+        const basename = path.basename(document.url);
         
         const fileName = document.name || basename;
         const normalizedFileName = fileName.normalize('NFC');
@@ -352,11 +371,10 @@ async function autoMigrateOrderFiles(db, orderId) {
     }
     
     // 2. Organize component documents
+    console.log(`[File-Organization] Found ${componentDocuments.length} component documents to migrate.`);
     for (const compDoc of componentDocuments) {
       try {
-        let originalPath;
-        const basename = path.basename(compDoc.url);
-        
+        console.log(`[File-Organization] Processing component document: ${compDoc.url}`);
         // Get numbered folder name e.g. "01_Motorhalterung"
         const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId);
         
@@ -365,21 +383,34 @@ async function autoMigrateOrderFiles(db, orderId) {
           fs.mkdirSync(componentFolderPath, { recursive: true });
         }
         
-        const flatPath = path.join(uploadsDir, basename);
-        const localCompPath = path.join(uploadsDir, orderFolderName, componentFolderName, basename);
-        
-        if (fs.existsSync(flatPath)) {
-          originalPath = flatPath;
-        } else if (fs.existsSync(localCompPath)) {
-          originalPath = localCompPath;
-        } else {
-          continue;
+        let originalPath;
+        if (compDoc.url && compDoc.url.startsWith('/uploads/')) {
+          const relativePath = decodeURIComponent(compDoc.url.substring('/uploads/'.length));
+          originalPath = path.join(uploadsDir, relativePath);
         }
+        
+        console.log(`[File-Organization] Resolved originalPath: ${originalPath}, exists: ${fs.existsSync(originalPath)}`);
+        
+        if (!originalPath || !fs.existsSync(originalPath)) {
+          // fallback to old logic
+          const basename = path.basename(compDoc.url);
+          const flatPath = path.join(uploadsDir, basename);
+          const localCompPath = path.join(uploadsDir, orderFolderName, componentFolderName, basename);
+          if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(localCompPath)) originalPath = localCompPath;
+          else {
+            console.log(`[File-Organization] SKIPPING component document, file not found in any path.`);
+            continue;
+          }
+        }
+        
+        const basename = path.basename(compDoc.url);
         
         const fileName = compDoc.name || basename;
         const normalizedFileName = fileName.normalize('NFC');
         const destinationPath = path.join(componentFolderPath, normalizedFileName);
         
+        console.log(`[File-Organization] Copying from ${originalPath} to ${destinationPath}`);
         fs.copyFileSync(originalPath, destinationPath);
         
         const encodedFileName = encodeURIComponent(normalizedFileName);
@@ -556,28 +587,65 @@ function convertMongoDoc(doc) {
   };
 }
 
+const roleHierarchy = {
+  guest: 0,
+  client: 1,
+  employee: 2,
+  manager: 3,
+  admin: 4
+};
+
 function normalizeUserRole(role) {
-  if (!role) {
-    return role;
-  }
+  if (!role) return role;
 
   const roleMap = {
     kunde: 'client',
+    auftraggeber: 'client',
     client: 'client',
-    werkstatt: 'workshop',
-    workshop: 'workshop',
-    admin: 'admin'
+    werkstatt: 'employee',
+    workshop: 'employee',
+    werkstattmitarbeiter: 'employee',
+    manager: 'manager',
+    werkstattleitung: 'manager',
+    admin: 'admin',
+    guest: 'guest',
+    gast: 'guest'
   };
 
-  return roleMap[role] || role;
+  return roleMap[role.toLowerCase()] || role;
 }
 
 function normalizeIncomingRole(role) {
   const normalized = normalizeUserRole(role);
-  if (['client', 'workshop', 'admin'].includes(normalized)) {
+  if (Object.prototype.hasOwnProperty.call(roleHierarchy, normalized)) {
     return normalized;
   }
   return null;
+}
+
+// Security Middleware
+function requireRoleLevel(minRole) {
+  const minLevel = roleHierarchy[minRole] || 0;
+  return async (req, res, next) => {
+    // Determine the user's role.
+    // NOTE: In a real app we'd decode a JWT or read req.session.userId here.
+    // Currently, the app passes viewerRole via header or query. 
+    // We will trust it for the prototype, but a true session lookup should happen here.
+    const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
+    const normalizedRole = normalizeUserRole(viewerRole);
+    
+    if (!normalizedRole || !Object.prototype.hasOwnProperty.call(roleHierarchy, normalizedRole)) {
+      return res.status(401).json({ error: 'Nicht authentifiziert oder ungültige Rolle' });
+    }
+
+    const userLevel = roleHierarchy[normalizedRole];
+    if (userLevel < minLevel) {
+      return res.status(403).json({ error: `Zugriff verweigert. Erfordert mindestens Level ${minRole}.` });
+    }
+
+    req.userRole = normalizedRole; // pass down to route
+    next();
+  };
 }
 
 // Helper function: Convert array of MongoDB documents
@@ -587,7 +655,8 @@ function convertMongoDocs(docs) {
 
 function parseViewerRole(req) {
   const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
-  return ['client', 'workshop', 'admin'].includes(viewerRole) ? viewerRole : null;
+  const normalized = normalizeUserRole(viewerRole);
+  return Object.prototype.hasOwnProperty.call(roleHierarchy, normalized) ? normalized : null;
 }
 
 function sanitizeOrderForViewer(order, viewerRole) {
@@ -630,11 +699,33 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
       originalname: req.file.originalname,
       mimetype: req.file.mimetype,
       size: req.file.size,
-      path: `/uploads/${req.file.filename}`
+      path: req.query.draftId ? `/uploads/tmp/${req.query.draftId}/${req.file.filename}` : `/uploads/tmp/${req.file.filename}`
     });
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: 'Upload fehlgeschlagen', details: error.message });
+  }
+});
+
+app.delete('/api/upload/tmp/:draftId', (req, res) => {
+  try {
+    const draftId = req.params.draftId;
+    if (!draftId) return res.status(400).json({ error: 'Missing draftId' });
+    
+    // Prevent directory traversal
+    if (draftId.includes('..') || draftId.includes('/') || draftId.includes('\\')) {
+      return res.status(400).json({ error: 'Invalid draftId' });
+    }
+    
+    const draftDir = path.join(uploadsDir, 'tmp', draftId);
+    if (fs.existsSync(draftDir)) {
+      fs.rmSync(draftDir, { recursive: true, force: true });
+      console.log(`Deleted temporary draft folder: ${draftDir}`);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Delete tmp folder error:', error);
+    res.status(500).json({ error: 'Löschen fehlgeschlagen', details: error.message });
   }
 });
 
@@ -762,7 +853,7 @@ app.post('/api/users', async (req, res) => {
       username,
       password,
       name,
-      role: role || 'client',
+      role: role || 'guest',
       isActive: true,
       isApproved: false,
       createdAt: new Date()
@@ -848,8 +939,8 @@ app.post('/api/login', async (req, res) => {
             username: userInfo.username,
             email: userInfo.email,
             name: userInfo.name,
-            role: 'client', // Standard-Rolle für neue LDAP-Benutzer
-            isApproved: true, // LDAP-Benutzer automatisch bestätigt
+            role: 'guest', // Standard-Rolle für neue LDAP-Benutzer ist Gast
+            isApproved: false, // LDAP-Benutzer müssen manuell freigeschaltet werden, es sei denn, sie haben eine höhere Rolle
             authSource: 'ldap',
             createdAt: new Date(),
             lastLdapLogin: new Date()
@@ -883,7 +974,9 @@ app.post('/api/login', async (req, res) => {
       console.log('[HYBRID-AUTH] Lokale Authentifizierung erfolgreich');
       const normalizedRole = normalizeIncomingRole(user.role) || 'client';
       
-      if (normalizedRole === 'client' && user.isApproved === false) {
+      if (normalizedRole === 'guest' && user.isApproved === false) {
+        // Guests are allowed to login to see the waiting screen
+      } else if (normalizedRole === 'client' && user.isApproved === false) {
         return res.status(403).json({ success: false, message: 'Account noch nicht bestätigt' });
       }
       
@@ -1069,6 +1162,20 @@ app.put('/api/users/:id/role', async (req, res) => {
     }
     
     const updatedUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
+    
+    // Broadcast updated users list
+    const wss = req.app.get('wss');
+    if (wss) {
+      const allUsers = await db.collection('User').find({}).toArray();
+      const payload = allUsers.map(convertMongoDoc);
+      const msg = JSON.stringify({ type: 'usersUpdated', payload });
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(msg);
+        }
+      });
+    }
+
     await client.close();
     
     res.json({ 
@@ -2076,18 +2183,7 @@ app.post('/api/orders', async (req, res) => {
     
     const result = await db.collection('Order').insertOne(newOrder);
     
-    // Create documents separately if needed
-    if (documents && documents.length > 0) {
-      const documentObjects = documents.map(doc => ({
-        name: doc.name,
-        url: doc.url,
-        pdfWarning: doc.pdfWarning,
-        uploadDate: doc.uploadDate ? new Date(doc.uploadDate) : new Date(),
-        orderId: result.insertedId
-      }));
-      await db.collection('Document').insertMany(documentObjects);
-    }
-    
+    // Order documents are already embedded in newOrder.documents
     // Create components separately if needed
     if (components && components.length > 0) {
       console.log('POST /api/orders - Creating components:', components.length);
@@ -3750,6 +3846,7 @@ const server = http.createServer(app);
 
 // WebSocket Setup
 const wss = new WebSocket.Server({ server });
+app.set('wss', wss);
 
 wss.on('connection', (ws) => {
   console.log('🔌 WebSocket client connected');
@@ -3783,6 +3880,35 @@ wss.on('connection', (ws) => {
 });
 
 const serverHost = process.env.HOST || undefined;
+
+// === TMP FOLDER CLEANUP ROUTINE ===
+function cleanupStaleTmpFolders() {
+  try {
+    const tmpDir = path.join(uploadsDir, 'tmp');
+    if (!fs.existsSync(tmpDir)) return;
+    
+    const now = Date.now();
+    const maxAgeMs = 24 * 60 * 60 * 1000; // 24 hours
+    
+    const folders = fs.readdirSync(tmpDir);
+    for (const folder of folders) {
+      const folderPath = path.join(tmpDir, folder);
+      const stat = fs.statSync(folderPath);
+      
+      // Check if it's a directory and older than 24h
+      if (stat.isDirectory() && (now - stat.mtimeMs) > maxAgeMs) {
+        fs.rmSync(folderPath, { recursive: true, force: true });
+        console.log(`[Cleanup] Deleted stale tmp folder: ${folderPath}`);
+      }
+    }
+  } catch (err) {
+    console.error('[Cleanup] Error cleaning up tmp folders:', err);
+  }
+}
+
+// Run cleanup once on startup and then every hour
+cleanupStaleTmpFolders();
+setInterval(cleanupStaleTmpFolders, 60 * 60 * 1000);
 
 server.listen(port, serverHost, async () => {
   console.log(`Backend listening on port ${port}`);

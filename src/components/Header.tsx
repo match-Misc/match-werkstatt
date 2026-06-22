@@ -1,9 +1,11 @@
-import React from 'react';
-import { LogOut, Building2, User } from 'lucide-react';
+import React, { useState } from 'react';
+import { LogOut, Building2, User, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import UserManagementModal from './UserManagementModal';
 
 export default function Header() {
   const { state, dispatch } = useApp();
+  const [showUserManagement, setShowUserManagement] = useState(false);
 
   const handleLogout = () => {
     dispatch({ type: 'LOGOUT' });
@@ -23,6 +25,15 @@ export default function Header() {
           
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
+              {state.currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => setShowUserManagement(true)}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-md transition-colors mr-2"
+                >
+                  <Users className="w-4 h-4" />
+                  <span className="text-sm font-medium">Benutzerverwaltung</span>
+                </button>
+              )}
               <User className="w-4 h-4 text-gray-600" />
               <span className="text-sm font-medium text-gray-700">
                 {state.currentUser?.name}
@@ -30,14 +41,20 @@ export default function Header() {
               <span className={`px-2 py-1 text-xs rounded-full ${
                 state.currentUser?.role === 'admin'
                   ? 'bg-purple-100 text-purple-800'
-                  : state.currentUser?.role === 'workshop'
+                  : ['manager', 'employee', 'workshop'].includes(state.currentUser?.role || '')
                   ? 'bg-blue-100 text-blue-800'
+                  : state.currentUser?.role === 'guest'
+                  ? 'bg-gray-100 text-gray-800'
                   : 'bg-green-100 text-green-800'
               }`}>
                 {state.currentUser?.role === 'admin'
                   ? 'Admin'
-                  : state.currentUser?.role === 'workshop'
-                  ? 'Werkstatt'
+                  : state.currentUser?.role === 'manager'
+                  ? 'Werkstattleitung'
+                  : ['employee', 'workshop'].includes(state.currentUser?.role || '')
+                  ? 'Werkstattmitarbeiter'
+                  : state.currentUser?.role === 'guest'
+                  ? 'Gast'
                   : 'Auftraggeber'}
               </span>
             </div>
@@ -52,6 +69,12 @@ export default function Header() {
           </div>
         </div>
       </div>
+      {showUserManagement && state.currentUser?.role === 'admin' && (
+        <UserManagementModal 
+          onClose={() => setShowUserManagement(false)} 
+          viewerRole={state.currentUser.role}
+        />
+      )}
     </header>
   );
 }

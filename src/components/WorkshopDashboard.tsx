@@ -134,7 +134,7 @@ export default function WorkshopDashboard() {
     let filtered = orders.filter(order =>
       typeof order.status === 'string' && order.status.trim().toLowerCase() !== 'archived'
     );
-    if (viewMode === 'assigned' && state.currentUser?.role === 'workshop') {
+    if (viewMode === 'assigned' && ['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '')) {
       filtered = filtered.filter(order =>
         order.assignedTo === state.currentUser?.id ||
         (Array.isArray(order.subTasks) && order.subTasks.some(subTask => subTask.assignedTo === state.currentUser?.id))
@@ -162,7 +162,7 @@ export default function WorkshopDashboard() {
 
   // Get user's assigned subtasks
   const getMySubTasks = () => {
-    if (state.currentUser?.role !== 'workshop') return [];
+    if (!['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '')) return [];
     
     const mySubTasks: Array<{order: Order, subTask: any}> = [];
     state.orders.forEach(order => {
@@ -398,7 +398,7 @@ export default function WorkshopDashboard() {
               Benutzerverwaltung
             </button>
           )}
-          {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop') && (
+          {['admin', 'workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
             <button
               onClick={() => setShowCreateOrder(true)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -511,7 +511,7 @@ export default function WorkshopDashboard() {
       {!(state.currentUser?.role === 'admin' && activeTab === 'admin_tasks') && (
       <>
       {/* My Subtasks Section for Workshop Users */}
-      {state.currentUser?.role === 'workshop' && mySubTasks.length > 0 && (
+      {['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && mySubTasks.length > 0 && (
         <div className="bg-blue-50 rounded-lg p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -569,7 +569,7 @@ export default function WorkshopDashboard() {
             <option value="rework">Nacharbeit</option>
             <option value="completed">Abgeschlossen</option>
           </select>
-          {state.currentUser?.role === 'workshop' && (
+          {['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
             <select
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as 'all' | 'assigned')}
