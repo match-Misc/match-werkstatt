@@ -1,7 +1,7 @@
 export interface User {
   id: string;
   username: string;
-  role: 'client' | 'workshop' | 'admin';
+  role: 'guest' | 'client' | 'employee' | 'manager' | 'admin';
   name: string;
   password?: string;
 }

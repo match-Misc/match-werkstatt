@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Order, PDFDocument, Component, Material } from '../types';
@@ -21,6 +21,14 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
   const [activeComponentDragId, setActiveComponentDragId] = useState<string | null>(null);
   const [orderType, setOrderType] = useState<'fertigung' | 'service'>('fertigung');
   const [availableMaterials, setAvailableMaterials] = useState<Material[]>([]);
+  const draftIdRef = useRef(`draft_${Date.now()}_${Math.random().toString(36).substring(7)}`);
+
+  useEffect(() => {
+    return () => {
+      // Cleanup draft folder on unmount
+      fetch(`/api/upload/tmp/${draftIdRef.current}`, { method: 'DELETE' }).catch(console.error);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchMaterials = async () => {
@@ -49,7 +57,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/api/upload', {
+    const response = await fetch(`/api/upload?draftId=${draftIdRef.current}`, {
       method: 'POST',
       body: formData
     });
@@ -62,7 +70,7 @@ export default function CreateOrder({ onClose }: CreateOrderProps) {
     return {
       id: `doc_${Date.now()}_${Math.random()}`,
       name: data.originalname,
-      url: `/uploads/${data.filename}`,
+      url: data.path || `/uploads/${data.filename}`,
       uploadDate: new Date(),
       file: undefined,
       pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined

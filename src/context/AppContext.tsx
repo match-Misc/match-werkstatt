@@ -13,6 +13,7 @@ interface AppState {
 
 type AppAction =
   | { type: 'LOGIN'; payload: User }
+  | { type: 'UPDATE_CURRENT_USER'; payload: Partial<User> }
   | { type: 'LOGOUT' }
   | { type: 'ADD_ORDER'; payload: Order }
   | { type: 'UPDATE_ORDER'; payload: Order }
@@ -53,6 +54,11 @@ function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         currentUser: action.payload,
         isAuthenticated: true
+      };
+    case 'UPDATE_CURRENT_USER':
+      return {
+        ...state,
+        currentUser: state.currentUser ? { ...state.currentUser, ...action.payload } : null
       };
     case 'LOGOUT':
       return {
@@ -285,7 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch('/api/users')
       .then(res => res.json())
       .then((users: any[]) => {
-        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
         dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
       });
     // WebSocket-Verbindung
@@ -297,8 +303,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'LOAD_ORDERS', payload: msg.payload });
       }
       if (msg.type === 'usersUpdated') {
-        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: msg.payload.filter((u: any) => u.role === 'workshop' || u.role === 'admin') });
+        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: msg.payload.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
         dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: msg.payload.filter((u: any) => u.role === 'client') });
+        
+        // Update currentUser dynamically if their role changed remotely
+        const rawUser = localStorage.getItem('currentUser');
+        if (rawUser) {
+          try {
+            const currentLocalUser = JSON.parse(rawUser);
+            const userInPayload = msg.payload.find((u: any) => u.id === currentLocalUser.id || u.username === currentLocalUser.username);
+            if (userInPayload && userInPayload.role !== currentLocalUser.role) {
+              dispatch({ type: 'UPDATE_CURRENT_USER', payload: { role: userInPayload.role } });
+            }
+          } catch (e) {
+            console.error('Error updating current user from websocket:', e);
+          }
+        }
       }
     };
     return () => ws.close();
