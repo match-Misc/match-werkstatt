@@ -6,6 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
+const crypto = require('crypto');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
@@ -71,9 +72,71 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Helper to parse cookies
+function parseCookies(req) {
+  const list = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    let parts = cookie.split('=');
+    list[parts.shift().trim()] = decodeURI(parts.join('='));
+  });
+  return list;
+}
+
+// File Download Guard Middleware
+async function fileDownloadGuard(req, res, next) {
+  try {
+    const { client, db } = await getDB();
+    const settingsColl = db.collection('settings');
+    const config = await settingsColl.findOne({ type: 'file-visibility-config' });
+    
+    if (config && config.restrictedExtensions && config.restrictedExtensions.length > 0) {
+      // Check if requested file extension is restricted
+      let filename = req.params.filename;
+      if (!filename) {
+        const parts = req.path.split('/');
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (parts[i].includes('.')) {
+            filename = parts[i];
+            break;
+          }
+        }
+      }
+      
+      if (filename && filename.includes('.')) {
+        const ext = '.' + filename.split('.').pop().toLowerCase();
+        const restrictedExts = config.restrictedExtensions.map(e => e.toLowerCase());
+        
+        if (restrictedExts.includes(ext)) {
+          // File is restricted, check session role
+          const cookies = parseCookies(req);
+          let viewerRole = 'guest'; // default
+          if (cookies.sessionId) {
+            const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+            if (session && session.role) {
+              viewerRole = normalizeUserRole(session.role);
+            }
+          }
+          
+          if (viewerRole === 'client' || viewerRole === 'guest' || !viewerRole) {
+            await client.close();
+            return res.status(403).json({ error: 'Zugriff auf diesen Dateityp verweigert.' });
+          }
+        }
+      }
+    }
+    await client.close();
+    next();
+  } catch (err) {
+    console.error('fileDownloadGuard error:', err);
+    res.status(500).send('Interner Serverfehler');
+  }
+}
+
 // Static files
 const uploadsDir = path.join(__dirname, 'storage');
-app.use('/uploads', express.static(uploadsDir, {
+app.use('/uploads', fileDownloadGuard, express.static(uploadsDir, {
   etag: false,
   lastModified: false,
   setHeaders: (res, filePath) => {
@@ -95,7 +158,7 @@ app.use('/uploads', express.static(uploadsDir, {
 // (cam-files directory removed – internal documents are now stored in uploads/ORDER/Interne Dokumente/)
 
 // Network folder static files middleware
-app.use('/network-files', async (req, res, next) => {
+app.use('/network-files', fileDownloadGuard, async (req, res, next) => {
   try {
     const { client, db } = await getDB();
     const settingsCollection = db.collection('settings');
@@ -259,28 +322,39 @@ async function autoMigrateOrderFiles(db, orderId) {
       isMigrated = false;
     }
     
-    // Get documents to organize
+    // Get documents to organize - process BOTH embedded and separate collection
     let documents = [];
     let documentsAreEmbedded = false;
     
+    // 1. First get embedded documents if any
     if (order.documents && order.documents.length > 0) {
       documentsAreEmbedded = true;
+      let embeddedDocs = [];
       if (isNetworkActive) {
-        documents = order.documents.filter(doc => !doc.migrated);
+        embeddedDocs = order.documents.filter(doc => !doc.migrated);
       } else {
-        documents = order.documents.filter(doc => doc.url && doc.url.startsWith('/uploads/') && !doc.url.includes(`/${orderFolderName}/`));
+        embeddedDocs = order.documents.filter(doc => doc.url && doc.url.startsWith('/uploads/') && !doc.url.includes(`/${orderFolderName}/`));
       }
+      documents = [...embeddedDocs];
+    }
+    
+    // 2. Always get documents from Document collection
+    const docQuery = {
+      orderId: new ObjectId(orderId),
+      componentId: { $exists: false }
+    };
+    if (isNetworkActive) {
+      docQuery.migrated = { $ne: true };
     } else {
-      const docQuery = {
-        orderId: new ObjectId(orderId),
-        componentId: { $exists: false }
-      };
-      if (isNetworkActive) {
-        docQuery.migrated = { $ne: true };
-      } else {
-        docQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
+      docQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
+    }
+    const collectionDocs = await db.collection('Document').find(docQuery).toArray();
+    
+    // Merge collection docs if they aren't already in the documents array
+    for (const cDoc of collectionDocs) {
+      if (!documents.some(d => d.url === cDoc.url)) {
+        documents.push(cDoc);
       }
-      documents = await db.collection('Document').find(docQuery).toArray();
     }
     
     // Component documents
@@ -317,8 +391,11 @@ async function autoMigrateOrderFiles(db, orderId) {
           // fallback to old logic
           const basename = path.basename(document.url);
           const flatPath = path.join(uploadsDir, basename);
+          const tmpPath = path.join(uploadsDir, 'tmp', basename);
           const localOrganizedPath = path.join(uploadsDir, orderFolderName, basename);
+          
           if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(tmpPath)) originalPath = tmpPath;
           else if (fs.existsSync(localOrganizedPath)) originalPath = localOrganizedPath;
           else continue;
         }
@@ -337,28 +414,32 @@ async function autoMigrateOrderFiles(db, orderId) {
           ? `/network-files${relativeUrlPath}`
           : `/uploads${relativeUrlPath}`;
         
-        if (documentsAreEmbedded) {
+        // Determine if this specific document is embedded
+        const isEmbedded = order.documents && order.documents.some(d => d.url === document.url);
+        
+        if (isEmbedded) {
           migratedDocuments.push({
             originalIndex: order.documents.findIndex(d => d.url === document.url),
             targetUrl,
             networkPath: isNetworkActive ? destinationPath : undefined,
             migrated: isMigrated
           });
-        } else {
-          await db.collection('Document').updateOne(
-            { _id: document._id },
-            { 
-              $set: { 
-                url: targetUrl,
-                networkPath: isNetworkActive ? destinationPath : undefined,
-                originalUrl: document.originalUrl || document.url,
-                originalName: normalizedFileName,
-                migrated: isMigrated,
-                migratedAt: isMigrated ? new Date() : undefined
-              }
-            }
-          );
         }
+        
+        // ALWAYS update the Document collection record if it exists
+        await db.collection('Document').updateOne(
+          { _id: document._id },
+          { 
+            $set: { 
+              url: targetUrl,
+              networkPath: isNetworkActive ? destinationPath : undefined,
+              originalUrl: document.originalUrl || document.url,
+              originalName: normalizedFileName,
+              migrated: isMigrated,
+              migratedAt: isMigrated ? new Date() : undefined
+            }
+          }
+        );
         
         if (originalPath !== destinationPath) {
           try {
@@ -395,8 +476,11 @@ async function autoMigrateOrderFiles(db, orderId) {
           // fallback to old logic
           const basename = path.basename(compDoc.url);
           const flatPath = path.join(uploadsDir, basename);
+          const tmpPath = path.join(uploadsDir, 'tmp', basename);
           const localCompPath = path.join(uploadsDir, orderFolderName, componentFolderName, basename);
+          
           if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(tmpPath)) originalPath = tmpPath;
           else if (fs.existsSync(localCompPath)) originalPath = localCompPath;
           else {
             console.log(`[File-Organization] SKIPPING component document, file not found in any path.`);
@@ -544,6 +628,10 @@ async function initializeIndexes() {
     // Settings indexes
     await db.collection('settings').createIndex({ type: 1 }, { unique: true });
     
+    // Session indexes
+    await db.collection('Session').createIndex({ token: 1 }, { unique: true });
+    await db.collection('Session').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 * 7 }); // 7 days expiry
+    
     // Material indexes
     await db.collection('Material').createIndex({ name: 1 }, { unique: true });
     
@@ -641,12 +729,24 @@ function normalizeIncomingRole(role) {
 function requireRoleLevel(minRole) {
   const minLevel = roleHierarchy[minRole] || 0;
   return async (req, res, next) => {
-    // Determine the user's role.
-    // NOTE: In a real app we'd decode a JWT or read req.session.userId here.
-    // Currently, the app passes viewerRole via header or query. 
-    // We will trust it for the prototype, but a true session lookup should happen here.
-    const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
-    const normalizedRole = normalizeUserRole(viewerRole);
+    // Determine the user's role using secure session cookies.
+    const cookies = parseCookies(req);
+    let normalizedRole = null;
+    
+    if (cookies.sessionId) {
+      const { client, db } = await getDB();
+      const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+      await client.close();
+      if (session && session.role) {
+        normalizedRole = normalizeUserRole(session.role);
+      }
+    }
+    
+    // Fallback for missing cookies (for backward compatibility if needed, but insecure)
+    if (!normalizedRole) {
+      const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
+      normalizedRole = normalizeUserRole(viewerRole);
+    }
     
     if (!normalizedRole || !Object.prototype.hasOwnProperty.call(roleHierarchy, normalizedRole)) {
       return res.status(401).json({ error: 'Nicht authentifiziert oder ungültige Rolle' });
@@ -667,18 +767,57 @@ function convertMongoDocs(docs) {
   return docs.map(convertMongoDoc);
 }
 
-function parseViewerRole(req) {
+async function parseViewerRole(req) {
+  const cookies = parseCookies(req);
+  if (cookies.sessionId) {
+    const { client, db } = await getDB();
+    const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+    await client.close();
+    if (session && session.role) {
+      const normalized = normalizeUserRole(session.role);
+      return Object.prototype.hasOwnProperty.call(roleHierarchy, normalized) ? normalized : null;
+    }
+  }
   const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
   const normalized = normalizeUserRole(viewerRole);
   return Object.prototype.hasOwnProperty.call(roleHierarchy, normalized) ? normalized : null;
 }
 
-function sanitizeOrderForViewer(order, viewerRole) {
+async function sanitizeOrderForViewer(order, viewerRole, db) {
+  let sanitized = order;
   if (viewerRole === 'client') {
-    const { internalWorkshopNote, ...orderWithoutInternalNote } = order;
-    return orderWithoutInternalNote;
+    const { internalWorkshopNote, ...orderWithoutInternalNote } = sanitized;
+    sanitized = orderWithoutInternalNote;
   }
-  return order;
+  
+  if (viewerRole === 'client' || viewerRole === 'guest') {
+    const settingsColl = db.collection('settings');
+    const config = await settingsColl.findOne({ type: 'file-visibility-config' });
+    const restrictedExts = (config && config.restrictedExtensions) ? config.restrictedExtensions.map(e => e.toLowerCase()) : [];
+    
+    if (restrictedExts.length > 0) {
+      const isRestricted = (filename) => {
+        if (!filename) return false;
+        const ext = '.' + filename.split('.').pop().toLowerCase();
+        return restrictedExts.includes(ext);
+      };
+      
+      if (sanitized.documents) {
+        sanitized.documents = sanitized.documents.filter(doc => !isRestricted(doc.name));
+      }
+      
+      if (sanitized.components) {
+        sanitized.components = sanitized.components.map(comp => {
+          if (comp.documents) {
+            comp.documents = comp.documents.filter(doc => !isRestricted(doc.name));
+          }
+          return comp;
+        });
+      }
+    }
+  }
+  
+  return sanitized;
 }
 
 function parseQuantity(value) {
@@ -966,6 +1105,24 @@ app.post('/api/login', async (req, res) => {
         
         await client.close();
         
+        // Generate and store session token
+        const sessionId = crypto.randomBytes(32).toString('hex');
+        const { client: sessionClient, db: sessionDb } = await getDB();
+        await sessionDb.collection('Session').insertOne({
+          token: sessionId,
+          userId: localUser._id,
+          role: localUser.role,
+          createdAt: new Date()
+        });
+        await sessionClient.close();
+        
+        res.cookie('sessionId', sessionId, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+        
         // Erfolgreiche LDAP-Authentifizierung mit lokalen Rollen
         return res.json({ 
           success: true, 
@@ -994,6 +1151,24 @@ app.post('/api/login', async (req, res) => {
         return res.status(403).json({ success: false, message: 'Account noch nicht bestätigt' });
       }
       
+      // Generate and store session token
+      const sessionId = crypto.randomBytes(32).toString('hex');
+      const { client: sessionClient, db: sessionDb } = await getDB();
+      await sessionDb.collection('Session').insertOne({
+        token: sessionId,
+        userId: user._id,
+        role: normalizedRole,
+        createdAt: new Date()
+      });
+      await sessionClient.close();
+      
+      res.cookie('sessionId', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+      
       return res.json({ 
         success: true, 
         user: convertMongoDoc({ ...user, role: normalizedRole }),
@@ -1008,6 +1183,50 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error('POST /api/login error:', err);
     res.status(500).json({ success: false, message: 'Serverfehler beim Login', error: err.message });
+  }
+});
+
+app.post('/api/logout', async (req, res) => {
+  try {
+    const cookies = parseCookies(req);
+    if (cookies.sessionId) {
+      const { client, db } = await getDB();
+      await db.collection('Session').deleteOne({ token: cookies.sessionId });
+      await client.close();
+    }
+    res.clearCookie('sessionId');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Logout error:', err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// File Restrictions Settings APIs
+app.get('/api/admin/file-restrictions', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const config = await db.collection('settings').findOne({ type: 'file-visibility-config' });
+    await client.close();
+    res.json({ success: true, restrictedExtensions: config?.restrictedExtensions || [] });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/admin/file-restrictions', async (req, res) => {
+  try {
+    const { restrictedExtensions } = req.body;
+    const { client, db } = await getDB();
+    await db.collection('settings').updateOne(
+      { type: 'file-visibility-config' },
+      { $set: { restrictedExtensions: Array.isArray(restrictedExtensions) ? restrictedExtensions : [] } },
+      { upsert: true }
+    );
+    await client.close();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1361,7 +1580,7 @@ app.delete('/api/users/:id', async (req, res) => {
 app.get('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     
     // Load all orders
     const orders = await db.collection('Order').find({})
@@ -1424,7 +1643,7 @@ app.get('/api/orders', async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
       
-      return sanitizeOrderForViewer({
+      return await sanitizeOrderForViewer({
         ...order,
         id: order._id.toString(),
         _id: undefined,
@@ -1440,7 +1659,7 @@ app.get('/api/orders', async (req, res) => {
           uploadedAt: order.titleImage.uploadedAt,
           hasImage: true
         } : null
-      }, viewerRole);
+      }, viewerRole, db);
     }));
     
     await client.close();
@@ -1456,7 +1675,7 @@ app.get('/api/orders', async (req, res) => {
 app.get('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     
     const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
     
@@ -1519,7 +1738,7 @@ app.get('/api/orders/:id', async (req, res) => {
     
     await client.close();
     
-    const enrichedOrder = sanitizeOrderForViewer({
+    const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -1535,7 +1754,7 @@ app.get('/api/orders/:id', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    }, viewerRole);
+    }, viewerRole, db);
     
     console.log('GET /api/orders/:id - Loaded order from MongoDB:', enrichedOrder.id);
     res.json(enrichedOrder);
@@ -1549,7 +1768,7 @@ app.get('/api/orders/:id', async (req, res) => {
 app.get('/api/orders/barcode/:code', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     const code = req.params.code;
     
     console.log('Searching for order with barcode/orderNumber:', code);
@@ -1616,7 +1835,7 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
     
     await client.close();
     
-    const enrichedOrder = sanitizeOrderForViewer({
+    const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -1632,7 +1851,7 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    }, viewerRole);
+    }, viewerRole, db);
     
     console.log('GET /api/orders/barcode/:code - Found order:', enrichedOrder.orderNumber || enrichedOrder.id);
     res.json(enrichedOrder);
@@ -3025,7 +3244,7 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
 });
 
 // GET /api/orders/:id/files/:filename - Direct file access by original filename
-app.get('/api/orders/:id/files/:filename', async (req, res) => {
+app.get('/api/orders/:id/files/:filename', fileDownloadGuard, async (req, res) => {
   console.log(`[Download] Request for order: ${req.params.id}, file: ${req.params.filename}`);
   try {
     const { client, db } = await getDB();
@@ -3198,6 +3417,25 @@ app.get('/api/documents/:id', async (req, res) => {
       await client.close();
       return res.status(404).json({ error: 'Dokument nicht gefunden' });
     }
+    
+    const config = await db.collection('settings').findOne({ type: 'file-visibility-config' });
+    if (config && config.restrictedExtensions && config.restrictedExtensions.length > 0) {
+      const ext = '.' + (document.name || '').split('.').pop().toLowerCase();
+      const restrictedExts = config.restrictedExtensions.map(e => e.toLowerCase());
+      if (restrictedExts.includes(ext)) {
+        const cookies = parseCookies(req);
+        let viewerRole = 'guest';
+        if (cookies.sessionId) {
+          const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+          if (session && session.role) viewerRole = normalizeUserRole(session.role);
+        }
+        if (viewerRole === 'client' || viewerRole === 'guest' || !viewerRole) {
+          await client.close();
+          return res.status(403).json({ error: 'Zugriff auf diesen Dateityp verweigert.' });
+        }
+      }
+    }
+    
     const settingsCollection = db.collection('settings');
     const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
 
@@ -3498,7 +3736,7 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
 });
 
 // GET /api/orders/:id/network-files/:filename/download - Download file from order's network folder
-app.get('/api/orders/:id/network-files/:filename/download', async (req, res) => {
+app.get('/api/orders/:id/network-files/:filename/download', fileDownloadGuard, async (req, res) => {
   try {
     const client = new MongoClient(MONGODB_URL);
     await client.connect();

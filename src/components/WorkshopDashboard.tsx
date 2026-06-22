@@ -58,6 +58,10 @@ export default function WorkshopDashboard() {
   // Aufträge initial laden
   useEffect(() => {
     fetchOrders();
+  }, [state.currentUser?.role]); // Nur neu laden wenn sich die Rolle ändert
+
+  // State mit lokalem Component-State synchronisieren
+  useEffect(() => {
     setOrders(Array.isArray(state.orders) ? state.orders : []);
   }, [state.orders]);
 

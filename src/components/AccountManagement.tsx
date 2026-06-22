@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext';
 import NetworkConfigAdmin from './NetworkConfigAdmin';
 import LDAPManagement from './LDAPManagement';
 import MaterialManagement from './MaterialManagement';
+import FileTypeRestrictionAdmin from './FileTypeRestrictionAdmin';
 
 export default function AccountManagement() {
   const { state } = useApp();
@@ -22,6 +23,8 @@ export default function AccountManagement() {
           <div className="p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Systemkonfiguration</h3>
             <NetworkConfigAdmin />
+            
+            <FileTypeRestrictionAdmin />
             
             <div className="mt-6 pt-6 border-t">
               <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
