@@ -3931,6 +3931,16 @@ app.post('/api/orders/:id/upload-document', upload.single('file'), async (req, r
     // Immediately organize the file into the correct order folder
     await autoMigrateOrderFiles(db, orderId);
     
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: orderId } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     res.json({
@@ -3984,6 +3994,16 @@ app.post('/api/components/:id/upload-document', upload.single('file'), async (re
     // Immediately organize the file into the correct order/component folder
     await autoMigrateOrderFiles(db, component.orderId.toString());
     
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: component.orderId.toString() } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     res.json({
@@ -4035,6 +4055,17 @@ app.post('/api/orders/:id/upload-cam-file', camNetworkUpload.single('file'), asy
     };
     
     const docResult = await ordersDb.collection('Document').insertOne(document);
+    
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: req.params.id } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     console.log(`CAM file uploaded (${req.uploadMode}):`, req.file.path);
