@@ -164,6 +164,9 @@ export default function WorkshopDashboard() {
       } else if (sortConfig.key === 'clientName') {
         aVal = a.clientName?.toLowerCase() || '';
         bVal = b.clientName?.toLowerCase() || '';
+      } else if (sortConfig.key === 'createdAt') {
+        aVal = new Date(a.createdAt).getTime();
+        bVal = new Date(b.createdAt).getTime();
       } else if (sortConfig.key === 'deadline') {
         aVal = new Date(a.deadline).getTime();
         bVal = new Date(b.deadline).getTime();
@@ -388,6 +391,12 @@ export default function WorkshopDashboard() {
                       {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('createdAt')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Erstellt</span>
+                      {sortConfig.key === 'createdAt' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
                     <div className="flex items-center space-x-1">
                       <span>Deadline</span>
@@ -423,6 +432,9 @@ export default function WorkshopDashboard() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">{order.clientName}</div>
                         <div className="text-sm text-gray-500">{order.costCenter}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className={`text-sm ${isOverdue(order.deadline) ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
@@ -500,6 +512,12 @@ export default function WorkshopDashboard() {
                       {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('createdAt')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Erstellt</span>
+                      {sortConfig.key === 'createdAt' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
                     <div className="flex items-center space-x-1">
                       <span>Deadline</span>
@@ -535,6 +553,9 @@ export default function WorkshopDashboard() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">{order.clientName}</div>
                         <div className="text-sm text-gray-500">{order.costCenter}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className={`text-sm ${isOverdue(order.deadline) ? 'text-red-600 font-medium' : 'text-gray-900'}`}>

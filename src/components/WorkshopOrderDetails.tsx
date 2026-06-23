@@ -81,10 +81,20 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     return /\.dwg$/i.test(fileName);
   };
 
+  const isZIPFile = (fileName: string) => {
+    return /\.zip$/i.test(fileName);
+  };
+
+  const isEMCAMFile = (fileName: string) => {
+    return /\.emcam$/i.test(fileName);
+  };
+
   const getFileIcon = (fileName: string, className = "w-5 h-5") => {
     if (isSTLFile(fileName)) return <Server className={`${className} text-purple-600`} />;
     if (isIPTFile(fileName)) return <Box className={`${className} text-orange-500`} />;
     if (isDWGFile(fileName)) return <PenTool className={`${className} text-blue-500`} />;
+    if (isZIPFile(fileName)) return <Archive className={`${className} text-yellow-600`} />;
+    if (isEMCAMFile(fileName)) return <Wrench className={`${className} text-teal-600`} />;
     return <FileText className={`${className} text-red-600`} />;
   };
 
@@ -92,6 +102,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
     if (isIPTFile(fileName)) return 'CAD-Modell (IPT/IAM)';
     if (isDWGFile(fileName)) return 'Zeichnung (DWG)';
+    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
+    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
     return 'PDF-Dokument';
   };
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
@@ -808,7 +820,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <select
                         value={assignedTo}
                         onChange={(e) => handleFieldChange('assignedTo', e.target.value || null)}
-                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        disabled={!(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager')}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                       >
                         <option value="">Nicht zugewiesen</option>
@@ -1107,14 +1119,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Erstellt am:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(localOrder.createdAt).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Deadline:</span>
                       <span className="text-sm font-medium text-gray-900">
                         {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
                     </div>
                   </div>
                   {/* Untere Zeile */}
@@ -1130,6 +1144,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium ${getPriorityColor(localOrder.priority)}`}>
                         {getPriorityText(localOrder.priority)}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
                     </div>
                   </div>
                 </div>
@@ -1535,7 +1553,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     required
                   >
                     <option value="">Mitarbeiter auswählen *</option>
-                    {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map(acc => (
+                    {state.workshopAccounts.map(acc => (
                       <option key={acc.id} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>
@@ -1709,7 +1727,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="">Mitarbeiter auswählen</option>
-                                {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map((account) => (
+                                {state.workshopAccounts.map((account) => (
                                   <option key={account.id} value={account.id}>{account.name}</option>
                                 ))}
                               </select>

@@ -37,6 +37,9 @@ export default function ClientDashboard() {
       } else if (sortConfig.key === 'title') {
         aVal = a.title?.toLowerCase() || '';
         bVal = b.title?.toLowerCase() || '';
+      } else if (sortConfig.key === 'createdAt') {
+        aVal = new Date(a.createdAt).getTime();
+        bVal = new Date(b.createdAt).getTime();
       } else if (sortConfig.key === 'deadline') {
         aVal = new Date(a.deadline).getTime();
         bVal = new Date(b.deadline).getTime();
@@ -159,6 +162,12 @@ export default function ClientDashboard() {
                       {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('createdAt')}>
+                    <div className="flex items-center space-x-1">
+                      <span>Erstellt</span>
+                      {sortConfig.key === 'createdAt' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                    </div>
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
                     <div className="flex items-center space-x-1">
                       <span>Deadline</span>
@@ -181,6 +190,9 @@ export default function ClientDashboard() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{order.title}</div>
                       <div className="text-xs text-gray-500 font-mono">{order.orderNumber || order.id}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{new Date(order.deadline).toLocaleDateString('de-DE')}</div>
@@ -238,6 +250,7 @@ export default function ClientDashboard() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftrag</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Erstellt</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[300px]">Aktionen</th>
                 </tr>
@@ -249,6 +262,9 @@ export default function ClientDashboard() {
                       <div className="text-sm font-medium text-gray-900">{order.title}</div>
                       <div className="text-xs text-gray-500 font-mono mb-1">{order.orderNumber || order.id}</div>
                       <div className="text-sm text-gray-700 line-clamp-2">{order.description}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-800">

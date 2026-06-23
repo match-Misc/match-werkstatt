@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Eye, FileText, Box } from 'lucide-react';
+import { Download, Eye, FileText, Box, Archive, Wrench } from 'lucide-react';
 import STLViewer from './STLViewer';
 
 interface DocumentFile {
@@ -29,9 +29,14 @@ const DocumentViewer = ({
   // Check if file is viewable in our 3D viewer (currently only STL)
   const isViewable3DFile = /\.stl$/i.test(document.name);
   
+  const isZIPFile = /\.zip$/i.test(document.name);
+  const isEMCAMFile = /\.emcam$/i.test(document.name);
+  
   // Get file extension for icon
   const getFileIcon = () => {
     if (is3DFile) return <Box className="w-4 h-4" />;
+    if (isZIPFile) return <Archive className="w-4 h-4 text-yellow-600" />;
+    if (isEMCAMFile) return <Wrench className="w-4 h-4 text-teal-600" />;
     return <FileText className="w-4 h-4" />;
   };
   
@@ -49,6 +54,8 @@ const DocumentViewer = ({
       case 'stp': return 'CAD-Modell (STEP)';
       case 'iges':
       case 'igs': return 'CAD-Modell (IGES)';
+      case 'zip': return 'Archiv (ZIP)';
+      case 'emcam': return 'CAM-Datei (EMCAM)';
       default: return 'Dokument';
     }
   };

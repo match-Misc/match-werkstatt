@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Plus, Eye, Box, FileText } from 'lucide-react';
+import { X, Download, Plus, Eye, Box, FileText, Archive, Wrench } from 'lucide-react';
 import { Order } from '../types';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
@@ -36,13 +36,25 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     return /\.stl$/i.test(fileName);
   };
 
+  const isZIPFile = (fileName: string) => {
+    return /\.zip$/i.test(fileName);
+  };
+
+  const isEMCAMFile = (fileName: string) => {
+    return /\.emcam$/i.test(fileName);
+  };
+
   const getFileIcon = (fileName: string) => {
     if (isSTLFile(fileName)) return <Box className="w-5 h-5 text-purple-600" />;
+    if (isZIPFile(fileName)) return <Archive className="w-5 h-5 text-yellow-600" />;
+    if (isEMCAMFile(fileName)) return <Wrench className="w-5 h-5 text-teal-600" />;
     return <FileText className="w-5 h-5 text-red-600" />;
   };
 
   const getFileTypeDescription = (fileName: string) => {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
+    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
+    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
     return 'PDF-Dokument';
   };
 
@@ -688,8 +700,8 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   {/* Obere Zeile */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
+                      <span className="text-sm text-gray-600">Auftraggeber:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.clientName}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Erstellt am:</span>
@@ -717,6 +729,10 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium capitalize bg-gray-100 text-gray-800`}>
                         {currentOrder.priority}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
                     </div>
                   </div>
                 </div>

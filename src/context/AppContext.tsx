@@ -302,6 +302,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (msg.type === 'ordersUpdated') {
         dispatch({ type: 'LOAD_ORDERS', payload: msg.payload });
       }
+      if (msg.type === 'orderUpdated' && msg.payload?.id) {
+        const viewerRole = state.currentUser?.role || '';
+        const ordersUrl = viewerRole
+          ? `/api/orders/${msg.payload.id}?viewerRole=${encodeURIComponent(viewerRole)}`
+          : `/api/orders/${msg.payload.id}`;
+        fetch(ordersUrl)
+          .then(res => res.json())
+          .then(freshOrder => {
+            if (freshOrder && !freshOrder.error) {
+              dispatch({ type: 'UPDATE_ORDER', payload: freshOrder });
+            }
+          })
+          .catch(err => console.error('Error fetching updated order:', err));
+      }
       if (msg.type === 'usersUpdated') {
         dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: msg.payload.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
         dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: msg.payload.filter((u: any) => u.role === 'client') });

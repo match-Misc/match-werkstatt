@@ -1736,8 +1736,6 @@ app.get('/api/orders/:id', async (req, res) => {
       _id: undefined
     }));
     
-    await client.close();
-    
     const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
@@ -1755,6 +1753,8 @@ app.get('/api/orders/:id', async (req, res) => {
         hasImage: true
       } : null
     }, viewerRole, db);
+    
+    await client.close();
     
     console.log('GET /api/orders/:id - Loaded order from MongoDB:', enrichedOrder.id);
     res.json(enrichedOrder);
@@ -1833,8 +1833,6 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
       };
     }));
     
-    await client.close();
-    
     const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
@@ -1852,6 +1850,8 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
         hasImage: true
       } : null
     }, viewerRole, db);
+    
+    await client.close();
     
     console.log('GET /api/orders/barcode/:code - Found order:', enrichedOrder.orderNumber || enrichedOrder.id);
     res.json(enrichedOrder);
@@ -2962,6 +2962,18 @@ app.post('/api/orders/:id/sync', async (req, res) => {
     
     if (docsToDelete.length > 0) {
       await db.collection('Document').deleteMany({ _id: { $in: docsToDelete } });
+    }
+    
+    if (newDocsToInsert.length > 0 || docsToDelete.length > 0) {
+      const wss = req.app.get('wss');
+      if (wss) {
+        const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: orderId } });
+        wss.clients.forEach(client => {
+          if (client.readyState === 1 /* WebSocket.OPEN */) {
+            client.send(msg);
+          }
+        });
+      }
     }
     
     await client.close();

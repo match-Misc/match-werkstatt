@@ -1,5 +1,5 @@
 import { useState, useRef, DragEvent, ChangeEvent } from 'react';
-import { Upload, FileText, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import { Upload, FileText, AlertCircle, CheckCircle, Loader, Archive, Wrench } from 'lucide-react';
 import { checkPdfSize } from '../utils/pdfChecker';
 
 interface DroppedFile {
@@ -178,6 +178,14 @@ export default function NetworkDragDropUpload({
     
     if (['nc', 'gcode', 'tap'].includes(extension || '')) {
       return <FileText className="w-6 h-6 text-green-500" />;
+    }
+    
+    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension || '')) {
+      return <Archive className="w-6 h-6 text-yellow-600" />;
+    }
+    
+    if (extension === 'emcam') {
+      return <Wrench className="w-6 h-6 text-teal-600" />;
     }
     
     return <FileText className="w-6 h-6 text-blue-500" />;
