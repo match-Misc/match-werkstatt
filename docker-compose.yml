@@ -39,6 +39,12 @@ services:
       LDAP_USER_DN_TEMPLATES: ${LDAP_USER_DN_TEMPLATES}
       LDAP_BIND_DN: ${LDAP_BIND_DN:-}
       LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      APP_URL: ${APP_URL}
     volumes:
       - uploads_data:/app/storage/uploads
       - network_data:/app/storage/network
