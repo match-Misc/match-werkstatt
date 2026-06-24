@@ -123,9 +123,11 @@ async function getWorkshopRecipients(db, orderData) {
   if (orderData.assignedTo) {
     try {
       const assignedUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.assignedTo) });
-      if (assignedUser && assignedUser.email) {
-        targetEmails.add(assignedUser.email);
+      if (assignedUser) {
         workshopAssigned = true;
+        if (assignedUser.email) {
+          targetEmails.add(assignedUser.email);
+        }
       }
     } catch(e) { /* ignore */ }
   }
@@ -135,9 +137,11 @@ async function getWorkshopRecipients(db, orderData) {
       if (task.assignedTo) {
         try {
           const taskUser = await db.collection('User').findOne({ _id: new ObjectId(task.assignedTo) });
-          if (taskUser && taskUser.email) {
-            targetEmails.add(taskUser.email);
+          if (taskUser) {
             workshopAssigned = true;
+            if (taskUser.email) {
+              targetEmails.add(taskUser.email);
+            }
           }
         } catch(e) { /* ignore */ }
       }
