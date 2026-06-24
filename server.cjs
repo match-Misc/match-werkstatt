@@ -385,6 +385,9 @@ async function autoMigrateOrderFiles(db, orderId) {
         if (document.url && document.url.startsWith('/uploads/')) {
           const relativePath = decodeURIComponent(document.url.substring('/uploads/'.length));
           originalPath = path.join(uploadsDir, relativePath);
+        } else if (document.url && document.url.startsWith('/network-files/') && networkConfig && networkConfig.networkPath) {
+          const relativePath = decodeURIComponent(document.url.substring('/network-files/'.length));
+          originalPath = path.join(networkConfig.networkPath, relativePath);
         }
         
         if (!originalPath || !fs.existsSync(originalPath)) {
@@ -468,6 +471,9 @@ async function autoMigrateOrderFiles(db, orderId) {
         if (compDoc.url && compDoc.url.startsWith('/uploads/')) {
           const relativePath = decodeURIComponent(compDoc.url.substring('/uploads/'.length));
           originalPath = path.join(uploadsDir, relativePath);
+        } else if (compDoc.url && compDoc.url.startsWith('/network-files/') && networkConfig && networkConfig.networkPath) {
+          const relativePath = decodeURIComponent(compDoc.url.substring('/network-files/'.length));
+          originalPath = path.join(networkConfig.networkPath, relativePath);
         }
         
         console.log(`[File-Organization] Resolved originalPath: ${originalPath}, exists: ${fs.existsSync(originalPath)}`);

@@ -114,46 +114,52 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
 }
 
 /**
+ * Helper: Sammelt alle relevanten Werkstatt-Mitarbeiter (Zugewiesene oder Fallback auf Admins/Manager)
+ */
+async function getWorkshopRecipients(db, orderData) {
+  const targetEmails = new Set();
+  let workshopAssigned = false;
+
+  if (orderData.assignedTo) {
+    try {
+      const assignedUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.assignedTo) });
+      if (assignedUser && assignedUser.email) {
+        targetEmails.add(assignedUser.email);
+        workshopAssigned = true;
+      }
+    } catch(e) { /* ignore */ }
+  }
+
+  if (orderData.subTasks && Array.isArray(orderData.subTasks)) {
+    for (const task of orderData.subTasks) {
+      if (task.assignedTo) {
+        try {
+          const taskUser = await db.collection('User').findOne({ _id: new ObjectId(task.assignedTo) });
+          if (taskUser && taskUser.email) {
+            targetEmails.add(taskUser.email);
+            workshopAssigned = true;
+          }
+        } catch(e) { /* ignore */ }
+      }
+    }
+  }
+
+  if (!workshopAssigned) {
+    const managersAdmins = await db.collection('User').find({ role: { $in: ['manager', 'admin'] } }).toArray();
+    for (const user of managersAdmins) {
+      if (user.email) targetEmails.add(user.email);
+    }
+  }
+
+  return targetEmails;
+}
+
+/**
  * Sendet E-Mail an Werkstatt, wenn der Kunde abnimmt oder Nacharbeit fordert.
  */
 async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData, newStatus, commentData) {
   try {
-    // Collect all emails to send to
-    const targetEmails = new Set();
-
-    // 1. Assigned employee
-    if (orderData.assignedTo) {
-      try {
-        const assignedUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.assignedTo) });
-        if (assignedUser && assignedUser.email) {
-          targetEmails.add(assignedUser.email);
-        }
-      } catch(e) { /* ignore invalid objectid */ }
-    }
-
-    // 2. Subtask assignees
-    if (orderData.subTasks && Array.isArray(orderData.subTasks)) {
-      for (const task of orderData.subTasks) {
-        if (task.assignedTo) {
-          try {
-            const taskUser = await db.collection('User').findOne({ _id: new ObjectId(task.assignedTo) });
-            if (taskUser && taskUser.email) {
-              targetEmails.add(taskUser.email);
-            }
-          } catch(e) { /* ignore */ }
-        }
-      }
-    }
-
-    // 3. Fallback: Admins if no one is assigned
-    if (targetEmails.size === 0) {
-      const admins = await db.collection('User').find({ role: 'admin' }).toArray();
-      for (const admin of admins) {
-        if (admin.email) {
-          targetEmails.add(admin.email);
-        }
-      }
-    }
+    const targetEmails = await getWorkshopRecipients(db, orderData);
 
     if (targetEmails.size === 0) {
       console.log(`[EMAIL] Keine Empfänger (Werkstatt) für Auftrag ${orderId} gefunden.`);
@@ -199,28 +205,14 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
  */
 async function sendOrderEditedEmail(transporter, db, orderId, orderData, changedFields, editorName) {
   try {
-    const targetEmails = new Set();
+    const targetEmails = await getWorkshopRecipients(db, orderData);
 
-    // 1. Client (Auftraggeber)
+    // 1. Client (Auftraggeber) immer hinzufügen
     if (orderData.clientId) {
       try {
         const clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
         if (clientUser && clientUser.email) targetEmails.add(clientUser.email);
       } catch(e) { /* ignore */ }
-    }
-
-    // 2. Assigned employee
-    if (orderData.assignedTo) {
-      try {
-        const assignedUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.assignedTo) });
-        if (assignedUser && assignedUser.email) targetEmails.add(assignedUser.email);
-      } catch(e) { /* ignore */ }
-    }
-
-    // 3. Manager and Admin roles
-    const managersAdmins = await db.collection('User').find({ role: { $in: ['manager', 'admin'] } }).toArray();
-    for (const user of managersAdmins) {
-      if (user.email) targetEmails.add(user.email);
     }
 
     if (targetEmails.size === 0) {
