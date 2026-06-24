@@ -1,41 +1,37 @@
-import React, { useState } from 'react';
-import { LogOut, Building2, User, Users } from 'lucide-react';
+import React from 'react';
+import { LogOut, Building2, User, Menu } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import UserManagementModal from './UserManagementModal';
 
-export default function Header() {
+interface HeaderProps {
+  toggleSidebar?: () => void;
+  isSidebarExpanded?: boolean;
+}
+
+export default function Header({ toggleSidebar, isSidebarExpanded }: HeaderProps) {
   const { state, dispatch } = useApp();
-  const [showUserManagement, setShowUserManagement] = useState(false);
 
   const handleLogout = () => {
     dispatch({ type: 'LOGOUT' });
   };
 
   return (
-    <header className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="bg-white shadow-sm border-b shrink-0">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <button 
-            onClick={() => window.location.href = '/'}
-            className="flex items-center hover:opacity-80 transition-opacity"
-          >
-            <Building2 className="w-8 h-8 text-blue-600 mr-3" />
-            <h1 className="text-xl font-bold text-gray-900">Werkstatt-Verwaltung</h1>
-          </button>
+          <div className="flex items-center">
+            <button 
+              onClick={() => window.location.href = '/'}
+              className="flex items-center hover:opacity-80 transition-opacity"
+            >
+              <Building2 className="w-8 h-8 text-blue-600 mr-3" />
+              <h1 className="text-xl font-bold text-gray-900 hidden sm:block">Werkstatt-Verwaltung</h1>
+            </button>
+          </div>
           
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
-              {state.currentUser?.role === 'admin' && (
-                <button
-                  onClick={() => setShowUserManagement(true)}
-                  className="flex items-center space-x-1 px-3 py-1.5 bg-purple-100 text-purple-700 hover:bg-purple-200 rounded-md transition-colors mr-2"
-                >
-                  <Users className="w-4 h-4" />
-                  <span className="text-sm font-medium">Benutzerverwaltung</span>
-                </button>
-              )}
-              <User className="w-4 h-4 text-gray-600" />
-              <span className="text-sm font-medium text-gray-700">
+              <User className="w-4 h-4 text-gray-600 hidden sm:block" />
+              <span className="text-sm font-medium text-gray-700 hidden sm:block">
                 {state.currentUser?.name}
               </span>
               <span className={`px-2 py-1 text-xs rounded-full ${
@@ -69,12 +65,6 @@ export default function Header() {
           </div>
         </div>
       </div>
-      {showUserManagement && state.currentUser?.role === 'admin' && (
-        <UserManagementModal 
-          onClose={() => setShowUserManagement(false)} 
-          viewerRole={state.currentUser.role}
-        />
-      )}
     </header>
   );
 }

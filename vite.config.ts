@@ -12,6 +12,10 @@ export default defineConfig({
       '/api': 'http://localhost:3001',
       '/uploads': 'http://localhost:3001', // Proxy für Datei-Downloads
       '/network-files': 'http://localhost:3001', // Proxy für Netzwerkdateien
+      '/ws': {
+        target: 'ws://localhost:3001',
+        ws: true,
+      },
     },
   },
 });

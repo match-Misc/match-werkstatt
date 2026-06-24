@@ -294,34 +294,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: users.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
         dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: users.filter((u: any) => u.role === 'client') });
       });
-    // WebSocket-Verbindung
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'ordersUpdated') {
-        dispatch({ type: 'LOAD_ORDERS', payload: msg.payload });
-      }
-      if (msg.type === 'usersUpdated') {
-        dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: msg.payload.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
-        dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: msg.payload.filter((u: any) => u.role === 'client') });
-        
-        // Update currentUser dynamically if their role changed remotely
-        const rawUser = localStorage.getItem('currentUser');
-        if (rawUser) {
-          try {
-            const currentLocalUser = JSON.parse(rawUser);
-            const userInPayload = msg.payload.find((u: any) => u.id === currentLocalUser.id || u.username === currentLocalUser.username);
-            if (userInPayload && userInPayload.role !== currentLocalUser.role) {
-              dispatch({ type: 'UPDATE_CURRENT_USER', payload: { role: userInPayload.role } });
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    const connectWebSocket = () => {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${wsProtocol}//${window.location.host}/ws`);
+      
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'ordersUpdated') {
+          dispatch({ type: 'LOAD_ORDERS', payload: msg.payload });
+        }
+        if (msg.type === 'orderUpdated' && msg.payload?.id) {
+          const viewerRole = state.currentUser?.role || '';
+          const ordersUrl = viewerRole
+            ? `/api/orders/${msg.payload.id}?viewerRole=${encodeURIComponent(viewerRole)}`
+            : `/api/orders/${msg.payload.id}`;
+          fetch(ordersUrl)
+            .then(res => res.json())
+            .then(freshOrder => {
+              if (freshOrder && !freshOrder.error) {
+                dispatch({ type: 'UPDATE_ORDER', payload: freshOrder });
+              }
+            })
+            .catch(err => console.error('Error fetching updated order:', err));
+        }
+        if (msg.type === 'usersUpdated') {
+          dispatch({ type: 'LOAD_WORKSHOP_ACCOUNTS', payload: msg.payload.filter((u: any) => ['employee', 'manager', 'admin', 'workshop'].includes(u.role)) });
+          dispatch({ type: 'LOAD_CLIENT_ACCOUNTS', payload: msg.payload.filter((u: any) => u.role === 'client') });
+          
+          // Update currentUser dynamically if their role changed remotely
+          const rawUser = localStorage.getItem('currentUser');
+          if (rawUser) {
+            try {
+              const currentLocalUser = JSON.parse(rawUser);
+              const userInPayload = msg.payload.find((u: any) => u.id === currentLocalUser.id || u.username === currentLocalUser.username);
+              if (userInPayload && userInPayload.role !== currentLocalUser.role) {
+                dispatch({ type: 'UPDATE_CURRENT_USER', payload: { role: userInPayload.role } });
+              }
+            } catch (e) {
+              console.error('Error updating current user from websocket:', e);
             }
-          } catch (e) {
-            console.error('Error updating current user from websocket:', e);
           }
         }
-      }
+      };
+
+      ws.onclose = () => {
+        // Auto-reconnect after 3 seconds
+        reconnectTimer = setTimeout(connectWebSocket, 3000);
+      };
     };
-    return () => ws.close();
+
+    connectWebSocket();
+
+    return () => {
+      clearTimeout(reconnectTimer);
+      if (ws) ws.close();
+    };
   }, [state.currentUser?.role]);
 
   return (

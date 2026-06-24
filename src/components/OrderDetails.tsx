@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Plus, Eye, Box, FileText } from 'lucide-react';
+import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Order } from '../types';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
@@ -13,6 +14,7 @@ interface OrderDetailsProps {
 
 export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   // Immer die aktuellste Order aus dem Context holen
   const currentOrder = state.orders.find(o => o.id === order.id) || order;
 
@@ -36,13 +38,25 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     return /\.stl$/i.test(fileName);
   };
 
+  const isZIPFile = (fileName: string) => {
+    return /\.zip$/i.test(fileName);
+  };
+
+  const isEMCAMFile = (fileName: string) => {
+    return /\.emcam$/i.test(fileName);
+  };
+
   const getFileIcon = (fileName: string) => {
     if (isSTLFile(fileName)) return <Box className="w-5 h-5 text-purple-600" />;
+    if (isZIPFile(fileName)) return <Archive className="w-5 h-5 text-yellow-600" />;
+    if (isEMCAMFile(fileName)) return <Wrench className="w-5 h-5 text-teal-600" />;
     return <FileText className="w-5 h-5 text-red-600" />;
   };
 
   const getFileTypeDescription = (fileName: string) => {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
+    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
+    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
     return 'PDF-Dokument';
   };
 
@@ -435,19 +449,32 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl max-h-[90vh] flex flex-col">
+      <div className="mb-4">
+        <button
+          onClick={onClose}
+          className="flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5 mr-2" />
+          Zurück zur Übersicht
+        </button>
+      </div>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b bg-gray-50 rounded-t-lg">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={currentOrder.title}>{currentOrder.title}</h2>
             <p className="text-gray-600 mt-1">Auftrags-Nr.: {currentOrder.orderNumber || currentOrder.id}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <X className="w-6 h-6" />
-          </button>
+          {currentOrder.status !== 'completed' && currentOrder.status !== 'archived' && (
+            <button
+              onClick={() => navigate(`/orders/${currentOrder.orderNumber || currentOrder.id}/edit`)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              title="Auftrag bearbeiten"
+            >
+              <Edit2 className="w-4 h-4 mr-2" />
+              Bearbeiten
+            </button>
+          )}
         </div>
 
         {/* Tabs Navigation */}
@@ -688,8 +715,8 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   {/* Obere Zeile */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
+                      <span className="text-sm text-gray-600">Auftraggeber:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.clientName}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Erstellt am:</span>
@@ -717,6 +744,10 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       <span className={`inline-flex px-3 py-1 text-xs rounded-full border font-medium capitalize bg-gray-100 text-gray-800`}>
                         {currentOrder.priority}
                       </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.costCenter}</span>
                     </div>
                   </div>
                 </div>

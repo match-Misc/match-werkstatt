@@ -6,6 +6,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
+const crypto = require('crypto');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
@@ -71,9 +72,71 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Helper to parse cookies
+function parseCookies(req) {
+  const list = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    let parts = cookie.split('=');
+    list[parts.shift().trim()] = decodeURI(parts.join('='));
+  });
+  return list;
+}
+
+// File Download Guard Middleware
+async function fileDownloadGuard(req, res, next) {
+  try {
+    const { client, db } = await getDB();
+    const settingsColl = db.collection('settings');
+    const config = await settingsColl.findOne({ type: 'file-visibility-config' });
+    
+    if (config && config.restrictedExtensions && config.restrictedExtensions.length > 0) {
+      // Check if requested file extension is restricted
+      let filename = req.params.filename;
+      if (!filename) {
+        const parts = req.path.split('/');
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (parts[i].includes('.')) {
+            filename = parts[i];
+            break;
+          }
+        }
+      }
+      
+      if (filename && filename.includes('.')) {
+        const ext = '.' + filename.split('.').pop().toLowerCase();
+        const restrictedExts = config.restrictedExtensions.map(e => e.toLowerCase());
+        
+        if (restrictedExts.includes(ext)) {
+          // File is restricted, check session role
+          const cookies = parseCookies(req);
+          let viewerRole = 'guest'; // default
+          if (cookies.sessionId) {
+            const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+            if (session && session.role) {
+              viewerRole = normalizeUserRole(session.role);
+            }
+          }
+          
+          if (viewerRole === 'client' || viewerRole === 'guest' || !viewerRole) {
+            await client.close();
+            return res.status(403).json({ error: 'Zugriff auf diesen Dateityp verweigert.' });
+          }
+        }
+      }
+    }
+    await client.close();
+    next();
+  } catch (err) {
+    console.error('fileDownloadGuard error:', err);
+    res.status(500).send('Interner Serverfehler');
+  }
+}
+
 // Static files
 const uploadsDir = path.join(__dirname, 'storage');
-app.use('/uploads', express.static(uploadsDir, {
+app.use('/uploads', fileDownloadGuard, express.static(uploadsDir, {
   etag: false,
   lastModified: false,
   setHeaders: (res, filePath) => {
@@ -95,7 +158,7 @@ app.use('/uploads', express.static(uploadsDir, {
 // (cam-files directory removed – internal documents are now stored in uploads/ORDER/Interne Dokumente/)
 
 // Network folder static files middleware
-app.use('/network-files', async (req, res, next) => {
+app.use('/network-files', fileDownloadGuard, async (req, res, next) => {
   try {
     const { client, db } = await getDB();
     const settingsCollection = db.collection('settings');
@@ -259,28 +322,39 @@ async function autoMigrateOrderFiles(db, orderId) {
       isMigrated = false;
     }
     
-    // Get documents to organize
+    // Get documents to organize - process BOTH embedded and separate collection
     let documents = [];
     let documentsAreEmbedded = false;
     
+    // 1. First get embedded documents if any
     if (order.documents && order.documents.length > 0) {
       documentsAreEmbedded = true;
+      let embeddedDocs = [];
       if (isNetworkActive) {
-        documents = order.documents.filter(doc => !doc.migrated);
+        embeddedDocs = order.documents.filter(doc => !doc.migrated);
       } else {
-        documents = order.documents.filter(doc => doc.url && doc.url.startsWith('/uploads/') && !doc.url.includes(`/${orderFolderName}/`));
+        embeddedDocs = order.documents.filter(doc => doc.url && doc.url.startsWith('/uploads/') && !doc.url.includes(`/${orderFolderName}/`));
       }
+      documents = [...embeddedDocs];
+    }
+    
+    // 2. Always get documents from Document collection
+    const docQuery = {
+      orderId: new ObjectId(orderId),
+      componentId: { $exists: false }
+    };
+    if (isNetworkActive) {
+      docQuery.migrated = { $ne: true };
     } else {
-      const docQuery = {
-        orderId: new ObjectId(orderId),
-        componentId: { $exists: false }
-      };
-      if (isNetworkActive) {
-        docQuery.migrated = { $ne: true };
-      } else {
-        docQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
+      docQuery.url = { $regex: /^\/uploads\/(tmp\/[^\/]+\/)?[^\/]+$/ };
+    }
+    const collectionDocs = await db.collection('Document').find(docQuery).toArray();
+    
+    // Merge collection docs if they aren't already in the documents array
+    for (const cDoc of collectionDocs) {
+      if (!documents.some(d => d.url === cDoc.url)) {
+        documents.push(cDoc);
       }
-      documents = await db.collection('Document').find(docQuery).toArray();
     }
     
     // Component documents
@@ -317,8 +391,11 @@ async function autoMigrateOrderFiles(db, orderId) {
           // fallback to old logic
           const basename = path.basename(document.url);
           const flatPath = path.join(uploadsDir, basename);
+          const tmpPath = path.join(uploadsDir, 'tmp', basename);
           const localOrganizedPath = path.join(uploadsDir, orderFolderName, basename);
+          
           if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(tmpPath)) originalPath = tmpPath;
           else if (fs.existsSync(localOrganizedPath)) originalPath = localOrganizedPath;
           else continue;
         }
@@ -337,28 +414,32 @@ async function autoMigrateOrderFiles(db, orderId) {
           ? `/network-files${relativeUrlPath}`
           : `/uploads${relativeUrlPath}`;
         
-        if (documentsAreEmbedded) {
+        // Determine if this specific document is embedded
+        const isEmbedded = order.documents && order.documents.some(d => d.url === document.url);
+        
+        if (isEmbedded) {
           migratedDocuments.push({
             originalIndex: order.documents.findIndex(d => d.url === document.url),
             targetUrl,
             networkPath: isNetworkActive ? destinationPath : undefined,
             migrated: isMigrated
           });
-        } else {
-          await db.collection('Document').updateOne(
-            { _id: document._id },
-            { 
-              $set: { 
-                url: targetUrl,
-                networkPath: isNetworkActive ? destinationPath : undefined,
-                originalUrl: document.originalUrl || document.url,
-                originalName: normalizedFileName,
-                migrated: isMigrated,
-                migratedAt: isMigrated ? new Date() : undefined
-              }
-            }
-          );
         }
+        
+        // ALWAYS update the Document collection record if it exists
+        await db.collection('Document').updateOne(
+          { _id: document._id },
+          { 
+            $set: { 
+              url: targetUrl,
+              networkPath: isNetworkActive ? destinationPath : undefined,
+              originalUrl: document.originalUrl || document.url,
+              originalName: normalizedFileName,
+              migrated: isMigrated,
+              migratedAt: isMigrated ? new Date() : undefined
+            }
+          }
+        );
         
         if (originalPath !== destinationPath) {
           try {
@@ -375,8 +456,8 @@ async function autoMigrateOrderFiles(db, orderId) {
     for (const compDoc of componentDocuments) {
       try {
         console.log(`[File-Organization] Processing component document: ${compDoc.url}`);
-        // Get numbered folder name e.g. "01_Motorhalterung"
-        const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId);
+        // Get numbered folder name e.g. "01_Motorhalterung_x3" or "01_Motorhalterung" if it already exists
+        const componentFolderName = await getComponentFolderName(db, orderId, compDoc.componentId, uploadsFolderPath);
         
         const componentFolderPath = path.join(uploadsFolderPath, componentFolderName);
         if (!fs.existsSync(componentFolderPath)) {
@@ -395,8 +476,11 @@ async function autoMigrateOrderFiles(db, orderId) {
           // fallback to old logic
           const basename = path.basename(compDoc.url);
           const flatPath = path.join(uploadsDir, basename);
+          const tmpPath = path.join(uploadsDir, 'tmp', basename);
           const localCompPath = path.join(uploadsDir, orderFolderName, componentFolderName, basename);
+          
           if (fs.existsSync(flatPath)) originalPath = flatPath;
+          else if (fs.existsSync(tmpPath)) originalPath = tmpPath;
           else if (fs.existsSync(localCompPath)) originalPath = localCompPath;
           else {
             console.log(`[File-Organization] SKIPPING component document, file not found in any path.`);
@@ -475,8 +559,8 @@ async function autoMigrateOrderFiles(db, orderId) {
   }
 }
 
-// Helper function: Get numbered component folder name (e.g. "02_Motorhalterung")
-async function getComponentFolderName(db, orderId, componentId) {
+// Helper function: Get numbered component folder name (e.g. "02_Motorhalterung_x3" or "02_Motorhalterung" fallback)
+async function getComponentFolderName(db, orderId, componentId, basePath = null) {
   // Sort all components for this order by creation time to get a stable index
   const allComponents = await db.collection('Component').find(
     { orderId: new ObjectId(orderId) }
@@ -489,7 +573,21 @@ async function getComponentFolderName(db, orderId, componentId) {
   const componentName = component ? (component.title || component.name || 'Bauteil') : 'Bauteil';
   const sanitizedName = componentName.trim().replace(/[\\/:*?"<>|]/g, '_');
   
-  return `${number}_${sanitizedName}`;
+  const quantity = component && component.quantity ? component.quantity : 1;
+  
+  const newName = `${number}_${sanitizedName}_x${quantity}`;
+  const oldName = `${number}_${sanitizedName}`;
+
+  if (basePath) {
+    if (fs.existsSync(path.join(basePath, newName))) {
+      return newName;
+    }
+    if (fs.existsSync(path.join(basePath, oldName))) {
+      return oldName;
+    }
+  }
+  
+  return newName;
 }
 
 // Initialize MongoDB indexes on startup
@@ -529,6 +627,10 @@ async function initializeIndexes() {
     
     // Settings indexes
     await db.collection('settings').createIndex({ type: 1 }, { unique: true });
+    
+    // Session indexes
+    await db.collection('Session').createIndex({ token: 1 }, { unique: true });
+    await db.collection('Session').createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 * 7 }); // 7 days expiry
     
     // Material indexes
     await db.collection('Material').createIndex({ name: 1 }, { unique: true });
@@ -627,12 +729,24 @@ function normalizeIncomingRole(role) {
 function requireRoleLevel(minRole) {
   const minLevel = roleHierarchy[minRole] || 0;
   return async (req, res, next) => {
-    // Determine the user's role.
-    // NOTE: In a real app we'd decode a JWT or read req.session.userId here.
-    // Currently, the app passes viewerRole via header or query. 
-    // We will trust it for the prototype, but a true session lookup should happen here.
-    const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
-    const normalizedRole = normalizeUserRole(viewerRole);
+    // Determine the user's role using secure session cookies.
+    const cookies = parseCookies(req);
+    let normalizedRole = null;
+    
+    if (cookies.sessionId) {
+      const { client, db } = await getDB();
+      const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+      await client.close();
+      if (session && session.role) {
+        normalizedRole = normalizeUserRole(session.role);
+      }
+    }
+    
+    // Fallback for missing cookies (for backward compatibility if needed, but insecure)
+    if (!normalizedRole) {
+      const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
+      normalizedRole = normalizeUserRole(viewerRole);
+    }
     
     if (!normalizedRole || !Object.prototype.hasOwnProperty.call(roleHierarchy, normalizedRole)) {
       return res.status(401).json({ error: 'Nicht authentifiziert oder ungültige Rolle' });
@@ -653,18 +767,57 @@ function convertMongoDocs(docs) {
   return docs.map(convertMongoDoc);
 }
 
-function parseViewerRole(req) {
+async function parseViewerRole(req) {
+  const cookies = parseCookies(req);
+  if (cookies.sessionId) {
+    const { client, db } = await getDB();
+    const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+    await client.close();
+    if (session && session.role) {
+      const normalized = normalizeUserRole(session.role);
+      return Object.prototype.hasOwnProperty.call(roleHierarchy, normalized) ? normalized : null;
+    }
+  }
   const viewerRole = (req.query.viewerRole || req.headers['x-viewer-role'] || '').toString().toLowerCase();
   const normalized = normalizeUserRole(viewerRole);
   return Object.prototype.hasOwnProperty.call(roleHierarchy, normalized) ? normalized : null;
 }
 
-function sanitizeOrderForViewer(order, viewerRole) {
+async function sanitizeOrderForViewer(order, viewerRole, db) {
+  let sanitized = order;
   if (viewerRole === 'client') {
-    const { internalWorkshopNote, ...orderWithoutInternalNote } = order;
-    return orderWithoutInternalNote;
+    const { internalWorkshopNote, ...orderWithoutInternalNote } = sanitized;
+    sanitized = orderWithoutInternalNote;
   }
-  return order;
+  
+  if (viewerRole === 'client' || viewerRole === 'guest') {
+    const settingsColl = db.collection('settings');
+    const config = await settingsColl.findOne({ type: 'file-visibility-config' });
+    const restrictedExts = (config && config.restrictedExtensions) ? config.restrictedExtensions.map(e => e.toLowerCase()) : [];
+    
+    if (restrictedExts.length > 0) {
+      const isRestricted = (filename) => {
+        if (!filename) return false;
+        const ext = '.' + filename.split('.').pop().toLowerCase();
+        return restrictedExts.includes(ext);
+      };
+      
+      if (sanitized.documents) {
+        sanitized.documents = sanitized.documents.filter(doc => !isRestricted(doc.name));
+      }
+      
+      if (sanitized.components) {
+        sanitized.components = sanitized.components.map(comp => {
+          if (comp.documents) {
+            comp.documents = comp.documents.filter(doc => !isRestricted(doc.name));
+          }
+          return comp;
+        });
+      }
+    }
+  }
+  
+  return sanitized;
 }
 
 function parseQuantity(value) {
@@ -952,6 +1105,24 @@ app.post('/api/login', async (req, res) => {
         
         await client.close();
         
+        // Generate and store session token
+        const sessionId = crypto.randomBytes(32).toString('hex');
+        const { client: sessionClient, db: sessionDb } = await getDB();
+        await sessionDb.collection('Session').insertOne({
+          token: sessionId,
+          userId: localUser._id,
+          role: localUser.role,
+          createdAt: new Date()
+        });
+        await sessionClient.close();
+        
+        res.cookie('sessionId', sessionId, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+        
         // Erfolgreiche LDAP-Authentifizierung mit lokalen Rollen
         return res.json({ 
           success: true, 
@@ -980,6 +1151,24 @@ app.post('/api/login', async (req, res) => {
         return res.status(403).json({ success: false, message: 'Account noch nicht bestätigt' });
       }
       
+      // Generate and store session token
+      const sessionId = crypto.randomBytes(32).toString('hex');
+      const { client: sessionClient, db: sessionDb } = await getDB();
+      await sessionDb.collection('Session').insertOne({
+        token: sessionId,
+        userId: user._id,
+        role: normalizedRole,
+        createdAt: new Date()
+      });
+      await sessionClient.close();
+      
+      res.cookie('sessionId', sessionId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+      });
+      
       return res.json({ 
         success: true, 
         user: convertMongoDoc({ ...user, role: normalizedRole }),
@@ -994,6 +1183,50 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error('POST /api/login error:', err);
     res.status(500).json({ success: false, message: 'Serverfehler beim Login', error: err.message });
+  }
+});
+
+app.post('/api/logout', async (req, res) => {
+  try {
+    const cookies = parseCookies(req);
+    if (cookies.sessionId) {
+      const { client, db } = await getDB();
+      await db.collection('Session').deleteOne({ token: cookies.sessionId });
+      await client.close();
+    }
+    res.clearCookie('sessionId');
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Logout error:', err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// File Restrictions Settings APIs
+app.get('/api/admin/file-restrictions', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const config = await db.collection('settings').findOne({ type: 'file-visibility-config' });
+    await client.close();
+    res.json({ success: true, restrictedExtensions: config?.restrictedExtensions || [] });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/admin/file-restrictions', async (req, res) => {
+  try {
+    const { restrictedExtensions } = req.body;
+    const { client, db } = await getDB();
+    await db.collection('settings').updateOne(
+      { type: 'file-visibility-config' },
+      { $set: { restrictedExtensions: Array.isArray(restrictedExtensions) ? restrictedExtensions : [] } },
+      { upsert: true }
+    );
+    await client.close();
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -1344,10 +1577,74 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // === ORDERS API ===
+
+app.get('/api/orders/export/csv', requireRoleLevel('manager'), async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const orders = await db.collection('Order').find({}).sort({ createdAt: -1 }).toArray();
+    
+    // Fetch users for assignedTo mapping
+    const users = await db.collection('User').find({}).toArray();
+    const userMap = {};
+    users.forEach(u => userMap[u._id.toString()] = u.name || u.username);
+
+    // Format headers
+    let csvData = 'Auftragsnummer;Titel;Beschreibung;Auftraggeber Name;Datum Erstellt;Deadline;Status;Prioritaet;Zugewiesener Mitarbeiter;Geschaetzte Zeit;Tatsaechliche Zeit;Kostenstelle\r\n';
+
+    // Format rows
+    orders.forEach(order => {
+      const escape = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        // Replace quotes with double quotes and wrap in quotes if contains delimiter, newline or quotes
+        if (str.includes(';') || str.includes('\n') || str.includes('\r') || str.includes('"')) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const dateCreated = order.createdAt ? new Date(order.createdAt).toLocaleDateString('de-DE') : '';
+      const deadline = order.deadline ? new Date(order.deadline).toLocaleDateString('de-DE') : '';
+      const assignedName = order.assignedTo ? (userMap[order.assignedTo] || order.assignedTo) : 'Nicht zugewiesen';
+
+      const row = [
+        escape(order.orderNumber || order._id.toString()),
+        escape(order.title),
+        escape(order.description),
+        escape(order.clientName),
+        escape(dateCreated),
+        escape(deadline),
+        escape(order.status),
+        escape(order.priority),
+        escape(assignedName),
+        escape(order.estimatedHours),
+        escape(order.actualHours),
+        escape(order.costCenter)
+      ];
+
+      csvData += row.join(';') + '\r\n';
+    });
+
+    await client.close();
+
+    // Set headers for download
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    const dateStr = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Disposition', `attachment; filename=werkstatt_auftraege_export_${dateStr}.csv`);
+    
+    // UTF-8 BOM
+    res.write('\uFEFF');
+    res.end(csvData);
+  } catch (error) {
+    console.error('Error generating CSV:', error);
+    res.status(500).json({ error: 'Fehler beim Exportieren der Daten' });
+  }
+});
+
 app.get('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     
     // Load all orders
     const orders = await db.collection('Order').find({})
@@ -1370,7 +1667,10 @@ app.get('/api/orders', async (req, res) => {
       }
       
       // Enrich documents with IDs
-      const enrichedDocuments = documents.map(doc => ({
+      const enrichedDocuments = documents
+        .filter(doc => !doc.componentId)
+        .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+        .map(doc => ({
         ...doc,
         id: doc._id ? doc._id.toString() : doc.id,
         _id: undefined
@@ -1410,7 +1710,7 @@ app.get('/api/orders', async (req, res) => {
       .sort({ createdAt: -1 })
       .toArray();
       
-      return sanitizeOrderForViewer({
+      return await sanitizeOrderForViewer({
         ...order,
         id: order._id.toString(),
         _id: undefined,
@@ -1426,7 +1726,7 @@ app.get('/api/orders', async (req, res) => {
           uploadedAt: order.titleImage.uploadedAt,
           hasImage: true
         } : null
-      }, viewerRole);
+      }, viewerRole, db);
     }));
     
     await client.close();
@@ -1439,10 +1739,135 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
+app.get('/api/orders/number/:orderNumber', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const viewerRole = await parseViewerRole(req);
+    
+    // Authorization Check
+    const cookies = parseCookies(req);
+    let sessionUserId = null;
+    let normalizedRole = viewerRole;
+    if (cookies.sessionId) {
+      const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+      if (session) {
+        sessionUserId = session.userId;
+        if (!normalizedRole) {
+           normalizedRole = normalizeUserRole(session.role);
+        }
+      }
+    }
+    
+    if (normalizedRole === 'guest') {
+       await client.close();
+       return res.status(403).json({ error: 'Zugriff verweigert' });
+    }
+
+    const order = await db.collection('Order').findOne({ 
+      $or: [
+        { orderNumber: req.params.orderNumber },
+        ObjectId.isValid(req.params.orderNumber) ? { _id: new ObjectId(req.params.orderNumber) } : null
+      ].filter(Boolean)
+    });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    if (normalizedRole === 'client') {
+       if (String(order.clientId) !== String(sessionUserId)) {
+          await client.close();
+          return res.status(403).json({ error: 'Zugriff verweigert' });
+       }
+    }
+    
+    // Load documents from Document collection
+    let extDocs = await db.collection('Document').find({ 
+      orderId: order._id
+    }).toArray();
+    let documents = [...extDocs];
+    if (order.documents && order.documents.length > 0) {
+      for (const embDoc of order.documents) {
+        if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+          documents.push(embDoc);
+        }
+      }
+    }
+    
+    const components = await db.collection('Component').find({ 
+      orderId: order._id
+    }).toArray();
+    
+    const noteHistory = await db.collection('NoteHistory').find({ 
+      orderId: order._id
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+    
+    // Enrich components with their documents
+    const enrichedComponents = await Promise.all(components.map(async (component) => {
+      const compDocuments = await db.collection('Document').find({ 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
+      }).toArray();
+      
+      const { _id, ...componentWithoutId } = component;
+      return {
+        ...componentWithoutId,
+        id: _id.toString(),
+        documents: compDocuments.map(doc => ({
+          ...doc,
+          id: doc._id.toString(),
+          _id: undefined
+        }))
+      };
+    }));
+    
+    // Enrich documents with IDs
+    const enrichedDocuments = documents
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
+      ...doc,
+      id: doc._id ? doc._id.toString() : doc.id,
+      _id: undefined
+    }));
+    
+    const enrichedOrder = await sanitizeOrderForViewer({
+      ...order,
+      id: order._id.toString(),
+      _id: undefined,
+      documents: enrichedDocuments,
+      components: enrichedComponents,
+      noteHistory: noteHistory,
+      revisionHistory: order.revisionHistory || [],
+      reworkComments: order.reworkComments || [],
+      // Include title image metadata (not binary data) for frontend
+      titleImage: order.titleImage ? {
+        filename: order.titleImage.filename,
+        contentType: order.titleImage.contentType,
+        uploadedAt: order.titleImage.uploadedAt,
+        hasImage: true
+      } : null
+    }, viewerRole, db);
+    
+    await client.close();
+    
+    console.log('GET /api/orders/number/:orderNumber - Loaded order from MongoDB:', enrichedOrder.orderNumber || enrichedOrder.id);
+    res.json(enrichedOrder);
+  } catch (err) {
+    console.error('GET /api/orders/number/:orderNumber error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden des Auftrags' });
+  }
+});
+
 app.get('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     
     const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
     
@@ -1497,15 +1922,16 @@ app.get('/api/orders/:id', async (req, res) => {
     }));
     
     // Enrich documents with IDs
-    const enrichedDocuments = documents.map(doc => ({
+    const enrichedDocuments = documents
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
       ...doc,
       id: doc._id ? doc._id.toString() : doc.id,
       _id: undefined
     }));
     
-    await client.close();
-    
-    const enrichedOrder = sanitizeOrderForViewer({
+    const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -1521,7 +1947,9 @@ app.get('/api/orders/:id', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    }, viewerRole);
+    }, viewerRole, db);
+    
+    await client.close();
     
     console.log('GET /api/orders/:id - Loaded order from MongoDB:', enrichedOrder.id);
     res.json(enrichedOrder);
@@ -1535,7 +1963,7 @@ app.get('/api/orders/:id', async (req, res) => {
 app.get('/api/orders/barcode/:code', async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const viewerRole = parseViewerRole(req);
+    const viewerRole = await parseViewerRole(req);
     const code = req.params.code;
     
     console.log('Searching for order with barcode/orderNumber:', code);
@@ -1600,9 +2028,7 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
       };
     }));
     
-    await client.close();
-    
-    const enrichedOrder = sanitizeOrderForViewer({
+    const enrichedOrder = await sanitizeOrderForViewer({
       ...order,
       id: order._id.toString(),
       _id: undefined,
@@ -1618,7 +2044,9 @@ app.get('/api/orders/barcode/:code', async (req, res) => {
         uploadedAt: order.titleImage.uploadedAt,
         hasImage: true
       } : null
-    }, viewerRole);
+    }, viewerRole, db);
+    
+    await client.close();
     
     console.log('GET /api/orders/barcode/:code - Found order:', enrichedOrder.orderNumber || enrichedOrder.id);
     res.json(enrichedOrder);
@@ -1722,8 +2150,35 @@ app.put('/api/orders/:id', async (req, res) => {
       // Note: title image upload is handled by separate endpoint
     }
     
+    // Helper to delete physical files
+    const deletePhysicalFile = (doc) => {
+      try {
+        if (doc.networkPath && fs.existsSync(doc.networkPath)) {
+          fs.unlinkSync(doc.networkPath);
+        } else if (doc.url && doc.url.startsWith('/uploads/')) {
+          const localPath = path.join(uploadsDir, decodeURIComponent(doc.url.substring('/uploads/'.length)));
+          if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+        }
+      } catch(e) {
+        console.error('Error deleting physical file:', e);
+      }
+    };
+    
     // Documents with type field
     if (documents !== undefined) {
+      const sentDocUrls = (documents || []).map(d => d.url);
+      const oldGenDocs = await db.collection('Document').find({
+        orderId: new ObjectId(req.params.id),
+        componentId: { $exists: false }
+      }).toArray();
+      
+      for (const oldDoc of oldGenDocs) {
+        if (!sentDocUrls.includes(oldDoc.url)) {
+          deletePhysicalFile(oldDoc);
+          await db.collection('Document').deleteOne({ _id: oldDoc._id });
+        }
+      }
+      
       updateData.documents = (documents || []).map(doc => {
         // Determine type based on file extension
         let type = 'unknown';
@@ -1750,6 +2205,7 @@ app.put('/api/orders/:id', async (req, res) => {
     }
     
     // Handle components updates
+    let preUpdateComponentsForDiff = [];
     if (components !== undefined) {
       console.log('PUT /api/orders/:id - Processing components:', components?.length || 0);
       
@@ -1758,6 +2214,24 @@ app.put('/api/orders/:id', async (req, res) => {
         orderId: new ObjectId(req.params.id) 
       }).toArray();
       
+      // Load pre-update components for diffing later
+      preUpdateComponentsForDiff = await Promise.all(existingComponents.map(async (component) => {
+        const compDocuments = await db.collection('Document').find({ 
+          $or: [
+            { componentId: component._id },
+            { componentId: component._id.toString() }
+          ]
+        }).toArray();
+        return {
+          ...component,
+          id: component._id.toString(),
+          documents: compDocuments.map(doc => ({
+            ...doc,
+            id: doc._id ? doc._id.toString() : doc.id
+          }))
+        };
+      }));
+      
       if (components && components.length > 0) {
         // IDs, die im Request gesendet wurden
         const sentIds = components.map(c => c.id || c._id).filter(id => id).map(id => new ObjectId(id));
@@ -1765,6 +2239,10 @@ app.put('/api/orders/:id', async (req, res) => {
         // Lösche alle Komponenten (und deren Dokumente), die NICHT im Request sind
         const componentsToDelete = existingComponents.filter(ec => !sentIds.some(id => id.equals(ec._id)));
         for (const comp of componentsToDelete) {
+          const compDocsToDelete = await db.collection('Document').find({ componentId: comp._id }).toArray();
+          for (const oldDoc of compDocsToDelete) {
+            deletePhysicalFile(oldDoc);
+          }
           await db.collection('Document').deleteMany({ componentId: comp._id });
           await db.collection('Component').deleteOne({ _id: comp._id });
         }
@@ -1796,6 +2274,13 @@ app.put('/api/orders/:id', async (req, res) => {
           }
           
           // Dokumente des Bauteils neu anlegen
+          const oldCompDocs = await db.collection('Document').find({ componentId: finalComponentId }).toArray();
+          const sentCompDocUrls = component.documents ? component.documents.map(d => d.url) : [];
+          for (const oldDoc of oldCompDocs) {
+            if (!sentCompDocUrls.includes(oldDoc.url)) {
+              deletePhysicalFile(oldDoc);
+            }
+          }
           await db.collection('Document').deleteMany({ componentId: finalComponentId });
           
           if (component.documents && component.documents.length > 0) {
@@ -1813,6 +2298,10 @@ app.put('/api/orders/:id', async (req, res) => {
       } else {
         // Wenn ein leeres Array gesendet wurde, lösche alle
         for (const comp of existingComponents) {
+          const compDocsToDelete = await db.collection('Document').find({ componentId: comp._id }).toArray();
+          for (const oldDoc of compDocsToDelete) {
+            deletePhysicalFile(oldDoc);
+          }
           await db.collection('Document').deleteMany({ componentId: comp._id });
         }
         await db.collection('Component').deleteMany({ orderId: new ObjectId(req.params.id) });
@@ -1880,7 +2369,10 @@ app.put('/api/orders/:id', async (req, res) => {
     }
     
     // Enrich documents with IDs
-    const enrichedDocuments = orderDocuments.map(doc => ({
+    const enrichedDocuments = orderDocuments
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
       ...doc,
       id: doc._id ? doc._id.toString() : doc.id,
       _id: undefined
@@ -1933,6 +2425,84 @@ app.put('/api/orders/:id', async (req, res) => {
           ? { userName: effectiveUserName, comment: confirmationNote }
           : { userName: effectiveUserName, comment: revisionRequest || revisionComment };
         await emailScript.sendWorkshopStatusUpdateEmail(transporter, db, req.params.id, orderDataForEmail, status, commentData);
+      }
+    } else {
+      // If status didn't change (or if it did, we might not want to double-email, but we only email if status DID NOT change to avoid spam)
+      // Actually, let's just trigger edit email if there are meaningful field changes.
+      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status'];
+      const editedFields = Object.keys(updateData).filter(key => {
+        if (ignoredFields.includes(key)) return false;
+        
+        const newVal = updateData[key];
+        const oldVal = existingOrder[key];
+        
+        if (newVal === oldVal) return false;
+        
+        if (newVal instanceof Date && oldVal instanceof Date) {
+          return newVal.getTime() !== oldVal.getTime();
+        }
+        
+        if (typeof newVal === 'object' && typeof oldVal === 'object') {
+          return JSON.stringify(newVal) !== JSON.stringify(oldVal);
+        }
+        
+        if ((newVal === null || newVal === undefined) && (oldVal === null || oldVal === undefined)) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      let componentsChanged = false;
+      if (typeof preUpdateComponentsForDiff !== 'undefined' && typeof enrichedComponents !== 'undefined') {
+        if (preUpdateComponentsForDiff.length !== enrichedComponents.length) {
+          componentsChanged = true;
+        } else {
+          for (let i = 0; i < enrichedComponents.length; i++) {
+            const newComp = enrichedComponents[i];
+            const oldComp = preUpdateComponentsForDiff.find(c => c.id === newComp.id) || preUpdateComponentsForDiff[i];
+            
+            if (newComp.title !== oldComp.title ||
+                newComp.description !== oldComp.description ||
+                newComp.quantity !== oldComp.quantity ||
+                newComp.material !== oldComp.material) {
+              componentsChanged = true;
+              break;
+            }
+            
+            const newDocs = newComp.documents || [];
+            const oldDocs = oldComp.documents || [];
+            if (newDocs.length !== oldDocs.length) {
+              componentsChanged = true;
+              break;
+            }
+            
+            const oldDocNames = oldDocs.map(d => d.name).sort().join(',');
+            const newDocNames = newDocs.map(d => d.name).sort().join(',');
+            if (oldDocNames !== newDocNames) {
+              componentsChanged = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (componentsChanged) {
+        editedFields.push('Bauteile');
+        updateData['Bauteile'] = 'Wurden geändert';
+      }
+      
+      if (editedFields.length > 0) {
+        const emailScript = require('./scripts/email-notifications.cjs');
+        const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
+        
+        // Build an object of only the changed fields for the email
+        const changedFieldsForEmail = {};
+        for (const key of editedFields) {
+          changedFieldsForEmail[key] = updateData[key];
+        }
+        
+        await emailScript.sendOrderEditedEmail(transporter, db, req.params.id, orderDataForEmail, changedFieldsForEmail, effectiveUserName);
       }
     }
 
@@ -2701,7 +3271,7 @@ app.post('/api/orders/:id/sync', async (req, res) => {
     
     // 3. Process each component's subdirectory
     for (const comp of components) {
-      const componentFolderName = await getComponentFolderName(db, orderId, comp._id);
+      const componentFolderName = await getComponentFolderName(db, orderId, comp._id, targetFolderPath);
       
       const compPath = path.join(targetFolderPath, componentFolderName);
       processDirectory(compPath, `${orderFolderName}/${componentFolderName}`, comp._id, false);
@@ -2729,6 +3299,18 @@ app.post('/api/orders/:id/sync', async (req, res) => {
     
     if (docsToDelete.length > 0) {
       await db.collection('Document').deleteMany({ _id: { $in: docsToDelete } });
+    }
+    
+    if (newDocsToInsert.length > 0 || docsToDelete.length > 0) {
+      const wss = req.app.get('wss');
+      if (wss) {
+        const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: orderId } });
+        wss.clients.forEach(client => {
+          if (client.readyState === 1 /* WebSocket.OPEN */) {
+            client.send(msg);
+          }
+        });
+      }
     }
     
     await client.close();
@@ -2917,7 +3499,8 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
           localUrl = `/uploads/${orderFolderName}/00_Interne%20Dokumente/${encodeURIComponent(basename)}`;
         } else if (document.componentId) {
           // Component document – use numbered folder name
-          const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId);
+          const orderDir = path.join(localStorageDir, orderFolderName);
+          const componentFolderName = await getComponentFolderName(db, order._id.toString(), document.componentId, orderDir);
           
           const localCompDir = path.join(localStorageDir, orderFolderName, componentFolderName);
           if (!fs.existsSync(localCompDir)) {
@@ -3010,7 +3593,7 @@ app.post('/api/orders/:id/rollback-migration', async (req, res) => {
 });
 
 // GET /api/orders/:id/files/:filename - Direct file access by original filename
-app.get('/api/orders/:id/files/:filename', async (req, res) => {
+app.get('/api/orders/:id/files/:filename', fileDownloadGuard, async (req, res) => {
   console.log(`[Download] Request for order: ${req.params.id}, file: ${req.params.filename}`);
   try {
     const { client, db } = await getDB();
@@ -3183,6 +3766,25 @@ app.get('/api/documents/:id', async (req, res) => {
       await client.close();
       return res.status(404).json({ error: 'Dokument nicht gefunden' });
     }
+    
+    const config = await db.collection('settings').findOne({ type: 'file-visibility-config' });
+    if (config && config.restrictedExtensions && config.restrictedExtensions.length > 0) {
+      const ext = '.' + (document.name || '').split('.').pop().toLowerCase();
+      const restrictedExts = config.restrictedExtensions.map(e => e.toLowerCase());
+      if (restrictedExts.includes(ext)) {
+        const cookies = parseCookies(req);
+        let viewerRole = 'guest';
+        if (cookies.sessionId) {
+          const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+          if (session && session.role) viewerRole = normalizeUserRole(session.role);
+        }
+        if (viewerRole === 'client' || viewerRole === 'guest' || !viewerRole) {
+          await client.close();
+          return res.status(403).json({ error: 'Zugriff auf diesen Dateityp verweigert.' });
+        }
+      }
+    }
+    
     const settingsCollection = db.collection('settings');
     const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
 
@@ -3483,7 +4085,7 @@ app.get('/api/orders/:id/network-files', async (req, res) => {
 });
 
 // GET /api/orders/:id/network-files/:filename/download - Download file from order's network folder
-app.get('/api/orders/:id/network-files/:filename/download', async (req, res) => {
+app.get('/api/orders/:id/network-files/:filename/download', fileDownloadGuard, async (req, res) => {
   try {
     const client = new MongoClient(MONGODB_URL);
     await client.connect();
@@ -3666,6 +4268,16 @@ app.post('/api/orders/:id/upload-document', upload.single('file'), async (req, r
     // Immediately organize the file into the correct order folder
     await autoMigrateOrderFiles(db, orderId);
     
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: orderId } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     res.json({
@@ -3719,6 +4331,16 @@ app.post('/api/components/:id/upload-document', upload.single('file'), async (re
     // Immediately organize the file into the correct order/component folder
     await autoMigrateOrderFiles(db, component.orderId.toString());
     
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: component.orderId.toString() } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     res.json({
@@ -3770,6 +4392,17 @@ app.post('/api/orders/:id/upload-cam-file', camNetworkUpload.single('file'), asy
     };
     
     const docResult = await ordersDb.collection('Document').insertOne(document);
+    
+    const wss = req.app.get('wss');
+    if (wss) {
+      const msg = JSON.stringify({ type: 'orderUpdated', payload: { id: req.params.id } });
+      wss.clients.forEach(c => {
+        if (c.readyState === 1 /* WebSocket.OPEN */) {
+          c.send(msg);
+        }
+      });
+    }
+    
     await client.close();
     
     console.log(`CAM file uploaded (${req.uploadMode}):`, req.file.path);

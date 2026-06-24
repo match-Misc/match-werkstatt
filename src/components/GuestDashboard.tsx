@@ -7,7 +7,7 @@ export default function GuestDashboard() {
   const user = state.currentUser;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="bg-white overflow-hidden shadow rounded-lg border border-gray-200">
         <div className="px-4 py-5 sm:p-6 text-center">
           <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 mb-6">

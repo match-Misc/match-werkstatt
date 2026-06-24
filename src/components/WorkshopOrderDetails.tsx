@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   X, 
   Check, 
@@ -17,11 +17,13 @@ import {
   PenTool,
   Edit2,
   Save,
-  ToggleLeft,
   ToggleRight,
+  ToggleLeft,
   ArrowRight,
+  ArrowLeft,
   Wrench
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
@@ -37,6 +39,7 @@ interface WorkshopOrderDetailsProps {
 
 export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDetailsProps) {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   const [localOrder, setLocalOrder] = useState(order);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
@@ -81,10 +84,20 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     return /\.dwg$/i.test(fileName);
   };
 
+  const isZIPFile = (fileName: string) => {
+    return /\.zip$/i.test(fileName);
+  };
+
+  const isEMCAMFile = (fileName: string) => {
+    return /\.emcam$/i.test(fileName);
+  };
+
   const getFileIcon = (fileName: string, className = "w-5 h-5") => {
     if (isSTLFile(fileName)) return <Server className={`${className} text-purple-600`} />;
     if (isIPTFile(fileName)) return <Box className={`${className} text-orange-500`} />;
     if (isDWGFile(fileName)) return <PenTool className={`${className} text-blue-500`} />;
+    if (isZIPFile(fileName)) return <Archive className={`${className} text-yellow-600`} />;
+    if (isEMCAMFile(fileName)) return <Wrench className={`${className} text-teal-600`} />;
     return <FileText className={`${className} text-red-600`} />;
   };
 
@@ -92,6 +105,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
     if (isIPTFile(fileName)) return 'CAD-Modell (IPT/IAM)';
     if (isDWGFile(fileName)) return 'Zeichnung (DWG)';
+    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
+    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
     return 'PDF-Dokument';
   };
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
@@ -99,6 +114,27 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [revisionError, setRevisionError] = useState('');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showNetworkFolder, setShowNetworkFolder] = useState(false);
+  const [restrictedExtensions, setRestrictedExtensions] = useState<string[]>([]);
+
+  // Lade Dateityp-Einschränkungen
+  useEffect(() => {
+    if (state.currentUser?.role === 'client' || state.currentUser?.role === 'guest') {
+      fetch('/api/admin/file-restrictions')
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.restrictedExtensions) {
+            setRestrictedExtensions(data.restrictedExtensions.map((e: string) => e.toLowerCase()));
+          }
+        })
+        .catch(err => console.error('Fehler beim Laden der Dateifilter:', err));
+    }
+  }, [state.currentUser]);
+
+  const isRestrictedFile = (filename: string) => {
+    if (!filename || restrictedExtensions.length === 0) return false;
+    const ext = '.' + filename.split('.').pop()?.toLowerCase();
+    return restrictedExtensions.includes(ext);
+  };
 
   // Zustand für bearbeitete Felder
   const [changedFields, setChangedFields] = useState<Partial<Order>>({});
@@ -289,7 +325,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         const isInternalOrder = !localOrder.clientId || 
                                localOrder.clientId === state.currentUser?.id ||
                                state.currentUser?.role === 'admin' ||
-                               state.currentUser?.role === 'workshop';
+                               (state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager');
         
         if (isInternalOrder) {
           // Direct completion for internal orders
@@ -597,8 +633,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   };
 
   const canModify = state.currentUser?.role === 'admin' || 
-                   (state.currentUser?.role === 'workshop' && localOrder.assignedTo === state.currentUser?.id);
-  const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'workshop';
+                   ((state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && localOrder.assignedTo === state.currentUser?.id);
+  const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager';
 
   // Auftrag löschen (nur für Admin)
   const handleDeleteOrder = async () => {
@@ -679,6 +715,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-4">
+        <button
+          onClick={onClose}
+          className="flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5 mr-2" />
+          Zurück zur Übersicht
+        </button>
+      </div>
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="flex justify-between items-center p-6 border-b">
           <div>
@@ -686,6 +731,14 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             <p className="text-gray-600 mt-1">Auftrags-Nr.: {localOrder.orderNumber || localOrder.id}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/orders/${localOrder.orderNumber || localOrder.id}/edit`)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              title="Auftrag bearbeiten"
+            >
+              <Edit2 className="w-4 h-4 mr-2" />
+              Bearbeiten
+            </button>
             <button
               onClick={() => setShowNetworkFolder(true)}
               className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center"
@@ -702,12 +755,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             >
               <Printer className="w-4 h-4 mr-2" />
               {isGeneratingPDF ? 'Erstelle PDF...' : 'PDF + QR-Code'}
-            </button>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <X className="w-6 h-6" />
             </button>
           </div>
         </div>
@@ -787,7 +834,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <select
                         value={assignedTo}
                         onChange={(e) => handleFieldChange('assignedTo', e.target.value || null)}
-                        disabled={!canModify && state.currentUser?.role !== 'admin'}
+                        disabled={!(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager')}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
                       >
                         <option value="">Nicht zugewiesen</option>
@@ -1086,14 +1133,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
                     </div>
                     <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Erstellt am:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {new Date(localOrder.createdAt).toLocaleDateString('de-DE')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Deadline:</span>
                       <span className="text-sm font-medium text-gray-900">
                         {new Date(localOrder.deadline).toLocaleDateString('de-DE')}
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600">Kostenstelle:</span>
-                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
                     </div>
                   </div>
                   {/* Untere Zeile */}
@@ -1110,6 +1159,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                         {getPriorityText(localOrder.priority)}
                       </span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Kostenstelle:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.costCenter}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1122,13 +1175,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               </div>
               
               {/* Allgemeine Dateien Section */}
-              {localOrder.documents && localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).length > 0 && (
+              {localOrder.documents && localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name)).length > 0 && (
                 <>
                   <hr className="border-t border-gray-200" />
                   <div>
                     <h4 className="text-md font-semibold text-gray-900 mb-4">Allgemeine Dateien</h4>
                     <div className="flex flex-col gap-3">
-                      {localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente')).map((doc: any) => (
+                      {localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name)).map((doc: any) => (
                         <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
                           <div className="flex items-center space-x-3 overflow-hidden">
                             <div className="flex-shrink-0">
@@ -1269,12 +1322,12 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           )}
                         </div>
                         
-                        {component.documents && component.documents.length > 0 && (
+                        {component.documents && component.documents.filter((doc: any) => !isRestrictedFile(doc.name)).length > 0 && (
                           <div>
                             <hr className="my-3 border-gray-200" />
                             <h6 className="text-xs font-medium text-gray-700 mb-2">Dokumente:</h6>
                             <div className="space-y-1">
-                              {component.documents.map((doc) => (
+                              {component.documents.filter((doc: any) => !isRestrictedFile(doc.name)).map((doc: any) => (
                                 <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
                                   <div className="flex items-center">
                                     {getFileIcon(doc.name)}
@@ -1475,7 +1528,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           <div className="mt-8 border-t pt-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Unteraufgaben</h3>
-              {(canModify || state.currentUser?.role === 'admin') && (
+              {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && (
                 <button
                   onClick={() => setShowAddSubTask(true)}
                   className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1514,7 +1567,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                     required
                   >
                     <option value="">Mitarbeiter auswählen *</option>
-                    {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map(acc => (
+                    {state.workshopAccounts.map(acc => (
                       <option key={acc.id} value={acc.id}>{acc.name}</option>
                     ))}
                   </select>
@@ -1688,7 +1741,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
                               >
                                 <option value="">Mitarbeiter auswählen</option>
-                                {state.workshopAccounts.filter(acc => acc.role === 'workshop' || acc.role === 'admin').map((account) => (
+                                {state.workshopAccounts.map((account) => (
                                   <option key={account.id} value={account.id}>{account.name}</option>
                                 ))}
                               </select>
@@ -1796,7 +1849,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                               {getStatusText(subTask.status)}
                             </span>
                           )}
-                          {(canModify || state.currentUser?.role === 'admin') && (
+                          {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && (
                             <div className="flex items-center space-x-2">
                               <button
                                 onClick={() => {

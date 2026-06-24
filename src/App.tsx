@@ -1,13 +1,58 @@
-import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams, Outlet, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Login from './components/Login';
-import Header from './components/Header';
 import ClientDashboard from './components/ClientDashboard';
 import WorkshopDashboard from './components/WorkshopDashboard';
 import Notification from './components/Notification';
-
 import GuestDashboard from './components/GuestDashboard';
+import TaskOverview from './components/TaskOverview';
+import ArchiveView from './components/ArchiveView';
+import AccountManagement from './components/AccountManagement';
+import UserManagement from './components/UserManagement';
+import SidebarLayout from './components/layouts/SidebarLayout';
+import GuestLayout from './components/layouts/GuestLayout';
+import CreateOrder from './components/CreateOrder';
+import EditOrderPage from './components/EditOrderPage';
+import OrderDetailsPage from './components/OrderDetailsPage';
+
+// Auth Guard
+function RequireAuth({ children }: { children: JSX.Element }) {
+  const { state } = useApp();
+  const location = useLocation();
+
+  if (!state.isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  return children;
+}
+
+// Role Guard
+function RequireRole({ allowedRoles, children }: { allowedRoles: string[], children: JSX.Element }) {
+  const { state } = useApp();
+  const userRole = state.currentUser?.role;
+
+  if (!userRole || !allowedRoles.includes(userRole)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
+// Root Redirect based on Role
+function RootRedirect() {
+  const { state } = useApp();
+  const userRole = state.currentUser?.role;
+
+  if (!state.isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (userRole === 'guest') {
+    return <Navigate to="/guest" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
+}
 
 // Component for handling QR-Code direct links
 function OrderDirectAccess() {
@@ -17,48 +62,58 @@ function OrderDirectAccess() {
 
   useEffect(() => {
     if (orderId && !state.isAuthenticated) {
-      // Store the intended destination
       sessionStorage.setItem('qr_redirect_order', orderId);
+      navigate('/login');
       return;
     }
 
     if (orderId && state.isAuthenticated) {
-      // Navigate to the appropriate dashboard with the order selected
       if (state.currentUser?.role === 'guest') {
-        navigate('/'); // Guests can't see orders
+        navigate('/guest');
       } else {
-        navigate('/', { state: { openOrderId: orderId } });
+        navigate('/dashboard', { state: { openOrderId: orderId } });
       }
     }
   }, [orderId, state.isAuthenticated, state.currentUser, navigate]);
 
-  // If not authenticated, show login
-  if (!state.isAuthenticated) {
-    return <Login />;
-  }
-
-  // Redirect to main app
   return null;
 }
 
-function AppContent() {
+// Login Page with QR Redirect handling
+function LoginPage() {
   const { state } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // Handle QR redirect after login
   useEffect(() => {
-    const qrRedirectOrder = sessionStorage.getItem('qr_redirect_order');
-    if (qrRedirectOrder && state.isAuthenticated) {
-      sessionStorage.removeItem('qr_redirect_order');
-      navigate(`/order/${qrRedirectOrder}`);
+    if (state.isAuthenticated) {
+      const qrRedirectOrder = sessionStorage.getItem('qr_redirect_order');
+      if (qrRedirectOrder) {
+        sessionStorage.removeItem('qr_redirect_order');
+        navigate(`/order/${qrRedirectOrder}`, { replace: true });
+      } else {
+        const from = (location.state as any)?.from?.pathname || "/";
+        navigate(from, { replace: true });
+      }
     }
-  }, [state.isAuthenticated, navigate]);
+  }, [state.isAuthenticated, navigate, location]);
 
+  return (
+    <>
+      <Login />
+      <Notification />
+    </>
+  );
+}
+
+// App Content with Routes
+function AppContent() {
+  const { state } = useApp();
+
+  // Dynamisches Rendering für das Dashboard basierend auf Rolle
   const renderDashboard = () => {
     const role = state.currentUser?.role;
-    if (role === 'guest') {
-      return <GuestDashboard />;
-    } else if (role === 'client') {
+    if (role === 'client') {
       return <ClientDashboard />;
     } else {
       return <WorkshopDashboard />;
@@ -66,24 +121,80 @@ function AppContent() {
   };
 
   return (
-    <Routes>
-      <Route path="/order/:orderId" element={<OrderDirectAccess />} />
-      <Route path="/" element={
-        <>
-          {!state.isAuthenticated ? (
-            <Login />
-          ) : (
-            <div className="min-h-screen bg-gray-50">
-              <Header />
-              <main>
-                {renderDashboard()}
-              </main>
-              <Notification />
-            </div>
-          )}
-        </>
-      } />
-    </Routes>
+    <>
+      <Routes>
+        {/* Public Routes */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/order/:orderId" element={<OrderDirectAccess />} />
+
+        {/* Root Redirect */}
+        <Route path="/" element={<RootRedirect />} />
+
+        {/* Guest Routes (GuestLayout) */}
+        <Route element={<RequireAuth><GuestLayout /></RequireAuth>}>
+          <Route path="/guest" element={
+            <RequireRole allowedRoles={['guest']}>
+              <GuestDashboard />
+            </RequireRole>
+          } />
+        </Route>
+
+        {/* Main App Routes (SidebarLayout) */}
+        <Route element={<RequireAuth><SidebarLayout /></RequireAuth>}>
+          <Route path="/dashboard" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              {renderDashboard()}
+            </RequireRole>
+          } />
+          
+          <Route path="/tasks" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager']}>
+              <TaskOverview />
+            </RequireRole>
+          } />
+
+          <Route path="/orders/new" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <CreateOrder />
+            </RequireRole>
+          } />
+          
+          <Route path="/orders/:orderNumber" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <OrderDetailsPage />
+            </RequireRole>
+          } />
+
+          <Route path="/orders/:orderNumber/edit" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <EditOrderPage />
+            </RequireRole>
+          } />
+          
+          <Route path="/archive" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <ArchiveView />
+            </RequireRole>
+          } />
+          
+          <Route path="/settings" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <AccountManagement />
+            </RequireRole>
+          } />
+
+          <Route path="/admin/users" element={
+            <RequireRole allowedRoles={['admin']}>
+              <UserManagement />
+            </RequireRole>
+          } />
+        </Route>
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <Notification />
+    </>
   );
 }
 

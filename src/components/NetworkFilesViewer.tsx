@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, FileText, Image, File, RefreshCw, FolderOpen, AlertCircle } from 'lucide-react';
+import { Download, FileText, Image, File, RefreshCw, FolderOpen, AlertCircle, Archive, Wrench } from 'lucide-react';
 
 interface NetworkFile {
   name: string;
@@ -87,6 +87,14 @@ export default function NetworkFilesViewer({ orderId, refreshTrigger = 0 }: Netw
     
     if (['.pdf', '.doc', '.docx', '.txt', '.rtf'].includes(ext)) {
       return <FileText className="w-5 h-5 text-red-500" />;
+    }
+
+    if (['.zip', '.rar', '.7z', '.tar', '.gz'].includes(ext)) {
+      return <Archive className="w-5 h-5 text-yellow-600" />;
+    }
+
+    if (['.emcam'].includes(ext)) {
+      return <Wrench className="w-5 h-5 text-teal-600" />;
     }
     
     return <File className="w-5 h-5 text-gray-500" />;
