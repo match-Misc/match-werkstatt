@@ -209,15 +209,6 @@ export default function ClientDashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-3">
-                        {(order.status === 'revision' || order.status === 'rework') && (
-                          <button
-                            onClick={() => setEditingOrder(order)}
-                            className="text-orange-600 hover:text-orange-800 flex items-center"
-                          >
-                            <Edit2 className="w-4 h-4 mr-1" />
-                            Bearbeiten
-                          </button>
-                        )}
                         <button
                           onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                           className="text-blue-600 hover:text-blue-800 flex items-center"
@@ -225,6 +216,15 @@ export default function ClientDashboard() {
                           <Eye className="w-4 h-4 mr-1" />
                           Anzeigen
                         </button>
+                        {order.status !== 'completed' && (
+                          <button
+                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            className="text-orange-600 hover:text-orange-800 flex items-center"
+                          >
+                            <Edit2 className="w-4 h-4 mr-1" />
+                            Bearbeiten
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

@@ -13,6 +13,7 @@ import UserManagement from './components/UserManagement';
 import SidebarLayout from './components/layouts/SidebarLayout';
 import GuestLayout from './components/layouts/GuestLayout';
 import CreateOrder from './components/CreateOrder';
+import EditOrderPage from './components/EditOrderPage';
 import OrderDetailsPage from './components/OrderDetailsPage';
 
 // Auth Guard
@@ -161,6 +162,12 @@ function AppContent() {
           <Route path="/orders/:orderNumber" element={
             <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
               <OrderDetailsPage />
+            </RequireRole>
+          } />
+
+          <Route path="/orders/:orderNumber/edit" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <EditOrderPage />
             </RequireRole>
           } />
           

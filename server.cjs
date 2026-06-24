@@ -1603,7 +1603,10 @@ app.get('/api/orders', async (req, res) => {
       }
       
       // Enrich documents with IDs
-      const enrichedDocuments = documents.map(doc => ({
+      const enrichedDocuments = documents
+        .filter(doc => !doc.componentId)
+        .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+        .map(doc => ({
         ...doc,
         id: doc._id ? doc._id.toString() : doc.id,
         _id: undefined
@@ -1760,7 +1763,10 @@ app.get('/api/orders/number/:orderNumber', async (req, res) => {
     }));
     
     // Enrich documents with IDs
-    const enrichedDocuments = documents.map(doc => ({
+    const enrichedDocuments = documents
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
       ...doc,
       id: doc._id ? doc._id.toString() : doc.id,
       _id: undefined
@@ -1852,7 +1858,10 @@ app.get('/api/orders/:id', async (req, res) => {
     }));
     
     // Enrich documents with IDs
-    const enrichedDocuments = documents.map(doc => ({
+    const enrichedDocuments = documents
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
       ...doc,
       id: doc._id ? doc._id.toString() : doc.id,
       _id: undefined
@@ -2077,8 +2086,35 @@ app.put('/api/orders/:id', async (req, res) => {
       // Note: title image upload is handled by separate endpoint
     }
     
+    // Helper to delete physical files
+    const deletePhysicalFile = (doc) => {
+      try {
+        if (doc.networkPath && fs.existsSync(doc.networkPath)) {
+          fs.unlinkSync(doc.networkPath);
+        } else if (doc.url && doc.url.startsWith('/uploads/')) {
+          const localPath = path.join(uploadsDir, decodeURIComponent(doc.url.substring('/uploads/'.length)));
+          if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+        }
+      } catch(e) {
+        console.error('Error deleting physical file:', e);
+      }
+    };
+    
     // Documents with type field
     if (documents !== undefined) {
+      const sentDocUrls = (documents || []).map(d => d.url);
+      const oldGenDocs = await db.collection('Document').find({
+        orderId: new ObjectId(req.params.id),
+        componentId: { $exists: false }
+      }).toArray();
+      
+      for (const oldDoc of oldGenDocs) {
+        if (!sentDocUrls.includes(oldDoc.url)) {
+          deletePhysicalFile(oldDoc);
+          await db.collection('Document').deleteOne({ _id: oldDoc._id });
+        }
+      }
+      
       updateData.documents = (documents || []).map(doc => {
         // Determine type based on file extension
         let type = 'unknown';
@@ -2105,6 +2141,7 @@ app.put('/api/orders/:id', async (req, res) => {
     }
     
     // Handle components updates
+    let preUpdateComponentsForDiff = [];
     if (components !== undefined) {
       console.log('PUT /api/orders/:id - Processing components:', components?.length || 0);
       
@@ -2113,6 +2150,24 @@ app.put('/api/orders/:id', async (req, res) => {
         orderId: new ObjectId(req.params.id) 
       }).toArray();
       
+      // Load pre-update components for diffing later
+      preUpdateComponentsForDiff = await Promise.all(existingComponents.map(async (component) => {
+        const compDocuments = await db.collection('Document').find({ 
+          $or: [
+            { componentId: component._id },
+            { componentId: component._id.toString() }
+          ]
+        }).toArray();
+        return {
+          ...component,
+          id: component._id.toString(),
+          documents: compDocuments.map(doc => ({
+            ...doc,
+            id: doc._id ? doc._id.toString() : doc.id
+          }))
+        };
+      }));
+      
       if (components && components.length > 0) {
         // IDs, die im Request gesendet wurden
         const sentIds = components.map(c => c.id || c._id).filter(id => id).map(id => new ObjectId(id));
@@ -2120,6 +2175,10 @@ app.put('/api/orders/:id', async (req, res) => {
         // Lösche alle Komponenten (und deren Dokumente), die NICHT im Request sind
         const componentsToDelete = existingComponents.filter(ec => !sentIds.some(id => id.equals(ec._id)));
         for (const comp of componentsToDelete) {
+          const compDocsToDelete = await db.collection('Document').find({ componentId: comp._id }).toArray();
+          for (const oldDoc of compDocsToDelete) {
+            deletePhysicalFile(oldDoc);
+          }
           await db.collection('Document').deleteMany({ componentId: comp._id });
           await db.collection('Component').deleteOne({ _id: comp._id });
         }
@@ -2151,6 +2210,13 @@ app.put('/api/orders/:id', async (req, res) => {
           }
           
           // Dokumente des Bauteils neu anlegen
+          const oldCompDocs = await db.collection('Document').find({ componentId: finalComponentId }).toArray();
+          const sentCompDocUrls = component.documents ? component.documents.map(d => d.url) : [];
+          for (const oldDoc of oldCompDocs) {
+            if (!sentCompDocUrls.includes(oldDoc.url)) {
+              deletePhysicalFile(oldDoc);
+            }
+          }
           await db.collection('Document').deleteMany({ componentId: finalComponentId });
           
           if (component.documents && component.documents.length > 0) {
@@ -2168,6 +2234,10 @@ app.put('/api/orders/:id', async (req, res) => {
       } else {
         // Wenn ein leeres Array gesendet wurde, lösche alle
         for (const comp of existingComponents) {
+          const compDocsToDelete = await db.collection('Document').find({ componentId: comp._id }).toArray();
+          for (const oldDoc of compDocsToDelete) {
+            deletePhysicalFile(oldDoc);
+          }
           await db.collection('Document').deleteMany({ componentId: comp._id });
         }
         await db.collection('Component').deleteMany({ orderId: new ObjectId(req.params.id) });
@@ -2235,7 +2305,10 @@ app.put('/api/orders/:id', async (req, res) => {
     }
     
     // Enrich documents with IDs
-    const enrichedDocuments = orderDocuments.map(doc => ({
+    const enrichedDocuments = orderDocuments
+      .filter(doc => !doc.componentId)
+      .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+      .map(doc => ({
       ...doc,
       id: doc._id ? doc._id.toString() : doc.id,
       _id: undefined
@@ -2288,6 +2361,84 @@ app.put('/api/orders/:id', async (req, res) => {
           ? { userName: effectiveUserName, comment: confirmationNote }
           : { userName: effectiveUserName, comment: revisionRequest || revisionComment };
         await emailScript.sendWorkshopStatusUpdateEmail(transporter, db, req.params.id, orderDataForEmail, status, commentData);
+      }
+    } else {
+      // If status didn't change (or if it did, we might not want to double-email, but we only email if status DID NOT change to avoid spam)
+      // Actually, let's just trigger edit email if there are meaningful field changes.
+      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status'];
+      const editedFields = Object.keys(updateData).filter(key => {
+        if (ignoredFields.includes(key)) return false;
+        
+        const newVal = updateData[key];
+        const oldVal = existingOrder[key];
+        
+        if (newVal === oldVal) return false;
+        
+        if (newVal instanceof Date && oldVal instanceof Date) {
+          return newVal.getTime() !== oldVal.getTime();
+        }
+        
+        if (typeof newVal === 'object' && typeof oldVal === 'object') {
+          return JSON.stringify(newVal) !== JSON.stringify(oldVal);
+        }
+        
+        if ((newVal === null || newVal === undefined) && (oldVal === null || oldVal === undefined)) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      let componentsChanged = false;
+      if (typeof preUpdateComponentsForDiff !== 'undefined' && typeof enrichedComponents !== 'undefined') {
+        if (preUpdateComponentsForDiff.length !== enrichedComponents.length) {
+          componentsChanged = true;
+        } else {
+          for (let i = 0; i < enrichedComponents.length; i++) {
+            const newComp = enrichedComponents[i];
+            const oldComp = preUpdateComponentsForDiff.find(c => c.id === newComp.id) || preUpdateComponentsForDiff[i];
+            
+            if (newComp.title !== oldComp.title ||
+                newComp.description !== oldComp.description ||
+                newComp.quantity !== oldComp.quantity ||
+                newComp.material !== oldComp.material) {
+              componentsChanged = true;
+              break;
+            }
+            
+            const newDocs = newComp.documents || [];
+            const oldDocs = oldComp.documents || [];
+            if (newDocs.length !== oldDocs.length) {
+              componentsChanged = true;
+              break;
+            }
+            
+            const oldDocNames = oldDocs.map(d => d.name).sort().join(',');
+            const newDocNames = newDocs.map(d => d.name).sort().join(',');
+            if (oldDocNames !== newDocNames) {
+              componentsChanged = true;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (componentsChanged) {
+        editedFields.push('Bauteile');
+        updateData['Bauteile'] = 'Wurden geändert';
+      }
+      
+      if (editedFields.length > 0) {
+        const emailScript = require('./scripts/email-notifications.cjs');
+        const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
+        
+        // Build an object of only the changed fields for the email
+        const changedFieldsForEmail = {};
+        for (const key of editedFields) {
+          changedFieldsForEmail[key] = updateData[key];
+        }
+        
+        await emailScript.sendOrderEditedEmail(transporter, db, req.params.id, orderDataForEmail, changedFieldsForEmail, effectiveUserName);
       }
     }
 

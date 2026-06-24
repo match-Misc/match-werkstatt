@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Plus, Eye, Box, FileText, Archive, Wrench, ArrowLeft } from 'lucide-react';
+import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Order } from '../types';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
@@ -13,6 +14,7 @@ interface OrderDetailsProps {
 
 export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   // Immer die aktuellste Order aus dem Context holen
   const currentOrder = state.orders.find(o => o.id === order.id) || order;
 
@@ -463,6 +465,16 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={currentOrder.title}>{currentOrder.title}</h2>
             <p className="text-gray-600 mt-1">Auftrags-Nr.: {currentOrder.orderNumber || currentOrder.id}</p>
           </div>
+          {currentOrder.status !== 'completed' && currentOrder.status !== 'archived' && (
+            <button
+              onClick={() => navigate(`/orders/${currentOrder.orderNumber || currentOrder.id}/edit`)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              title="Auftrag bearbeiten"
+            >
+              <Edit2 className="w-4 h-4 mr-2" />
+              Bearbeiten
+            </button>
+          )}
         </div>
 
         {/* Tabs Navigation */}

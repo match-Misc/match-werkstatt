@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, User, Eye, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Clock, User, Eye, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import QRCodeScanner from './QRCodeScanner';
@@ -467,14 +467,23 @@ export default function WorkshopDashboard() {
                           {order.estimatedHours}h
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                          className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Anzeigen
-                        </button>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex space-x-3">
+                          <button
+                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                            className="text-blue-600 hover:text-blue-800 flex items-center"
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            Anzeigen
+                          </button>
+                          <button
+                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            className="text-orange-600 hover:text-orange-800 flex items-center"
+                          >
+                            <Edit2 className="w-4 h-4 mr-1" />
+                            Bearbeiten
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -588,14 +597,23 @@ export default function WorkshopDashboard() {
                           {order.estimatedHours}h
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                          className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Anzeigen
-                        </button>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex space-x-3">
+                          <button
+                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                            className="text-blue-600 hover:text-blue-800 flex items-center"
+                          >
+                            <Eye className="w-4 h-4 mr-1" />
+                            Anzeigen
+                          </button>
+                          <button
+                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            className="text-orange-600 hover:text-orange-800 flex items-center"
+                          >
+                            <Edit2 className="w-4 h-4 mr-1" />
+                            Bearbeiten
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

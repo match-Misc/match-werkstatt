@@ -17,12 +17,13 @@ import {
   PenTool,
   Edit2,
   Save,
-  ToggleLeft,
   ToggleRight,
+  ToggleLeft,
   ArrowRight,
   ArrowLeft,
   Wrench
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
@@ -38,6 +39,7 @@ interface WorkshopOrderDetailsProps {
 
 export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDetailsProps) {
   const { state, dispatch } = useApp();
+  const navigate = useNavigate();
   const [localOrder, setLocalOrder] = useState(order);
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
@@ -729,6 +731,14 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             <p className="text-gray-600 mt-1">Auftrags-Nr.: {localOrder.orderNumber || localOrder.id}</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/orders/${localOrder.orderNumber || localOrder.id}/edit`)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
+              title="Auftrag bearbeiten"
+            >
+              <Edit2 className="w-4 h-4 mr-2" />
+              Bearbeiten
+            </button>
             <button
               onClick={() => setShowNetworkFolder(true)}
               className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center"

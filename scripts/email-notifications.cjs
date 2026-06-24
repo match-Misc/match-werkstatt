@@ -194,7 +194,102 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
   }
 }
 
+/**
+ * Sendet E-Mail an alle relevanten Personen, wenn ein Auftrag bearbeitet wurde.
+ */
+async function sendOrderEditedEmail(transporter, db, orderId, orderData, changedFields, editorName) {
+  try {
+    const targetEmails = new Set();
+
+    // 1. Client (Auftraggeber)
+    if (orderData.clientId) {
+      try {
+        const clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
+        if (clientUser && clientUser.email) targetEmails.add(clientUser.email);
+      } catch(e) { /* ignore */ }
+    }
+
+    // 2. Assigned employee
+    if (orderData.assignedTo) {
+      try {
+        const assignedUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.assignedTo) });
+        if (assignedUser && assignedUser.email) targetEmails.add(assignedUser.email);
+      } catch(e) { /* ignore */ }
+    }
+
+    // 3. Manager and Admin roles
+    const managersAdmins = await db.collection('User').find({ role: { $in: ['manager', 'admin'] } }).toArray();
+    for (const user of managersAdmins) {
+      if (user.email) targetEmails.add(user.email);
+    }
+
+    if (targetEmails.size === 0) {
+      console.log(`[EMAIL] Keine Empfänger für bearbeiteten Auftrag ${orderId} gefunden.`);
+      return;
+    }
+
+    const orderNumber = orderData.orderNumber || orderData._id || orderId;
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const orderLink = `${appUrl}/orders/${orderNumber}`;
+
+    const fieldTranslations = {
+      title: 'Titel',
+      description: 'Beschreibung',
+      deadline: 'Deadline (Frist)',
+      costCenter: 'Kostenstelle',
+      priority: 'Priorität',
+      orderType: 'Auftragstyp',
+      documents: 'Allgemeine Dokumente',
+      assignedTo: 'Zugewiesener Mitarbeiter',
+      notes: 'Anmerkungen',
+      internalWorkshopNote: 'Interne Werkstattnotiz',
+      estimatedHours: 'Geschätzte Stunden',
+      actualHours: 'Tatsächliche Stunden',
+      status: 'Status',
+      materialOrderedByWorkshop: 'Material durch Werkstatt bestellt',
+      materialOrderedByClient: 'Material durch Auftraggeber bestellt',
+      materialOrderedByClientConfirmed: 'Materialbestellung (Kunde) bestätigt',
+      materialAvailable: 'Material vorhanden',
+      Bauteile: 'Bauteile'
+    };
+
+    const changesList = Object.keys(changedFields)
+      .map(key => {
+        const readableKey = fieldTranslations[key] || key;
+        return `<li><strong>${readableKey}:</strong> Geändert</li>`;
+      })
+      .join('');
+
+    const html = createBaseEmailHtml(
+      `Auftrag ${orderNumber} wurde bearbeitet`,
+      `
+      <p>Hallo,</p>
+      <p>der Auftrag <strong>"${orderData.title}"</strong> wurde soeben durch <strong>${editorName || 'einen Benutzer'}</strong> bearbeitet.</p>
+      
+      <h3>Geänderte Felder:</h3>
+      <ul>
+        ${changesList || '<li>Keine spezifischen Felder erkannt (oder allgemeine Aktualisierung)</li>'}
+      </ul>
+
+      <p>Sie können den aktualisierten Auftrag hier einsehen:</p>
+      <p><a href="${orderLink}" style="display: inline-block; padding: 10px 15px; background-color: #005A9C; color: #fff; text-decoration: none; border-radius: 5px;">Zum Auftrag</a></p>
+      `
+    );
+
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to: Array.from(targetEmails).join(','),
+      subject: `[Werkstatt] Auftrag bearbeitet: ${orderNumber}`,
+      html: html
+    });
+    console.log(`[EMAIL] Bearbeitungs-E-Mail gesendet: ${info.messageId}`);
+  } catch (error) {
+    console.error('[EMAIL] Fehler beim Senden der Bearbeitungs-E-Mail:', error);
+  }
+}
+
 module.exports = {
   sendWaitingConfirmationEmail,
-  sendWorkshopStatusUpdateEmail
+  sendWorkshopStatusUpdateEmail,
+  sendOrderEditedEmail
 };
