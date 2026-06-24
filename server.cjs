@@ -1577,6 +1577,70 @@ app.delete('/api/users/:id', async (req, res) => {
 });
 
 // === ORDERS API ===
+
+app.get('/api/orders/export/csv', requireRoleLevel('manager'), async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const orders = await db.collection('Order').find({}).sort({ createdAt: -1 }).toArray();
+    
+    // Fetch users for assignedTo mapping
+    const users = await db.collection('User').find({}).toArray();
+    const userMap = {};
+    users.forEach(u => userMap[u._id.toString()] = u.name || u.username);
+
+    // Format headers
+    let csvData = 'Auftragsnummer;Titel;Beschreibung;Auftraggeber Name;Datum Erstellt;Deadline;Status;Prioritaet;Zugewiesener Mitarbeiter;Geschaetzte Zeit;Tatsaechliche Zeit;Kostenstelle\r\n';
+
+    // Format rows
+    orders.forEach(order => {
+      const escape = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        // Replace quotes with double quotes and wrap in quotes if contains delimiter, newline or quotes
+        if (str.includes(';') || str.includes('\n') || str.includes('\r') || str.includes('"')) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      const dateCreated = order.createdAt ? new Date(order.createdAt).toLocaleDateString('de-DE') : '';
+      const deadline = order.deadline ? new Date(order.deadline).toLocaleDateString('de-DE') : '';
+      const assignedName = order.assignedTo ? (userMap[order.assignedTo] || order.assignedTo) : 'Nicht zugewiesen';
+
+      const row = [
+        escape(order.orderNumber || order._id.toString()),
+        escape(order.title),
+        escape(order.description),
+        escape(order.clientName),
+        escape(dateCreated),
+        escape(deadline),
+        escape(order.status),
+        escape(order.priority),
+        escape(assignedName),
+        escape(order.estimatedHours),
+        escape(order.actualHours),
+        escape(order.costCenter)
+      ];
+
+      csvData += row.join(';') + '\r\n';
+    });
+
+    await client.close();
+
+    // Set headers for download
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    const dateStr = new Date().toISOString().split('T')[0];
+    res.setHeader('Content-Disposition', `attachment; filename=werkstatt_auftraege_export_${dateStr}.csv`);
+    
+    // UTF-8 BOM
+    res.write('\uFEFF');
+    res.end(csvData);
+  } catch (error) {
+    console.error('Error generating CSV:', error);
+    res.status(500).json({ error: 'Fehler beim Exportieren der Daten' });
+  }
+});
+
 app.get('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();

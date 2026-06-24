@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, User, Eye, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Clock, User, Eye, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import QRCodeScanner from './QRCodeScanner';
@@ -352,6 +352,16 @@ export default function WorkshopDashboard() {
             <QrCode className="w-4 h-4 sm:mr-2" />
             <span className="hidden sm:inline">Scannen</span>
           </button>
+          {['admin', 'manager'].includes(state.currentUser?.role || '') && (
+            <button
+              onClick={() => window.location.href = '/api/orders/export/csv'}
+              className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center text-sm"
+              title="Daten exportieren (CSV)"
+            >
+              <Download className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Daten exportieren (CSV)</span>
+            </button>
+          )}
           {['admin', 'workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
             <button
               onClick={() => navigate('/orders/new')}
