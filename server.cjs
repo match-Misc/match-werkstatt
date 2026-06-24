@@ -1672,6 +1672,128 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
+app.get('/api/orders/number/:orderNumber', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const viewerRole = await parseViewerRole(req);
+    
+    // Authorization Check
+    const cookies = parseCookies(req);
+    let sessionUserId = null;
+    let normalizedRole = viewerRole;
+    if (cookies.sessionId) {
+      const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+      if (session) {
+        sessionUserId = session.userId;
+        if (!normalizedRole) {
+           normalizedRole = normalizeUserRole(session.role);
+        }
+      }
+    }
+    
+    if (normalizedRole === 'guest') {
+       await client.close();
+       return res.status(403).json({ error: 'Zugriff verweigert' });
+    }
+
+    const order = await db.collection('Order').findOne({ 
+      $or: [
+        { orderNumber: req.params.orderNumber },
+        ObjectId.isValid(req.params.orderNumber) ? { _id: new ObjectId(req.params.orderNumber) } : null
+      ].filter(Boolean)
+    });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    if (normalizedRole === 'client') {
+       if (String(order.clientId) !== String(sessionUserId)) {
+          await client.close();
+          return res.status(403).json({ error: 'Zugriff verweigert' });
+       }
+    }
+    
+    // Load documents from Document collection
+    let extDocs = await db.collection('Document').find({ 
+      orderId: order._id
+    }).toArray();
+    let documents = [...extDocs];
+    if (order.documents && order.documents.length > 0) {
+      for (const embDoc of order.documents) {
+        if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+          documents.push(embDoc);
+        }
+      }
+    }
+    
+    const components = await db.collection('Component').find({ 
+      orderId: order._id
+    }).toArray();
+    
+    const noteHistory = await db.collection('NoteHistory').find({ 
+      orderId: order._id
+    })
+    .sort({ createdAt: -1 })
+    .toArray();
+    
+    // Enrich components with their documents
+    const enrichedComponents = await Promise.all(components.map(async (component) => {
+      const compDocuments = await db.collection('Document').find({ 
+        $or: [
+          { componentId: component._id },
+          { componentId: component._id.toString() }
+        ]
+      }).toArray();
+      
+      const { _id, ...componentWithoutId } = component;
+      return {
+        ...componentWithoutId,
+        id: _id.toString(),
+        documents: compDocuments.map(doc => ({
+          ...doc,
+          id: doc._id.toString(),
+          _id: undefined
+        }))
+      };
+    }));
+    
+    // Enrich documents with IDs
+    const enrichedDocuments = documents.map(doc => ({
+      ...doc,
+      id: doc._id ? doc._id.toString() : doc.id,
+      _id: undefined
+    }));
+    
+    const enrichedOrder = await sanitizeOrderForViewer({
+      ...order,
+      id: order._id.toString(),
+      _id: undefined,
+      documents: enrichedDocuments,
+      components: enrichedComponents,
+      noteHistory: noteHistory,
+      revisionHistory: order.revisionHistory || [],
+      reworkComments: order.reworkComments || [],
+      // Include title image metadata (not binary data) for frontend
+      titleImage: order.titleImage ? {
+        filename: order.titleImage.filename,
+        contentType: order.titleImage.contentType,
+        uploadedAt: order.titleImage.uploadedAt,
+        hasImage: true
+      } : null
+    }, viewerRole, db);
+    
+    await client.close();
+    
+    console.log('GET /api/orders/number/:orderNumber - Loaded order from MongoDB:', enrichedOrder.orderNumber || enrichedOrder.id);
+    res.json(enrichedOrder);
+  } catch (err) {
+    console.error('GET /api/orders/number/:orderNumber error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden des Auftrags' });
+  }
+});
+
 app.get('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();

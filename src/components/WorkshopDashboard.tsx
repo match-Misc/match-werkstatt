@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Clock, User, Eye, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import WorkshopOrderDetails from './WorkshopOrderDetails';
 import QRCodeScanner from './QRCodeScanner';
 import { Order } from '../types';
 
@@ -10,7 +9,6 @@ export default function WorkshopDashboard() {
   const { state, dispatch } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'all' | 'assigned'>('all');
@@ -91,7 +89,7 @@ export default function WorkshopDashboard() {
       
       // Schließe Scanner und öffne Auftrag
       setShowBarcodeScanner(false);
-      setSelectedOrder(order);
+      navigate(`/orders/${order.orderNumber || order.id}`);
       
       dispatch({ 
         type: 'SHOW_NOTIFICATION', 
@@ -119,7 +117,7 @@ export default function WorkshopDashboard() {
       );
       
       if (orderToOpen) {
-        setSelectedOrder(orderToOpen);
+        navigate(`/orders/${orderToOpen.orderNumber || orderToOpen.id}`);
         dispatch({ 
           type: 'SHOW_NOTIFICATION', 
           payload: { message: `Auftrag "${orderToOpen.orderNumber || orderToOpen.id}" über QR-Code geöffnet.`, type: 'success' } 
@@ -291,7 +289,7 @@ export default function WorkshopDashboard() {
     if (orderId) {
       const order = orders.find(order => order.id === orderId);
       if (order) {
-        setSelectedOrder(order);
+        navigate(`/orders/${order.orderNumber || order.id}`);
         dispatch({ 
           type: 'SHOW_NOTIFICATION', 
           payload: { message: `Auftrag "${order.orderNumber || order.id}" geöffnet.`, type: 'success' } 
@@ -302,9 +300,6 @@ export default function WorkshopDashboard() {
     }
   }, [location.search, orders, handleBarcodeScanned, dispatch]);
 
-  if (selectedOrder) {
-    return <WorkshopOrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
-  }
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -474,7 +469,7 @@ export default function WorkshopDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                           className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
                         >
                           <Eye className="w-4 h-4 mr-1" />
@@ -595,7 +590,7 @@ export default function WorkshopDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <button
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                           className="text-blue-600 hover:text-blue-800 text-sm flex items-center"
                         >
                           <Eye className="w-4 h-4 mr-1" />

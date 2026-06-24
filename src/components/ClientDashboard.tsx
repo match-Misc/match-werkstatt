@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Plus, Clock, Eye, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import OrderDetails from './OrderDetails';
 import EditOrder from './EditOrder';
 import EndabnahmeActions from './EndabnahmeActions';
 import { Order } from '../types';
@@ -11,7 +10,6 @@ export default function ClientDashboard() {
   const { state, dispatch } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [orders, setOrders] = useState<Order[]>(state.orders);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Order | 'orderNumber', direction: 'asc' | 'desc' }>({ 
@@ -76,7 +74,7 @@ export default function ClientDashboard() {
       );
       
       if (orderToOpen) {
-        setSelectedOrder(orderToOpen);
+        navigate(`/orders/${orderToOpen.orderNumber || orderToOpen.id}`);
         dispatch({ 
           type: 'SHOW_NOTIFICATION', 
           payload: { message: `Auftrag "${orderToOpen.orderNumber || orderToOpen.id}" über QR-Code geöffnet.`, type: 'success' } 
@@ -129,9 +127,6 @@ export default function ClientDashboard() {
     />;
   }
 
-  if (selectedOrder) {
-    return <OrderDetails order={selectedOrder} onClose={() => { setSelectedOrder(null); fetchOrders(); }} />;
-  }
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
@@ -224,7 +219,7 @@ export default function ClientDashboard() {
                           </button>
                         )}
                         <button
-                          onClick={() => setSelectedOrder(order)}
+                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                           className="text-blue-600 hover:text-blue-800 flex items-center"
                         >
                           <Eye className="w-4 h-4 mr-1" />

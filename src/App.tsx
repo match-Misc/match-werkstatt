@@ -13,6 +13,7 @@ import UserManagement from './components/UserManagement';
 import SidebarLayout from './components/layouts/SidebarLayout';
 import GuestLayout from './components/layouts/GuestLayout';
 import CreateOrder from './components/CreateOrder';
+import OrderDetailsPage from './components/OrderDetailsPage';
 
 // Auth Guard
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -154,6 +155,12 @@ function AppContent() {
           <Route path="/orders/new" element={
             <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
               <CreateOrder />
+            </RequireRole>
+          } />
+          
+          <Route path="/orders/:orderNumber" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <OrderDetailsPage />
             </RequireRole>
           } />
           
