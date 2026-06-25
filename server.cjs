@@ -997,7 +997,8 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    const { username, password, name, role } = req.body;
+    let { username, password, name, role } = req.body;
+    if (username) username = username.toLowerCase();
     const { client, db } = await getDB();
     
     // Check if user exists
@@ -1030,7 +1031,8 @@ app.post('/api/users', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    if (username) username = username.toLowerCase();
 
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'Benutzername und Passwort erforderlich' });
