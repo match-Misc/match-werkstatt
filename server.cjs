@@ -3064,19 +3064,22 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
       return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     }
     
-    // Get network configuration from environment
-    const smbSharePath = process.env.SMB_SHARE_PATH;
+    // Get network configuration from environment (External path for user clipboard)
+    const externalNetworkPath = process.env.NETWORK_CLIPBOARD_PATH || process.env.SMB_SHARE_PATH;
     
     // Fallback to database configuration if not in env
     const settingsCollection = ordersDb.collection('settings');
     const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
-    const networkPath = smbSharePath || (networkConfig && networkConfig.networkPath);
     
-    if (!networkPath) {
+    // Internal path used by Node.js to read/write files (e.g. /app/storage/network)
+    const internalNetworkPath = networkConfig && networkConfig.networkPath ? networkConfig.networkPath : null;
+    const finalExternalPath = externalNetworkPath || internalNetworkPath;
+    
+    if (!internalNetworkPath) {
       await client.close();
       return res.json({
         success: false,
-        message: 'Kein Netzwerkpfad konfiguriert',
+        message: 'Kein interner Netzwerkpfad konfiguriert',
         exists: false
       });
     }
@@ -3084,24 +3087,24 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
     const orderFolderName = await getOrCreateOrderFolderName(ordersDb, order);
     
     let potentialPath;
-    if (networkPath.startsWith('//') || networkPath.startsWith('\\\\')) {
-      const sep = networkPath.includes('\\') ? '\\' : '/';
-      potentialPath = networkPath.endsWith(sep) ? networkPath + orderFolderName : networkPath + sep + orderFolderName;
+    if (finalExternalPath && (finalExternalPath.startsWith('//') || finalExternalPath.startsWith('\\\\'))) {
+      const sep = finalExternalPath.includes('\\') ? '\\' : '/';
+      potentialPath = finalExternalPath.endsWith(sep) ? finalExternalPath + orderFolderName : finalExternalPath + sep + orderFolderName;
       // Convert to Windows format for clipboard
       potentialPath = potentialPath.replace(/\//g, '\\');
     } else {
-      potentialPath = path.join(networkPath, orderFolderName);
+      potentialPath = finalExternalPath ? path.join(finalExternalPath, orderFolderName) : '';
     }
 
-    // Check if network path is accessible
-    const networkPathExists = fs.existsSync(networkPath);
+    // Check if internal network path is accessible by Node.js
+    const networkPathExists = fs.existsSync(internalNetworkPath);
     
     if (!networkPathExists) {
       await client.close();
       return res.json({
         success: false,
-        message: 'Netzwerkpfad nicht erreichbar',
-        networkPath: networkPath,
+        message: 'Interner Netzwerkpfad nicht erreichbar',
+        networkPath: finalExternalPath,
         potentialPath: potentialPath,
         exists: false
       });
@@ -3109,13 +3112,14 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
     
     await client.close();
     
-    // Check if order folder exists
-    const orderFolderExists = fs.existsSync(potentialPath);
+    // Check if order folder exists internally
+    const internalOrderFolderPath = path.join(internalNetworkPath, orderFolderName);
+    const orderFolderExists = fs.existsSync(internalOrderFolderPath);
     
     res.json({
       success: true,
       orderNumber: order.orderNumber,
-      networkPath: networkPath,
+      networkPath: finalExternalPath,
       potentialPath: potentialPath,
       exists: orderFolderExists,
       canCreate: !orderFolderExists,
