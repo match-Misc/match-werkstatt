@@ -2437,7 +2437,14 @@ app.put('/api/orders/:id', async (req, res) => {
     } else {
       // If status didn't change (or if it did, we might not want to double-email, but we only email if status DID NOT change to avoid spam)
       // Actually, let's just trigger edit email if there are meaningful field changes.
-      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status'];
+      const isClientEditing = effectiveUserId && existingOrder.clientId && String(effectiveUserId) === String(existingOrder.clientId);
+      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status', 'subTasks', 'internalWorkshopNote', 'estimatedHours', 'actualHours'];
+      
+      // If workshop is editing, ignore document uploads in the root order
+      if (!isClientEditing) {
+        ignoredFields.push('documents');
+      }
+      
       const editedFields = Object.keys(updateData).filter(key => {
         if (ignoredFields.includes(key)) return false;
         
@@ -2462,7 +2469,7 @@ app.put('/api/orders/:id', async (req, res) => {
       });
       
       let componentsChanged = false;
-      if (typeof preUpdateComponentsForDiff !== 'undefined' && typeof enrichedComponents !== 'undefined') {
+      if (components !== undefined && typeof preUpdateComponentsForDiff !== 'undefined' && typeof enrichedComponents !== 'undefined') {
         if (preUpdateComponentsForDiff.length !== enrichedComponents.length) {
           componentsChanged = true;
         } else {
@@ -2478,18 +2485,21 @@ app.put('/api/orders/:id', async (req, res) => {
               break;
             }
             
-            const newDocs = newComp.documents || [];
-            const oldDocs = oldComp.documents || [];
-            if (newDocs.length !== oldDocs.length) {
-              componentsChanged = true;
-              break;
-            }
-            
-            const oldDocNames = oldDocs.map(d => d.name).sort().join(',');
-            const newDocNames = newDocs.map(d => d.name).sort().join(',');
-            if (oldDocNames !== newDocNames) {
-              componentsChanged = true;
-              break;
+            // Only check component document changes if the client is editing
+            if (isClientEditing) {
+              const newDocs = newComp.documents || [];
+              const oldDocs = oldComp.documents || [];
+              if (newDocs.length !== oldDocs.length) {
+                componentsChanged = true;
+                break;
+              }
+              
+              const oldDocNames = oldDocs.map(d => d.name).sort().join(',');
+              const newDocNames = newDocs.map(d => d.name).sort().join(',');
+              if (oldDocNames !== newDocNames) {
+                componentsChanged = true;
+                break;
+              }
             }
           }
         }
