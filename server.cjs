@@ -4561,10 +4561,15 @@ function cleanupStaleTmpFolders() {
       const folderPath = path.join(tmpDir, folder);
       const stat = fs.statSync(folderPath);
       
-      // Check if it's a directory and older than 24h
-      if (stat.isDirectory() && (now - stat.mtimeMs) > maxAgeMs) {
-        fs.rmSync(folderPath, { recursive: true, force: true });
-        console.log(`[Cleanup] Deleted stale tmp folder: ${folderPath}`);
+      // Check if it's older than 24h
+      if ((now - stat.mtimeMs) > maxAgeMs) {
+        if (stat.isDirectory()) {
+          fs.rmSync(folderPath, { recursive: true, force: true });
+          console.log(`[Cleanup] Deleted stale tmp folder: ${folderPath}`);
+        } else if (stat.isFile()) {
+          fs.unlinkSync(folderPath);
+          console.log(`[Cleanup] Deleted stale tmp file: ${folderPath}`);
+        }
       }
     }
   } catch (err) {
