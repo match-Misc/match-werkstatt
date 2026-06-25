@@ -27,8 +27,9 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
-import NetworkFolderStatus from './NetworkFolderStatus';
 import NetworkFilesViewer from './NetworkFilesViewer';
+
+
 import NetworkDragDropUpload from './NetworkDragDropUpload';
 import STLViewer from './STLViewer';
 
@@ -114,7 +115,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [revisionComment, setRevisionComment] = useState('');
   const [revisionError, setRevisionError] = useState('');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-  const [showNetworkFolder, setShowNetworkFolder] = useState(false);
+  const [isCheckingNetwork, setIsCheckingNetwork] = useState(false);
   const [restrictedExtensions, setRestrictedExtensions] = useState<string[]>([]);
 
   // Lade Dateityp-Einschränkungen
@@ -589,6 +590,83 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
   };
 
+  const handleNetworkButtonClick = async () => {
+    setIsCheckingNetwork(true);
+    try {
+      const response = await fetch(`/api/orders/${localOrder.id}/network-folder`);
+      if (!response.ok) {
+        throw new Error('Fehler beim Abrufen des Netzwerkstatus');
+      }
+      
+      const data = await response.json();
+      const smbPath = data.potentialPath || data.networkPath;
+      
+      if (smbPath) {
+        // Fallback for HTTP (non-HTTPS) clipboard access
+        const copyToClipboard = async (text: string) => {
+          if (navigator.clipboard && window.isSecureContext) {
+            try {
+              await navigator.clipboard.writeText(text);
+              return true;
+            } catch (err) {
+              console.error('Clipboard API failed', err);
+            }
+          }
+          
+          // Fallback
+          try {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            return successful;
+          } catch (err) {
+            console.error('Fallback clipboard failed', err);
+            return false;
+          }
+        };
+
+        const success = await copyToClipboard(smbPath);
+        
+        if (success) {
+          dispatch({ 
+            type: 'SHOW_NOTIFICATION', 
+            payload: { message: `Netzwerkpfad in Zwischenablage kopiert:\n${smbPath}`, type: 'success' } 
+          });
+        } else {
+          // If copy fails completely, just show the path so they can see it
+          dispatch({ 
+            type: 'SHOW_NOTIFICATION', 
+            payload: { message: `SMB Pfad: ${smbPath}`, type: 'success' } 
+          });
+        }
+        
+        if (!data.exists && data.canCreate) {
+          fetch(`/api/orders/${localOrder.id}/network-folder`, { method: 'POST' }).catch(console.error);
+        }
+      } else {
+        dispatch({ 
+          type: 'SHOW_NOTIFICATION', 
+          payload: { message: 'SMB Share ist nicht verfügbar.', type: 'error' } 
+        });
+      }
+    } catch (error) {
+      console.error('Error checking network folder:', error);
+      dispatch({ 
+        type: 'SHOW_NOTIFICATION', 
+        payload: { message: 'SMB Share ist nicht erreichbar oder Netzwerkfehler.', type: 'error' } 
+      });
+    } finally {
+      setIsCheckingNetwork(false);
+    }
+  };
+
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'high': return 'bg-red-100 text-red-800 border-red-200';
@@ -741,12 +819,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               Bearbeiten
             </button>
             <button
-              onClick={() => setShowNetworkFolder(true)}
-              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition-colors flex items-center"
-              title="Netzwerkordner verwalten"
+              onClick={handleNetworkButtonClick}
+              disabled={isCheckingNetwork}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center"
+              title="Netzwerkpfad in Zwischenablage kopieren"
             >
               <Server className="w-4 h-4 mr-2" />
-              Netzwerkordner
+              {isCheckingNetwork ? 'Prüfe...' : 'Netzwerkordner'}
             </button>
             <button
               onClick={handlePrintOrder}
@@ -2123,31 +2202,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         </div>
       )}
 
-      {/* Netzwerkordner Modal */}
-      {showNetworkFolder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-          <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Netzwerkordner für Auftrag {localOrder.orderNumber}</h2>
-              <button 
-                onClick={() => setShowNetworkFolder(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <NetworkFolderStatus 
-              orderId={localOrder.id} 
-              orderNumber={localOrder.orderNumber}
-            />
-            <div className="mt-6">
-              <NetworkFilesViewer 
-                orderId={localOrder.id}
-              />
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );

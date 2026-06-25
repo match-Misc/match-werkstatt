@@ -3064,11 +3064,15 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
       return res.status(404).json({ error: 'Auftrag nicht gefunden' });
     }
     
-    // Get network configuration
+    // Get network configuration from environment
+    const smbSharePath = process.env.SMB_SHARE_PATH;
+    
+    // Fallback to database configuration if not in env
     const settingsCollection = ordersDb.collection('settings');
     const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
+    const networkPath = smbSharePath || (networkConfig && networkConfig.networkPath);
     
-    if (!networkConfig || !networkConfig.networkPath) {
+    if (!networkPath) {
       await client.close();
       return res.json({
         success: false,
@@ -3077,30 +3081,41 @@ app.get('/api/orders/:id/network-folder', async (req, res) => {
       });
     }
     
+    const orderFolderName = await getOrCreateOrderFolderName(ordersDb, order);
+    
+    let potentialPath;
+    if (networkPath.startsWith('//') || networkPath.startsWith('\\\\')) {
+      const sep = networkPath.includes('\\') ? '\\' : '/';
+      potentialPath = networkPath.endsWith(sep) ? networkPath + orderFolderName : networkPath + sep + orderFolderName;
+      // Convert to Windows format for clipboard
+      potentialPath = potentialPath.replace(/\//g, '\\');
+    } else {
+      potentialPath = path.join(networkPath, orderFolderName);
+    }
+
     // Check if network path is accessible
-    const networkPathExists = fs.existsSync(networkConfig.networkPath);
+    const networkPathExists = fs.existsSync(networkPath);
     
     if (!networkPathExists) {
       await client.close();
       return res.json({
         success: false,
         message: 'Netzwerkpfad nicht erreichbar',
-        networkPath: networkConfig.networkPath,
+        networkPath: networkPath,
+        potentialPath: potentialPath,
         exists: false
       });
     }
     
-    const orderFolderName = await getOrCreateOrderFolderName(ordersDb, order);
     await client.close();
     
-    // Check if order folder exists under uploads/
-    const potentialPath = path.join(networkConfig.networkPath, orderFolderName);
+    // Check if order folder exists
     const orderFolderExists = fs.existsSync(potentialPath);
     
     res.json({
       success: true,
       orderNumber: order.orderNumber,
-      networkPath: networkConfig.networkPath,
+      networkPath: networkPath,
       potentialPath: potentialPath,
       exists: orderFolderExists,
       canCreate: !orderFolderExists,
