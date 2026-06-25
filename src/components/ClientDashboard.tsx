@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Clock, Eye, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Clock, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import EditOrder from './EditOrder';
@@ -181,7 +181,11 @@ export default function ClientDashboard() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {otherOrders.map((order) => (
-                  <tr key={order.id} className={`hover:bg-gray-50 ${order.status === 'revision' ? 'bg-orange-50' : ''}`}>
+                  <tr 
+                    key={order.id} 
+                    className={`hover:bg-gray-50 cursor-pointer ${order.status === 'revision' ? 'bg-orange-50' : ''}`}
+                    onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{order.title}</div>
                       <div className="text-xs text-gray-500 font-mono">{order.orderNumber || order.id}</div>
@@ -209,16 +213,13 @@ export default function ClientDashboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-3">
-                        <button
-                          onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                          className="text-blue-600 hover:text-blue-800 flex items-center"
-                        >
-                          <Eye className="w-4 h-4 mr-1" />
-                          Anzeigen
-                        </button>
+
                         {order.status !== 'completed' && (
                           <button
-                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/orders/${order.orderNumber || order.id}/edit`);
+                            }}
                             className="text-orange-600 hover:text-orange-800 flex items-center"
                           >
                             <Edit2 className="w-4 h-4 mr-1" />
@@ -252,7 +253,11 @@ export default function ClientDashboard() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {waitingOrders.map((order) => (
-                  <tr key={order.id} className="hover:bg-gray-50 bg-yellow-50/50">
+                  <tr 
+                    key={order.id} 
+                    className="hover:bg-gray-50 bg-yellow-50/50 cursor-pointer"
+                    onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                  >
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{order.title}</div>
                       <div className="text-xs text-gray-500 font-mono mb-1">{order.orderNumber || order.id}</div>
@@ -266,7 +271,7 @@ export default function ClientDashboard() {
                         Warten auf Endabnahme
                       </span>
                     </td>
-                    <td className="px-6 py-4 min-w-[350px]">
+                    <td className="px-6 py-4 min-w-[350px]" onClick={(e) => e.stopPropagation()}>
                       <EndabnahmeActions
                         onConfirm={async (note) => {
                           const updatedOrder = { ...order, status: 'completed', confirmationNote: note || '', confirmationDate: new Date() };

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Clock, User, Eye, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
+import { Clock, User, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import QRCodeScanner from './QRCodeScanner';
@@ -429,7 +429,11 @@ export default function WorkshopDashboard() {
                 {fertigungOrders.map((item) => {
                   const order = item.order;
                   return (
-                    <tr key={`order-${order.id}`} className="hover:bg-gray-50">
+                    <tr 
+                      key={`order-${order.id}`} 
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                    >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{order.title}</div>
                         <div className="text-xs text-gray-500 font-mono">{order.orderNumber || order.id}</div>
@@ -479,15 +483,12 @@ export default function WorkshopDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-3">
+
                           <button
-                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                            className="text-blue-600 hover:text-blue-800 flex items-center"
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            Anzeigen
-                          </button>
-                          <button
-                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/orders/${order.orderNumber || order.id}/edit`);
+                            }}
                             className="text-orange-600 hover:text-orange-800 flex items-center"
                           >
                             <Edit2 className="w-4 h-4 mr-1" />
@@ -559,7 +560,11 @@ export default function WorkshopDashboard() {
                 {serviceOrders.map((item) => {
                   const order = item.order;
                   return (
-                    <tr key={`order-${order.id}`} className="hover:bg-gray-50">
+                    <tr 
+                      key={`order-${order.id}`} 
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                    >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900">{order.title}</div>
                         <div className="text-xs text-gray-500 font-mono">{order.orderNumber || order.id}</div>
@@ -609,15 +614,12 @@ export default function WorkshopDashboard() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-3">
+
                           <button
-                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                            className="text-blue-600 hover:text-blue-800 flex items-center"
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            Anzeigen
-                          </button>
-                          <button
-                            onClick={() => navigate(`/orders/${order.orderNumber || order.id}/edit`)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/orders/${order.orderNumber || order.id}/edit`);
+                            }}
                             className="text-orange-600 hover:text-orange-800 flex items-center"
                           >
                             <Edit2 className="w-4 h-4 mr-1" />
