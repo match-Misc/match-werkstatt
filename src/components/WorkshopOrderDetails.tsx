@@ -1268,7 +1268,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           {/* Components Tab */}
           <div className={activeTab === 'components' ? 'block' : 'hidden'}>
               {/* Bauteile-Bereich */}
-              {localOrder.components && localOrder.components.length > 0 && (
+              {localOrder.components && localOrder.components.length > 0 ? (
                 <div>
                   <h4 className="text-md font-semibold text-gray-900 mb-2">Bauteile</h4>
                   <div className="space-y-4">
@@ -1506,6 +1506,11 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       );
                     })}
                   </div>
+                </div>
+              ) : (
+                <div className="bg-white rounded-lg shadow-sm border p-6 text-center">
+                  <h4 className="text-md font-semibold text-gray-900 mb-2">Kein Bauteil definiert</h4>
+                  <p className="text-gray-600">Für diesen Auftrag wurden keine Bauteile angelegt.</p>
                 </div>
               )}
           </div>

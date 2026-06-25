@@ -47,6 +47,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   const draftIdRef = useRef(`draft_${Date.now()}_${Math.random().toString(36).substring(7)}`);
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showComponentWarning, setShowComponentWarning] = useState(false);
 
   // Determine user role and edit permissions
   const currentUserRole = state.currentUser?.role || 'guest';
@@ -217,7 +218,11 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'create') {
-      handleCreateSubmit();
+      if (orderType === 'fertigung' && components.length === 0) {
+        setShowComponentWarning(true);
+      } else {
+        handleCreateSubmit();
+      }
     } else {
       setShowConfirmModal(true);
     }
@@ -357,6 +362,36 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Ja, Änderungen speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showComponentWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Fehlendes Bauteil</h3>
+            <p className="text-gray-600 mb-6">
+              Es wurde kein Bauteil definiert. Für einen Fertigungsauftrag sollte mindestens ein Bauteil erstellt werden.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                type="button"
+                onClick={() => setShowComponentWarning(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Auftrag weiterbearbeiten
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowComponentWarning(false);
+                  handleCreateSubmit();
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Auftrag trotzdem einreichen
               </button>
             </div>
           </div>
