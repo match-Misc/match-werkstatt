@@ -861,15 +861,9 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       // PDF als Blob generieren (verwendet generateCombinedPDF für Blob-Output)
       const pdfBlob = await pdfGenerator.generateCombinedPDF();
       
-      // PDF herunterladen
+      // PDF in neuem Tab öffnen
       const url = URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `Auftrag_${localOrder.orderNumber || localOrder.id}_${new Date().toISOString().split('T')[0]}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      window.open(url, '_blank');
 
       dispatch({ 
         type: 'SHOW_NOTIFICATION', 
