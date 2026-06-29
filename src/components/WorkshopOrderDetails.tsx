@@ -809,10 +809,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                    ((state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && localOrder.assignedTo === state.currentUser?.id);
   const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager';
 
-  // Auftrag löschen (nur für Admin)
+  // Auftrag löschen (nur für Admin und Werkstattleiter)
   const handleDeleteOrder = async () => {
-    if (!state.currentUser || state.currentUser.role !== 'admin') {
-      alert('Nur Admins dürfen Aufträge löschen!');
+    if (!state.currentUser || (state.currentUser.role !== 'admin' && state.currentUser.role !== 'manager')) {
+      alert('Nur Admins und Werkstattleiter dürfen Aufträge löschen!');
       return;
     }
     if (!window.confirm('Diesen Auftrag wirklich unwiderruflich löschen?')) return;
@@ -1166,7 +1166,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                 </div>
               </div>
 
-              {(canModify || state.currentUser?.role === 'admin') && (
+              {(canModify || state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager') && (
                 <div className="border-t pt-6">
                   <h4 className="text-md font-semibold text-gray-900 mb-4">Aktionen</h4>
                   <div className="flex flex-wrap gap-3">
@@ -1215,7 +1215,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </button>
                     )}
                     
-                    {localOrder.status === 'completed' && state.currentUser?.role === 'admin' && (
+                    {localOrder.status === 'completed' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager') && (
                       <button
                         onClick={handleArchive}
                         className="flex-1 flex items-center justify-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors whitespace-nowrap"
@@ -1225,13 +1225,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </button>
                     )}
                     
-                    <button
-                      onClick={() => handleStatusChange('revision')}
-                      className="flex-1 flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
-                    >
-                      <XCircle className="w-4 h-4 mr-2" />
-                      Ablehnen
-                    </button>
+                    {localOrder.status !== 'completed' && (
+                      <button
+                        onClick={() => handleStatusChange('revision')}
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+                      >
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Ablehnen
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -2351,8 +2353,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         </div>
           </div>
 
-        {/* Löschen-Button für Admin unten zentriert */}
-        {activeTab === 'dashboard' && state.currentUser?.role === 'admin' && (
+        {/* Löschen-Button für Admin und Manager unten zentriert */}
+        {activeTab === 'dashboard' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager') && (
           <div className="flex justify-center mt-12 mb-2">
             <button
               onClick={handleDeleteOrder}
