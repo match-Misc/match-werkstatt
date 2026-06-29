@@ -109,6 +109,8 @@ export interface SubTask {
   assignedComponentTitles?: string[]; // Titel der zugewiesenen Bauteile
   notes: string;
   documents: PDFDocument[];
+  dependencies?: string[];
+  sort_order?: number;
   createdAt: Date;
   updatedAt: Date;
 }

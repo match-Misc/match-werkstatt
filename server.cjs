@@ -2147,7 +2147,41 @@ app.put('/api/orders/:id', async (req, res) => {
     if (notes !== undefined) updateData.notes = notes;
     if (internalWorkshopNote !== undefined) updateData.internalWorkshopNote = internalWorkshopNote;
     if (orderType !== undefined) updateData.orderType = orderType;
-    if (subTasks !== undefined) updateData.subTasks = subTasks || [];
+    if (subTasks !== undefined) {
+      const existingSubTasks = existingOrder.subTasks || [];
+      const userRole = await parseViewerRole(req);
+      const requestUserId = userId; // Aus dem Body extrahiert
+
+      for (const st of subTasks) {
+        const oldSt = existingSubTasks.find(old => old.id === st.id);
+        
+        // 1. Dependency Validation
+        if (st.status === 'completed' && (!oldSt || oldSt.status !== 'completed')) {
+          if (st.dependencies && st.dependencies.length > 0) {
+            const incompleteDeps = st.dependencies.filter(depId => {
+              const depTask = subTasks.find(s => s.id === depId) || existingSubTasks.find(s => s.id === depId);
+              return depTask && depTask.status !== 'completed';
+            });
+            if (incompleteDeps.length > 0) {
+              await client.close();
+              return res.status(400).json({ error: `Aufgabe "${st.title}" kann nicht abgeschlossen werden, da Voraussetzungen noch nicht erfüllt sind.` });
+            }
+          }
+        }
+
+        // 2. Time Override Validation
+        if (oldSt && st.actualHours !== oldSt.actualHours) {
+          const isAssignee = st.assignedTo === requestUserId;
+          const isManagerOrAdmin = userRole === 'manager' || userRole === 'admin';
+          if (!isAssignee && !isManagerOrAdmin) {
+            await client.close();
+            return res.status(403).json({ error: `Keine Berechtigung: Nur die Werkstattleitung, Admins oder der zugewiesene Mitarbeiter dürfen die erfasste Zeit von "${st.title}" ändern.` });
+          }
+        }
+      }
+      
+      updateData.subTasks = subTasks;
+    }
     
     // Handle title image deletion (when titleImage is explicitly set to null)
     if (titleImage !== undefined) {

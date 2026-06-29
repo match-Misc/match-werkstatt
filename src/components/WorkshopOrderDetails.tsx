@@ -21,7 +21,9 @@ import {
   ToggleLeft,
   ArrowRight,
   ArrowLeft,
-  Wrench
+  Wrench,
+  Lock,
+  GripVertical
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
@@ -29,9 +31,58 @@ import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../ty
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
 import NetworkFilesViewer from './NetworkFilesViewer';
 
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 import NetworkDragDropUpload from './NetworkDragDropUpload';
 import STLViewer from './STLViewer';
+
+function SortableSubTaskItem(props: any) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: props.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className={`bg-gray-50 rounded-lg p-4 relative ${isDragging ? 'opacity-50 shadow-lg' : ''}`}>
+      <div 
+        {...attributes} 
+        {...listeners} 
+        className="absolute left-1 top-1/2 -translate-y-1/2 p-1 cursor-grab text-gray-400 hover:text-gray-600 active:cursor-grabbing z-10"
+      >
+        <GripVertical className="w-5 h-5" />
+      </div>
+      <div className="pl-6">
+        {props.children}
+      </div>
+    </div>
+  );
+}
 
 interface WorkshopOrderDetailsProps {
   order: Order;
@@ -46,7 +97,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
   const [autoCalculateHours, setAutoCalculateHours] = useState(true);
   const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
-  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: []});
+  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[], dependencies: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: [], dependencies: []});
 
   const [estimatedHours, setEstimatedHours] = useState(localOrder.estimatedHours?.toString() || '0');
   const [actualHours, setActualHours] = useState(localOrder.actualHours?.toString() || '0');
@@ -61,6 +112,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [subTaskAssignedTo, setSubTaskAssignedTo] = useState('');
   const [subTaskScopeType, setSubTaskScopeType] = useState<'order' | 'component'>('order');
   const [subTaskAssignedComponentIds, setSubTaskAssignedComponentIds] = useState<string[]>([]);
+  const [subTaskDependencies, setSubTaskDependencies] = useState<string[]>([]);
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
@@ -383,6 +435,45 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     onClose();
   };
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = (localOrder.subTasks || []).findIndex((t: any) => t.id === active.id);
+      const newIndex = (localOrder.subTasks || []).findIndex((t: any) => t.id === over.id);
+
+      const newSubTasks = arrayMove(localOrder.subTasks || [], oldIndex, newIndex);
+      
+      const reorderedTasks = newSubTasks.map((task: any, index: number) => ({
+        ...task,
+        sort_order: index
+      }));
+
+      setLocalOrder({ ...localOrder, subTasks: reorderedTasks });
+
+      try {
+        const payload: Partial<Order> = {
+          subTasks: reorderedTasks,
+          updatedAt: new Date()
+        };
+        await updateOrder(payload, 'Reihenfolge aktualisiert');
+      } catch (err) {
+        setLocalOrder(order);
+      }
+    }
+  };
+
   // Prüfe ob alle Unteraufgaben erledigt sind
   const allSubTasksCompleted = () => {
     if (!localOrder.subTasks || localOrder.subTasks.length === 0) {
@@ -423,6 +514,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       assignedComponentTitles: subTaskScopeType === 'component' ? subTaskAssignedComponentIds.map(id => getComponentDisplayById(id) || 'Bauteil') : [],
       notes: '',
       documents: subTaskDocuments,
+      dependencies: subTaskDependencies,
+      sort_order: localOrder.subTasks?.length || 0,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -443,6 +536,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     setSubTaskAssignedTo('');
     setSubTaskScopeType('order');
     setSubTaskAssignedComponentIds([]);
+    setSubTaskDependencies([]);
     setSubTaskDocuments([]);
     setShowAddSubTask(false);
   };
@@ -1545,7 +1639,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     <div key={st.id} className="flex items-center justify-between text-sm bg-white p-2 border rounded shadow-sm">
                                       <span className="font-medium text-gray-800">{st.title}</span>
                                       <div className="flex space-x-3">
-                                        <button onClick={() => { setActiveTab('subtasks'); setEditingSubTaskId(st.id); setEditSubTaskForm({ title: st.title, description: st.description || '', estimatedHours: st.estimatedHours?.toString() || '0', assignedTo: st.assignedTo || null, scopeType: 'component', assignedComponentIds: st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : []) }); }} className="text-blue-600 hover:text-blue-800 flex items-center" title="Bearbeiten"><Edit2 className="w-4 h-4 mr-1" /> Bearbeiten</button>
+                                        <button onClick={() => { setActiveTab('subtasks'); setEditingSubTaskId(st.id); setEditSubTaskForm({ title: st.title, description: st.description || '', estimatedHours: st.estimatedHours?.toString() || '0', assignedTo: st.assignedTo || null, scopeType: 'component', assignedComponentIds: st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : []), dependencies: st.dependencies || [] }); }} className="text-blue-600 hover:text-blue-800 flex items-center" title="Bearbeiten"><Edit2 className="w-4 h-4 mr-1" /> Bearbeiten</button>
                                         <button onClick={() => { setActiveTab('subtasks'); }} className="text-purple-600 hover:text-purple-800 flex items-center" title="Zur Unteraufgabe springen"><Eye className="w-4 h-4 mr-1" /> Anzeigen</button>
                                         <button onClick={() => { handleUpdateSubTask(st, { assignedComponentIds: (st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : [])).filter(id => id !== componentId) }); }} className="text-red-600 hover:text-red-800 flex items-center" title="Verknüpfung aufheben"><X className="w-4 h-4 mr-1" /> Entfernen</button>
                                       </div>
@@ -1615,76 +1709,120 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             {showAddSubTask && (
               <div className="bg-gray-50 rounded-lg p-4 mb-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <input
-                    type="text"
-                    placeholder="Titel der Unteraufgabe"
-                    value={subTaskTitle}
-                    onChange={(e) => setSubTaskTitle(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Geschätzte Stunden"
-                    value={subTaskHours}
-                    onChange={(e) => setSubTaskHours(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    min="0"
-                    step="0.5"
-                  />
-                  
-                  {/* Mitarbeiter-Auswahl (Pflichtfeld) */}
-                  <select
-                    value={subTaskAssignedTo}
-                    onChange={e => setSubTaskAssignedTo(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  >
-                    <option value="">Mitarbeiter auswählen *</option>
-                    {state.workshopAccounts.map(acc => (
-                      <option key={acc.id} value={acc.id}>{acc.name}</option>
-                    ))}
-                  </select>
-                  
-                  {/* Scope-Auswahl */}
-                  <select
-                    value={subTaskScopeType}
-                    onChange={e => setSubTaskScopeType(e.target.value as 'order' | 'component')}
-                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  >
-                    <option value="order">Gesamter Auftrag</option>
-                    <option value="component">Bauteil</option>
-                  </select>
-                  
-                  {/* Bauteil-Auswahl (nur bei scopeType='component') */}
-                  {subTaskScopeType === 'component' && (
-                    <div className="md:col-span-2 border border-gray-300 rounded-lg p-3 bg-white max-h-48 overflow-y-auto">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Bauteile auswählen:</label>
-                      <div className="space-y-2">
-                        {localOrder.components?.map(comp => {
-                          const compId = comp.id || (comp as any)._id;
-                          const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
-                          const isSelected = subTaskAssignedComponentIds.includes(compId);
-                          return (
-                            <label key={compId} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-50 rounded">
-                              <input 
-                                type="checkbox" 
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                checked={isSelected}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSubTaskAssignedComponentIds([...subTaskAssignedComponentIds, compId]);
-                                  } else {
-                                    setSubTaskAssignedComponentIds(subTaskAssignedComponentIds.filter(id => id !== compId));
-                                  }
-                                }}
-                              />
-                              <span className="text-sm text-gray-800">{compTitle}</span>
-                            </label>
-                          );
-                        })}
+                  {/* Left Column */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Titel der Unteraufgabe</label>
+                    <input
+                      type="text"
+                      placeholder="Titel"
+                      value={subTaskTitle}
+                      onChange={(e) => setSubTaskTitle(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+
+                    <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Geschätzte Stunden</label>
+                    <input
+                      type="number"
+                      placeholder="Stunden"
+                      value={subTaskHours}
+                      onChange={(e) => setSubTaskHours(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min="0"
+                      step="0.5"
+                    />
+
+                    {/* Abhängigkeiten */}
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Abhängig von (muss zuerst erledigt werden):</label>
+                      <div className="border border-gray-300 rounded p-2 bg-gray-50 max-h-32 overflow-y-auto space-y-1">
+                        {(!localOrder.subTasks || localOrder.subTasks.length === 0) ? (
+                          <div className="text-xs text-gray-400 italic">Keine anderen Aufgaben vorhanden</div>
+                        ) : (
+                          localOrder.subTasks.map((otherTask) => {
+                            const isSelected = subTaskDependencies.includes(otherTask.id);
+                            return (
+                              <label key={otherTask.id} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-white p-1 rounded">
+                                <input 
+                                  type="checkbox" 
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSubTaskDependencies([...subTaskDependencies, otherTask.id]);
+                                    } else {
+                                      setSubTaskDependencies(subTaskDependencies.filter(id => id !== otherTask.id));
+                                    }
+                                  }}
+                                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                                <span className="text-gray-800">{otherTask.title}</span>
+                              </label>
+                            );
+                          })
+                        )}
                       </div>
                     </div>
-                  )}
+                  </div>
+                  
+                  {/* Right Column */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Mitarbeiter auswählen</label>
+                    <select
+                      value={subTaskAssignedTo}
+                      onChange={e => setSubTaskAssignedTo(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="">Mitarbeiter auswählen *</option>
+                      {state.workshopAccounts.map(acc => (
+                        <option key={acc.id} value={acc.id}>{acc.name}</option>
+                      ))}
+                    </select>
+
+                    <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Scope</label>
+                    <select
+                      value={subTaskScopeType}
+                      onChange={e => setSubTaskScopeType(e.target.value as 'order' | 'component')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="order">Gesamter Auftrag</option>
+                      <option value="component">Bauteil</option>
+                    </select>
+
+                    {/* Bauteil-Auswahl (nur bei scopeType='component') */}
+                    {subTaskScopeType === 'component' && (
+                      <div className="mt-3">
+                        <label className="block text-xs font-medium text-gray-500 mb-1">Bauteile auswählen:</label>
+                        <div className="border border-gray-300 rounded p-2 bg-gray-50 max-h-32 overflow-y-auto space-y-1">
+                          {(!localOrder.components || localOrder.components.length === 0) ? (
+                            <div className="text-xs text-gray-400 italic">Keine Bauteile vorhanden</div>
+                          ) : (
+                            localOrder.components.map(comp => {
+                              const compId = comp.id || (comp as any)._id;
+                              const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
+                              const isSelected = subTaskAssignedComponentIds.includes(compId);
+                              return (
+                                <label key={compId} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-white p-1 rounded">
+                                  <input 
+                                    type="checkbox" 
+                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSubTaskAssignedComponentIds([...subTaskAssignedComponentIds, compId]);
+                                      } else {
+                                        setSubTaskAssignedComponentIds(subTaskAssignedComponentIds.filter(id => id !== compId));
+                                      }
+                                    }}
+                                  />
+                                  <span className="text-gray-800">{compTitle}</span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <textarea
                   placeholder="Beschreibung der Unteraufgabe"
@@ -1785,116 +1923,200 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
             {/* Subtasks sicher abfragen */}
             {Array.isArray(localOrder.subTasks) && localOrder.subTasks.length > 0 ? (
-              <div className="space-y-3">
-                {localOrder.subTasks.map((subTask) => (
-                  <div key={subTask.id} className="bg-gray-50 rounded-lg p-4">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={localOrder.subTasks.slice().sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)).map((st: any) => st.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-3">
+                    {localOrder.subTasks.slice().sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0)).map((subTask) => (
+                      <SortableSubTaskItem key={subTask.id} id={subTask.id}>
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1">
                         {editingSubTaskId === subTask.id ? (
-                          <div className="space-y-2 pr-4">
-                            <input
-                              type="text"
-                              value={editSubTaskForm.title}
-                              onChange={e => setEditSubTaskForm({ ...editSubTaskForm, title: e.target.value })}
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                              placeholder="Titel"
-                            />
-                            <textarea
-                              value={editSubTaskForm.description}
-                              onChange={e => setEditSubTaskForm({ ...editSubTaskForm, description: e.target.value })}
-                              className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                              placeholder="Beschreibung"
-                              rows={2}
-                            />
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              {/* Zuweisung */}
-                              <select
-                                value={editSubTaskForm.assignedTo || ''}
-                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, assignedTo: e.target.value || null})}
-                                className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option value="">Mitarbeiter auswählen</option>
-                                {state.workshopAccounts.map((account) => (
-                                  <option key={account.id} value={account.id}>{account.name}</option>
-                                ))}
-                              </select>
+                          <div className="bg-white border border-blue-200 rounded-lg p-4 shadow-sm mb-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Left Column */}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Titel der Unteraufgabe</label>
+                                <input
+                                  type="text"
+                                  value={editSubTaskForm.title}
+                                  onChange={e => setEditSubTaskForm({ ...editSubTaskForm, title: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                  placeholder="Titel"
+                                />
+                                
+                                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Geschätzte Stunden</label>
+                                <input
+                                  type="number"
+                                  value={editSubTaskForm.estimatedHours}
+                                  onChange={e => setEditSubTaskForm({ ...editSubTaskForm, estimatedHours: e.target.value })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                  min="0"
+                                  step="0.5"
+                                />
 
-                              {/* Scope */}
-                              <select
-                                value={editSubTaskForm.scopeType}
-                                onChange={(e) => setEditSubTaskForm({...editSubTaskForm, scopeType: e.target.value as 'order' | 'component', assignedComponentIds: e.target.value === 'order' ? [] : editSubTaskForm.assignedComponentIds})}
-                                className="text-sm px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option value="order">Gesamtauftrag</option>
-                                <option value="component">Bauteil</option>
-                              </select>
-
-                              {/* Component (if scope == component) */}
-                              {editSubTaskForm.scopeType === 'component' && (
-                                <div className="w-full mt-2 border border-gray-300 rounded p-2 bg-white max-h-32 overflow-y-auto">
-                                  <div className="text-xs text-gray-500 mb-1">Bauteile:</div>
-                                  <div className="space-y-1">
-                                    {localOrder.components?.map((comp) => {
-                                      const compId = comp.id || (comp as any)._id;
-                                      const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
-                                      const isSelected = editSubTaskForm.assignedComponentIds.includes(compId);
-                                      return (
-                                        <label key={compId} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
-                                          <input 
-                                            type="checkbox" 
-                                            checked={isSelected}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: [...editSubTaskForm.assignedComponentIds, compId]});
-                                              } else {
-                                                setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: editSubTaskForm.assignedComponentIds.filter(id => id !== compId)});
-                                              }
-                                            }}
-                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                          />
-                                          <span className="text-gray-800">{compTitle}</span>
-                                        </label>
-                                      );
-                                    })}
+                                {/* Abhängigkeiten */}
+                                <div className="mt-3">
+                                  <label className="block text-xs font-medium text-gray-500 mb-1">Abhängig von:</label>
+                                  <div className="border border-gray-300 rounded p-2 bg-gray-50 max-h-32 overflow-y-auto space-y-1">
+                                    {localOrder.subTasks?.filter(st => st.id !== subTask.id).length === 0 ? (
+                                      <div className="text-xs text-gray-400 italic">Keine anderen Aufgaben vorhanden</div>
+                                    ) : (
+                                      localOrder.subTasks?.filter(st => st.id !== subTask.id).map((otherTask) => {
+                                        const isSelected = editSubTaskForm.dependencies.includes(otherTask.id);
+                                        return (
+                                          <label key={otherTask.id} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-white p-1 rounded">
+                                            <input 
+                                              type="checkbox" 
+                                              checked={isSelected}
+                                              onChange={(e) => {
+                                                if (e.target.checked) {
+                                                  setEditSubTaskForm({...editSubTaskForm, dependencies: [...editSubTaskForm.dependencies, otherTask.id]});
+                                                } else {
+                                                  setEditSubTaskForm({...editSubTaskForm, dependencies: editSubTaskForm.dependencies.filter(id => id !== otherTask.id)});
+                                                }
+                                              }}
+                                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                            />
+                                            <span className="text-gray-800">{otherTask.title}</span>
+                                          </label>
+                                        );
+                                      })
+                                    )}
                                   </div>
                                 </div>
-                              )}
+                              </div>
+                              
+                              {/* Right Column */}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Mitarbeiter auswählen</label>
+                                <select
+                                  value={editSubTaskForm.assignedTo || ''}
+                                  onChange={(e) => setEditSubTaskForm({...editSubTaskForm, assignedTo: e.target.value || null})}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="">Mitarbeiter auswählen</option>
+                                  {state.workshopAccounts.map((account) => (
+                                    <option key={account.id} value={account.id}>{account.name}</option>
+                                  ))}
+                                </select>
+
+                                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Scope</label>
+                                <select
+                                  value={editSubTaskForm.scopeType}
+                                  onChange={(e) => setEditSubTaskForm({...editSubTaskForm, scopeType: e.target.value as 'order' | 'component', assignedComponentIds: e.target.value === 'order' ? [] : editSubTaskForm.assignedComponentIds})}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="order">Gesamtauftrag</option>
+                                  <option value="component">Bauteil</option>
+                                </select>
+                                
+                                {/* Component Selector */}
+                                {editSubTaskForm.scopeType === 'component' && (
+                                  <div className="mt-3">
+                                    <label className="block text-xs font-medium text-gray-500 mb-1">Bauteile auswählen:</label>
+                                    <div className="border border-gray-300 rounded p-2 bg-gray-50 max-h-32 overflow-y-auto space-y-1">
+                                      {(!localOrder.components || localOrder.components.length === 0) ? (
+                                        <div className="text-xs text-gray-400 italic">Keine Bauteile vorhanden</div>
+                                      ) : (
+                                        localOrder.components.map((comp) => {
+                                          const compId = comp.id || (comp as any)._id;
+                                          const compTitle = comp.title || (comp as any).name || 'Unbenanntes Bauteil';
+                                          const isSelected = editSubTaskForm.assignedComponentIds.includes(compId);
+                                          return (
+                                            <label key={compId} className="flex items-center space-x-2 text-sm cursor-pointer hover:bg-white p-1 rounded">
+                                              <input 
+                                                type="checkbox" 
+                                                checked={isSelected}
+                                                onChange={(e) => {
+                                                  if (e.target.checked) {
+                                                    setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: [...editSubTaskForm.assignedComponentIds, compId]});
+                                                  } else {
+                                                    setEditSubTaskForm({...editSubTaskForm, assignedComponentIds: editSubTaskForm.assignedComponentIds.filter(id => id !== compId)});
+                                                  }
+                                                }}
+                                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                              />
+                                              <span className="text-gray-800">{compTitle}</span>
+                                            </label>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center space-x-2 pt-1">
-                              <label className="text-sm text-gray-600">Geschätzte Stunden:</label>
-                              <input
-                                type="number"
-                                value={editSubTaskForm.estimatedHours}
-                                onChange={e => setEditSubTaskForm({ ...editSubTaskForm, estimatedHours: e.target.value })}
-                                className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
-                                min="0"
-                                step="0.5"
+                            
+                            {/* Full Width Description */}
+                            <div className="mt-4">
+                              <label className="block text-xs font-medium text-gray-500 mb-1">Beschreibung</label>
+                              <textarea
+                                value={editSubTaskForm.description}
+                                onChange={e => setEditSubTaskForm({ ...editSubTaskForm, description: e.target.value })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                placeholder="Beschreibung"
+                                rows={2}
                               />
                             </div>
-                            <div className="flex space-x-2 pt-2">
-                              <button
-                                onClick={() => {
-                                  handleUpdateSubTask(subTask, {
-                                    title: editSubTaskForm.title,
-                                    description: editSubTaskForm.description,
-                                    estimatedHours: parseFloat(editSubTaskForm.estimatedHours) || 0,
-                                    assignedTo: editSubTaskForm.assignedTo,
-                                    scopeType: editSubTaskForm.scopeType,
-                                    assignedComponentIds: editSubTaskForm.assignedComponentIds,
-                                    assignedComponentTitles: editSubTaskForm.scopeType === 'order' ? [] : editSubTaskForm.assignedComponentIds.map(id => getComponentDisplayById(id) || 'Bauteil')
-                                  });
-                                  setEditingSubTaskId(null);
-                                }}
-                                className="flex items-center px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
-                              >
-                                <Save className="w-3 h-3 mr-1" /> Speichern
-                              </button>
-                              <button
-                                onClick={() => setEditingSubTaskId(null)}
-                                className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-                              >
-                                Abbrechen
-                              </button>
+                            
+                            {/* Footer Area: Management Overrides & Actions */}
+                            <div className="mt-4 pt-4 border-t border-gray-100 flex flex-wrap justify-between items-center gap-4">
+                              <div className="flex items-center space-x-6">
+                                <div>
+                                  <span className="text-xs text-gray-500 block mb-1">Zugeordneter Mitarbeiter:</span>
+                                  <span className="font-medium text-sm">
+                                    {getAssignmentDisplay(subTask)}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-xs text-gray-500 block mb-1">Tatsächlich (Stunden):</span>
+                                  <div className="flex items-center">
+                                    <input
+                                      type="number"
+                                      value={subTask.actualHours}
+                                      onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
+                                      disabled={state.currentUser?.role !== 'admin' && state.currentUser?.role !== 'manager' && subTask.assignedTo !== state.currentUser?.id}
+                                      className="w-20 px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100 text-sm focus:ring-2 focus:ring-blue-500"
+                                      min="0"
+                                      step="0.5"
+                                    />
+                                    <span className="text-gray-600 ml-2 text-sm">h</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => setEditingSubTaskId(null)}
+                                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm transition-colors"
+                                >
+                                  Abbrechen
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleUpdateSubTask(subTask, {
+                                      title: editSubTaskForm.title,
+                                      description: editSubTaskForm.description,
+                                      estimatedHours: parseFloat(editSubTaskForm.estimatedHours) || 0,
+                                      assignedTo: editSubTaskForm.assignedTo,
+                                      scopeType: editSubTaskForm.scopeType,
+                                      assignedComponentIds: editSubTaskForm.assignedComponentIds,
+                                      assignedComponentTitles: editSubTaskForm.scopeType === 'order' ? [] : editSubTaskForm.assignedComponentIds.map(id => getComponentDisplayById(id) || 'Bauteil'),
+                                      dependencies: editSubTaskForm.dependencies
+                                    });
+                                    setEditingSubTaskId(null);
+                                  }}
+                                  className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors"
+                                >
+                                  <Save className="w-4 h-4 mr-2" /> Speichern
+                                </button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -1906,22 +2128,54 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </div>
                       {editingSubTaskId !== subTask.id && (
                         <div className="flex items-center space-x-3">
-                          {canModify || state.currentUser?.role === 'admin' || subTask.assignedTo === state.currentUser?.id ? (
-                            <select
-                              value={subTask.status}
-                              onChange={(e) => handleUpdateSubTask(subTask, { status: e.target.value as SubTask['status'] })}
-                              className={`text-xs px-2 py-1 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${getStatusColor(subTask.status)}`}
-                              style={{ border: 'none' }}
-                            >
-                              <option value="pending" className="bg-white text-gray-900">Ausstehend</option>
-                              <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
-                              <option value="completed" className="bg-white text-gray-900">Abgeschlossen</option>
-                            </select>
-                          ) : (
-                            <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(subTask.status)}`}>
-                              {getStatusText(subTask.status)}
-                            </span>
-                          )}
+                          {(() => {
+                            const incompleteDependencies = subTask.dependencies?.filter(depId => {
+                              const depTask = localOrder.subTasks?.find((st: any) => st.id === depId);
+                              return depTask && depTask.status !== 'completed';
+                            }) || [];
+                            const isBlocked = incompleteDependencies.length > 0;
+                            let blockedMessage = isBlocked 
+                              ? `Wartet auf: ${incompleteDependencies.map(id => localOrder.subTasks?.find((st: any) => st.id === id)?.title).join(', ')}`
+                              : '';
+                            const fullMessage = blockedMessage;
+                            if (blockedMessage.length > 30) {
+                              blockedMessage = blockedMessage.substring(0, 27) + '...';
+                            }
+
+                            return (
+                              <div className="flex items-center space-x-2">
+                                {isBlocked && (
+                                  <span className="text-xs text-orange-700 bg-orange-100 px-2 py-1 rounded-full flex items-center shadow-sm max-w-[250px] sm:max-w-[400px]" title={fullMessage}>
+                                    <Lock className="w-3 h-3 mr-1 flex-shrink-0" />
+                                    <span className="truncate">Blockiert ({blockedMessage})</span>
+                                  </span>
+                                )}
+                                {canModify || state.currentUser?.role === 'admin' || subTask.assignedTo === state.currentUser?.id ? (
+                                  <select
+                                    value={subTask.status}
+                                    onChange={(e) => {
+                                      if (isBlocked && e.target.value === 'completed') {
+                                        alert(fullMessage);
+                                        return;
+                                      }
+                                      handleUpdateSubTask(subTask, { status: e.target.value as SubTask['status'] });
+                                    }}
+                                    className={`text-xs px-2 py-1 rounded-full font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${getStatusColor(subTask.status)} ${isBlocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                    style={{ border: 'none' }}
+                                    disabled={isBlocked}
+                                  >
+                                    <option value="pending" className="bg-white text-gray-900">Ausstehend</option>
+                                    <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
+                                    <option value="completed" className="bg-white text-gray-900" disabled={isBlocked}>Abgeschlossen</option>
+                                  </select>
+                                ) : (
+                                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${getStatusColor(subTask.status)}`}>
+                                    {getStatusText(subTask.status)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {(state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && (
                             <div className="flex items-center space-x-2">
                               <button
@@ -1933,7 +2187,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     estimatedHours: subTask.estimatedHours?.toString() || '0',
                                     assignedTo: subTask.assignedTo || null,
                                     scopeType: subTask.scopeType || 'order',
-                                    assignedComponentIds: subTask.assignedComponentIds || (subTask.assignedComponentId ? [subTask.assignedComponentId] : [])
+                                    assignedComponentIds: subTask.assignedComponentIds || (subTask.assignedComponentId ? [subTask.assignedComponentId] : []),
+                                    dependencies: subTask.dependencies || []
                                   });
                                 }}
                                 className="text-blue-600 hover:text-blue-800"
@@ -2009,7 +2264,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           type="number"
                           value={subTask.actualHours}
                           onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
-                          disabled={!canModify && state.currentUser?.role !== 'admin' && subTask.assignedTo !== state.currentUser?.id}
+                          disabled={state.currentUser?.role !== 'admin' && state.currentUser?.role !== 'manager' && subTask.assignedTo !== state.currentUser?.id}
                           className="w-16 text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
                           min="0"
                           step="0.5"
@@ -2090,9 +2345,11 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </div>
                     )}
 
-                  </div>
+                  </SortableSubTaskItem>
                 ))}
               </div>
+            </SortableContext>
+          </DndContext>
             ) : (
               <p className="text-gray-500 text-center py-8">Keine Unteraufgaben vorhanden</p>
             )}
