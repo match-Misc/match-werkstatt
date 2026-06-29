@@ -3,6 +3,8 @@ export interface User {
   username: string;
   role: 'guest' | 'client' | 'employee' | 'manager' | 'admin';
   name: string;
+  company?: string;
+  isActive?: boolean;
   password?: string;
 }
 

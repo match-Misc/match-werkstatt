@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
-import { Order, PDFDocument, Component, Material } from '../types';
+import { Order, PDFDocument, Component, Material, User } from '../types';
 import { checkPdfSize } from '../utils/pdfChecker';
 
 interface OrderFormProps {
@@ -18,6 +18,9 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   // Initialization based on mode
   const [title, setTitle] = useState(mode === 'edit' && initialData ? initialData.title : '');
   const [description, setDescription] = useState(mode === 'edit' && initialData ? initialData.description : '');
+  const [orderClientId, setOrderClientId] = useState(mode === 'edit' && initialData ? initialData.clientId : state.currentUser!.id);
+  const [orderClientName, setOrderClientName] = useState(mode === 'edit' && initialData ? initialData.clientName : state.currentUser!.name);
+  const [users, setUsers] = useState<User[]>([]);
   
   const formatDateForInput = (dateString?: Date | string) => {
     if (!dateString) return '';
@@ -76,6 +79,13 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       }
     };
     fetchMaterials();
+
+    if (currentUserRole === 'admin' || currentUserRole === 'manager') {
+      fetch(`/api/users?viewerRole=${encodeURIComponent(currentUserRole)}`)
+        .then(res => res.json())
+        .then(data => setUsers(data.filter((u: User) => u.isActive !== false)))
+        .catch(err => console.error('Fehler beim Laden der Benutzer:', err));
+    }
   }, []);
 
   const uploadSingleFile = async (file: File): Promise<PDFDocument | null> => {
@@ -114,8 +124,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
     const newOrder = {
       title,
       description,
-      clientId: state.currentUser!.id,
-      clientName: state.currentUser!.name,
+      clientId: orderClientId,
+      clientName: orderClientName,
       deadline: deadline ? new Date(deadline) : null,
       costCenter,
       priority,
@@ -170,6 +180,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       ...initialData,
       title,
       description,
+      clientId: orderClientId,
+      clientName: orderClientName,
       deadline: deadline ? new Date(deadline) : null,
       costCenter,
       priority,
@@ -426,18 +438,42 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-2">
-              <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
-                Auftragstitel *
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Projektbezeichnung / Titel <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                id="title"
+                required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Kurze, aussagekräftige Bezeichnung"
               />
             </div>
+            
+            {(currentUserRole === 'admin' || currentUserRole === 'manager') && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Auftraggeber
+                </label>
+                <select
+                  value={orderClientId}
+                  onChange={(e) => {
+                    setOrderClientId(e.target.value);
+                    const user = users.find(u => u.id === e.target.value);
+                    if (user) setOrderClientName(user.name);
+                  }}
+                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                >
+                  <option value={state.currentUser!.id}>{state.currentUser!.name} (Ich)</option>
+                  {users.filter(u => u.id !== state.currentUser!.id).map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.name} ({user.company || 'Kein Institut'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="md:col-span-2">
               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
