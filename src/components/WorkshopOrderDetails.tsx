@@ -164,6 +164,9 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   };
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
   const [showIncompleteTasksDialog, setShowIncompleteTasksDialog] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmationNote, setConfirmationNote] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [revisionComment, setRevisionComment] = useState('');
   const [revisionError, setRevisionError] = useState('');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
@@ -433,6 +436,20 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
     updateOrder({ status: 'archived' }, 'Auftrag wurde archiviert');
     onClose();
+  };
+
+  const handleConfirmOrder = async () => {
+    setIsSubmitting(true);
+    try {
+      await updateOrder({
+        status: 'completed',
+        confirmationNote,
+        confirmationDate: new Date(),
+      }, 'Auftrag wurde erfolgreich bestätigt');
+    } finally {
+      setIsSubmitting(false);
+      setShowConfirmModal(false);
+    }
   };
 
   const sensors = useSensors(
@@ -1225,13 +1242,23 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </button>
                     )}
                     
+                    {localOrder.status === 'waiting_confirmation' && localOrder.clientId === state.currentUser?.id && (
+                      <button
+                        onClick={() => setShowConfirmModal(true)}
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors whitespace-nowrap"
+                      >
+                        <Check className="w-4 h-4 mr-2" />
+                        Endabnahme bestätigen
+                      </button>
+                    )}
+                    
                     {localOrder.status !== 'completed' && (
                       <button
                         onClick={() => handleStatusChange('revision')}
                         className="flex-1 flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
                       >
                         <XCircle className="w-4 h-4 mr-2" />
-                        Ablehnen
+                        {localOrder.status === 'waiting_confirmation' && localOrder.clientId === state.currentUser?.id ? 'Nacharbeit anfordern' : 'Ablehnen'}
                       </button>
                     )}
                   </div>
@@ -2455,7 +2482,32 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         </div>
       )}
 
-
+      {/* Confirm Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4">Endabnahme bestätigen</h3>
+            <p className="mb-4 text-gray-700">Möchten Sie die Fertigstellung dieses Auftrags wirklich bestätigen?</p>
+            <textarea
+              value={confirmationNote}
+              onChange={(e) => setConfirmationNote(e.target.value)}
+              placeholder="Optionale Anmerkung zur Abnahme..."
+              className="w-full p-2 border rounded-lg mb-4"
+              rows={3}
+            />
+            <div className="flex justify-end gap-4">
+              <button onClick={() => setShowConfirmModal(false)} className="text-gray-600 hover:text-gray-900 transition-colors">Abbrechen</button>
+              <button
+                onClick={handleConfirmOrder}
+                disabled={isSubmitting}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
+              >
+                {isSubmitting ? 'Wird bestätigt...' : 'Bestätigen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

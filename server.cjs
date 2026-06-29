@@ -2563,7 +2563,7 @@ app.put('/api/orders/:id', async (req, res) => {
       // If status didn't change (or if it did, we might not want to double-email, but we only email if status DID NOT change to avoid spam)
       // Actually, let's just trigger edit email if there are meaningful field changes.
       const isClientEditing = effectiveUserId && existingOrder.clientId && String(effectiveUserId) === String(existingOrder.clientId);
-      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status', 'subTasks', 'internalWorkshopNote', 'estimatedHours', 'actualHours'];
+      const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status', 'subTasks', 'internalWorkshopNote', 'estimatedHours', 'actualHours', 'assignedTo'];
       
       // If workshop is editing, ignore document uploads in the root order
       if (!isClientEditing) {
