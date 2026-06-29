@@ -2367,7 +2367,7 @@ app.put('/api/orders/:id', async (req, res) => {
       
       if (components && components.length > 0) {
         // IDs, die im Request gesendet wurden
-        const sentIds = components.map(c => c.id || c._id).filter(id => id).map(id => new ObjectId(id));
+        const sentIds = components.map(c => c.id || c._id).filter(id => id && ObjectId.isValid(id)).map(id => new ObjectId(id));
         
         // Lösche alle Komponenten (und deren Dokumente), die NICHT im Request sind
         const componentsToDelete = existingComponents.filter(ec => !sentIds.some(id => id.equals(ec._id)));
@@ -2394,7 +2394,7 @@ app.put('/api/orders/:id', async (req, res) => {
           };
           
           let finalComponentId;
-          if (compId) {
+          if (compId && ObjectId.isValid(compId)) {
             finalComponentId = new ObjectId(compId);
             await db.collection('Component').updateOne(
               { _id: finalComponentId },

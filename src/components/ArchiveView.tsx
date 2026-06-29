@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { Order } from '../types';
 import OrderDetails from './OrderDetails';
-import { Eye, RefreshCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Eye, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
 export default function ArchiveView() {
   const { state, dispatch } = useApp();
@@ -54,31 +54,6 @@ export default function ArchiveView() {
     return undefined; // Kein Bild vorhanden
   };
 
-  const handleRestore = async (order: Order) => {
-    try {
-      // Update server first
-      const response = await fetch(`/api/orders/${order.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'revision' })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: `Fehler: ${errorData.error || 'Unbekannt'}`, type: 'error' } });
-        return;
-      }
-      
-      // Get updated order from server response
-      const updatedOrder = await response.json();
-      
-      // Update local state with server response
-      dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
-      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Auftrag zur Nachbearbeitung freigegeben', type: 'success' } });
-    } catch (error) {
-      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Netzwerkfehler beim Wiederherstellen des Auftrags', type: 'error' } });
-    }
-  };
 
   if (selectedOrder) {
     return <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
@@ -151,13 +126,6 @@ export default function ArchiveView() {
                           >
                             <Eye className="w-4 h-4 mr-1" />
                             Anzeigen
-                          </button>
-                          <button
-                            onClick={() => handleRestore(order)}
-                            className="text-orange-600 hover:text-orange-800 flex items-center"
-                          >
-                            <RefreshCcw className="w-4 h-4 mr-1" />
-                            Nacharbeiten
                           </button>
                         </div>
                       </td>
