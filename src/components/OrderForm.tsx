@@ -110,16 +110,16 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
     };
   };
 
-  const handleCreateSubmit = async () => {
+  const handleCreateSubmit = async (isDraft: boolean = false) => {
     const newOrder = {
       title,
       description,
       clientId: state.currentUser!.id,
       clientName: state.currentUser!.name,
-      deadline: new Date(deadline),
+      deadline: deadline ? new Date(deadline) : null,
       costCenter,
       priority,
-      status: 'pending',
+      status: isDraft ? 'Entwurf' : 'pending',
       documents,
       components,
       estimatedHours: 0,
@@ -148,7 +148,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
         return;
       }
       
-      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Auftrag erfolgreich erstellt', type: 'success' } });
+      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: isDraft ? 'Entwurf erfolgreich gespeichert' : 'Auftrag erfolgreich erstellt', type: 'success' } });
       
       if (onClose) onClose();
       else navigate(-1);
@@ -158,7 +158,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
     }
   };
 
-  const handleEditSubmit = async () => {
+  const handleEditSubmit = async (isDraft: boolean = false) => {
     if (!initialData) return;
 
     // First upload any newly added files (those with .file property in an edit scenario)
@@ -170,10 +170,11 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       ...initialData,
       title,
       description,
-      deadline: new Date(deadline),
+      deadline: deadline ? new Date(deadline) : null,
       costCenter,
       priority,
       orderType,
+      status: isDraft ? 'Entwurf' : 'pending',
       documents,
       components,
       updatedAt: new Date(),
@@ -199,7 +200,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       dispatch({ type: 'UPDATE_ORDER', payload: responseData });
       dispatch({ 
         type: 'SHOW_NOTIFICATION', 
-        payload: { message: 'Änderungen wurden erfolgreich gespeichert und Beteiligte benachrichtigt', type: 'success' }
+        payload: { message: isDraft ? 'Entwurf erfolgreich gespeichert' : 'Änderungen wurden erfolgreich gespeichert und Beteiligte benachrichtigt', type: 'success' }
       });
       
       if (onClose) onClose();
@@ -217,14 +218,24 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === 'create') {
+    const isSubmittingDraft = mode === 'edit' && initialData?.status === 'Entwurf';
+    if (mode === 'create' || isSubmittingDraft) {
       if (orderType === 'fertigung' && components.length === 0) {
         setShowComponentWarning(true);
       } else {
-        handleCreateSubmit();
+        if (mode === 'create') handleCreateSubmit(false);
+        else handleEditSubmit(false);
       }
     } else {
       setShowConfirmModal(true);
+    }
+  };
+
+  const handleDraftSubmit = () => {
+    if (mode === 'create') {
+      handleCreateSubmit(true);
+    } else {
+      handleEditSubmit(true);
     }
   };
 
@@ -358,7 +369,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
               </button>
               <button
                 type="button"
-                onClick={handleEditSubmit}
+                onClick={() => handleEditSubmit(false)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Ja, Änderungen speichern
@@ -387,7 +398,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 type="button"
                 onClick={() => {
                   setShowComponentWarning(false);
-                  handleCreateSubmit();
+                  if (mode === 'create') handleCreateSubmit(false);
+                  else handleEditSubmit(false);
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
@@ -745,13 +757,25 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
             >
               Abbrechen
             </button>
-            <button
-              type="submit"
-              className="px-5 py-2 rounded-lg text-white font-semibold text-base transition-colors bg-blue-600 hover:bg-blue-700"
-              style={{ minWidth: 180 }}
-            >
-              {mode === 'create' ? 'Auftrag einreichen' : 'Änderungen speichern'}
-            </button>
+            <div className="flex gap-4">
+              {(!initialData || initialData.status === 'Entwurf') && (
+                <button
+                  type="button"
+                  onClick={handleDraftSubmit}
+                  className="px-5 py-2 border border-blue-600 rounded-lg text-blue-600 font-semibold text-base transition-colors hover:bg-blue-50"
+                  style={{ minWidth: 180 }}
+                >
+                  {mode === 'create' ? 'Als Entwurf speichern' : 'Änderungen als Entwurf speichern'}
+                </button>
+              )}
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-lg text-white font-semibold text-base transition-colors bg-blue-600 hover:bg-blue-700"
+                style={{ minWidth: 180 }}
+              >
+                {mode === 'create' ? 'Auftrag einreichen' : (initialData?.status === 'Entwurf' ? 'Auftrag offiziell einreichen' : 'Änderungen speichern')}
+              </button>
+            </div>
           </div>
         </form>
       </div>

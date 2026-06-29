@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams, Outlet, useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import Login from './components/Login';
 import ClientDashboard from './components/ClientDashboard';
@@ -15,6 +15,7 @@ import GuestLayout from './components/layouts/GuestLayout';
 import CreateOrder from './components/CreateOrder';
 import EditOrderPage from './components/EditOrderPage';
 import OrderDetailsPage from './components/OrderDetailsPage';
+import DraftsOverview from './components/DraftsOverview';
 
 // Auth Guard
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -174,6 +175,12 @@ function AppContent() {
           <Route path="/archive" element={
             <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
               <ArchiveView />
+            </RequireRole>
+          } />
+          
+          <Route path="/drafts" element={
+            <RequireRole allowedRoles={['admin', 'manager', 'client']}>
+              <DraftsOverview />
             </RequireRole>
           } />
           

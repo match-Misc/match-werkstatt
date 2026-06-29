@@ -60,7 +60,7 @@ export interface Order {
   deadline: Date;
   costCenter: string;
   priority: 'low' | 'medium' | 'high';
-  status: 'pending' | 'accepted' | 'in_progress' | 'revision' | 'rework' | 'completed' | 'archived' | 'waiting_confirmation';
+  status: 'Entwurf' | 'pending' | 'accepted' | 'in_progress' | 'revision' | 'rework' | 'completed' | 'archived' | 'waiting_confirmation';
   documents: PDFDocument[];
   components: Component[]; // Neue Bauteile
   estimatedHours: number;

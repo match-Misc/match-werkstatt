@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -6,7 +6,8 @@ import {
   Archive, 
   Settings, 
   Users, 
-  Menu
+  Menu,
+  FileEdit
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -31,6 +32,7 @@ export default function Sidebar({ isExpanded, setIsExpanded }: SidebarProps) {
 
   const navItems = [
     { name: 'Auftragsübersicht', icon: LayoutDashboard, path: '/dashboard', section: 'Core' },
+    ...(['client', 'admin', 'manager'].includes(role) ? [{ name: 'Entwürfe', icon: FileEdit, path: '/drafts', section: 'Core' }] : []),
     ...(!isClient ? [{ name: 'Unteraufgaben', icon: CheckSquare, path: '/tasks', section: 'Core' }] : []),
     { name: 'Archiv', icon: Archive, path: '/archive', section: 'Core' },
     ...(!isClient ? [{ name: 'Einstellungen', icon: Settings, path: '/settings', section: 'Management' }] : []),

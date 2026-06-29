@@ -1589,7 +1589,7 @@ app.delete('/api/users/:id', async (req, res) => {
 app.get('/api/orders/export/csv', requireRoleLevel('manager'), async (req, res) => {
   try {
     const { client, db } = await getDB();
-    const orders = await db.collection('Order').find({}).sort({ createdAt: -1 }).toArray();
+    const orders = await db.collection('Order').find({ status: { $ne: 'Entwurf' } }).sort({ createdAt: -1 }).toArray();
     
     // Fetch users for assignedTo mapping
     const users = await db.collection('User').find({}).toArray();
@@ -1654,8 +1654,8 @@ app.get('/api/orders', async (req, res) => {
     const { client, db } = await getDB();
     const viewerRole = await parseViewerRole(req);
     
-    // Load all orders
-    const orders = await db.collection('Order').find({})
+    // Load all orders except drafts
+    const orders = await db.collection('Order').find({ status: { $ne: 'Entwurf' } })
       .sort({ createdAt: -1 })
       .toArray();
     
@@ -1744,6 +1744,97 @@ app.get('/api/orders', async (req, res) => {
   } catch (err) {
     console.error('GET /api/orders error:', err);
     res.status(500).json({ error: 'Fehler beim Laden der Aufträge', details: err.message });
+  }
+});
+
+app.get('/api/drafts', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const viewerRole = await parseViewerRole(req);
+    
+    const cookies = parseCookies(req);
+    let sessionUserId = null;
+    if (cookies.sessionId) {
+      const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+      if (session) {
+        sessionUserId = session.userId;
+      }
+    }
+    
+    if (!sessionUserId) {
+      res.status(401).json({ error: 'Nicht authentifiziert' });
+      await client.close();
+      return;
+    }
+    
+    // Load drafts belonging to the current user
+    const drafts = await db.collection('Order').find({ 
+      status: 'Entwurf',
+      $or: [
+        { clientId: sessionUserId },
+        { clientId: sessionUserId.toString() }
+      ]
+    }).sort({ createdAt: -1 }).toArray();
+    
+    // Enrich with relations (same as orders)
+    const enrichedDrafts = await Promise.all(drafts.map(async (order) => {
+      let extDocs = await db.collection('Document').find({ orderId: new ObjectId(order._id) }).toArray();
+      let documents = [...extDocs];
+      if (order.documents && order.documents.length > 0) {
+        for (const embDoc of order.documents) {
+          if (!extDocs.some(d => d.name === embDoc.name || (d._id && d._id.toString() === embDoc.id))) {
+            documents.push(embDoc);
+          }
+        }
+      }
+      
+      const enrichedDocuments = documents
+        .filter(doc => !doc.componentId)
+        .filter((doc, index, self) => self.findIndex(d => d.name === doc.name) === index)
+        .map(doc => ({
+          ...doc,
+          id: doc._id ? doc._id.toString() : doc.id,
+          _id: undefined
+        }));
+        
+      const components = await db.collection('Component').find({ orderId: new ObjectId(order._id) }).toArray();
+      const enrichedComponents = await Promise.all(components.map(async (component) => {
+        const compDocuments = await db.collection('Document').find({ 
+          $or: [ { componentId: component._id }, { componentId: component._id.toString() } ]
+        }).toArray();
+        return {
+          ...component,
+          id: component._id.toString(),
+          _id: undefined,
+          documents: compDocuments.map(doc => ({ ...doc, id: doc._id.toString(), _id: undefined }))
+        };
+      }));
+      
+      const noteHistory = await db.collection('Note').find({ orderId: new ObjectId(order._id) }).sort({ createdAt: -1 }).toArray();
+      
+      return await sanitizeOrderForViewer({
+        ...order,
+        id: order._id.toString(),
+        _id: undefined,
+        documents: enrichedDocuments,
+        components: enrichedComponents,
+        noteHistory: noteHistory,
+        revisionHistory: order.revisionHistory || [],
+        reworkComments: order.reworkComments || [],
+        titleImage: order.titleImage ? {
+          filename: order.titleImage.filename,
+          contentType: order.titleImage.contentType,
+          uploadedAt: order.titleImage.uploadedAt,
+          hasImage: true
+        } : null
+      }, viewerRole, db);
+    }));
+    
+    await client.close();
+    res.json(enrichedDrafts);
+  } catch (err) {
+    console.error('GET /api/drafts error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden der Entwürfe', details: err.message });
   }
 });
 
@@ -2133,11 +2224,11 @@ app.put('/api/orders/:id', async (req, res) => {
     const updateData = { updatedAt: new Date() };
 
     // Only add defined fields
-    if (title !== undefined) updateData.title = title;
+    if (title !== undefined) updateData.title = title || (status === 'Entwurf' ? 'Unbenannter Entwurf' : '');
     if (description !== undefined) updateData.description = description;
     if (clientId !== undefined) updateData.clientId = clientId;
     if (clientName !== undefined) updateData.clientName = clientName;
-    if (deadline !== undefined) updateData.deadline = new Date(deadline);
+    if (deadline !== undefined) updateData.deadline = deadline ? new Date(deadline) : null;
     if (costCenter !== undefined) updateData.costCenter = costCenter;
     if (priority !== undefined) updateData.priority = priority;
     if (status !== undefined) updateData.status = status;
@@ -2544,7 +2635,7 @@ app.put('/api/orders/:id', async (req, res) => {
         updateData['Bauteile'] = 'Wurden geändert';
       }
       
-      if (editedFields.length > 0) {
+      if (editedFields.length > 0 && existingOrder.status !== 'Entwurf') {
         const emailScript = require('./scripts/email-notifications.cjs');
         const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
         
@@ -2778,15 +2869,26 @@ app.post('/api/orders', async (req, res) => {
       nextNumber++;
     }
     
+    // Handle draft fallbacks
+    let title = orderData.title;
+    if (orderData.status === 'Entwurf' && !title) {
+      title = 'Unbenannter Entwurf';
+    }
+    
+    let deadline = null;
+    if (orderData.deadline) {
+      deadline = new Date(orderData.deadline);
+    }
+    
     // Create new order
     const newOrder = {
       orderNumber: orderNumber,
-      title: orderData.title,
-      description: orderData.description,
+      title: title,
+      description: orderData.description || '',
       clientId: orderData.clientId,
       clientName: orderData.clientName,
-      deadline: new Date(orderData.deadline),
-      costCenter: orderData.costCenter,
+      deadline: deadline,
+      costCenter: orderData.costCenter || '',
       priority: orderData.priority || 'medium',
       status: orderData.status || 'pending',
       estimatedHours: orderData.estimatedHours || 0,
