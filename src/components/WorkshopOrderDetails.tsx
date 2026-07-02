@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { isRestrictedFile } from '../utils/fileFilter';
 import { 
   X, 
   Check, 
@@ -186,12 +187,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         .catch(err => console.error('Fehler beim Laden der Dateifilter:', err));
     }
   }, [state.currentUser]);
-
-  const isRestrictedFile = (filename: string) => {
-    if (!filename || restrictedExtensions.length === 0) return false;
-    const ext = '.' + filename.split('.').pop()?.toLowerCase();
-    return restrictedExtensions.includes(ext);
-  };
 
   // Zustand für bearbeitete Felder
   const [changedFields, setChangedFields] = useState<Partial<Order>>({});
@@ -1360,13 +1355,13 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
               </div>
               
               {/* Allgemeine Dateien Section */}
-              {localOrder.documents && localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name)).length > 0 && (
+              {localOrder.documents && localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name, restrictedExtensions)).length > 0 && (
                 <>
                   <hr className="border-t border-gray-200" />
                   <div>
                     <h4 className="text-md font-semibold text-gray-900 mb-4">Allgemeine Dateien</h4>
                     <div className="flex flex-col gap-3">
-                      {localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name)).map((doc: any) => (
+                      {localOrder.documents.filter((doc: any) => !doc.componentId && !decodeURIComponent(doc.url || '').includes('00_Interne Dokumente') && !isRestrictedFile(doc.name, restrictedExtensions)).map((doc: any) => (
                         <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
                           <div className="flex items-center space-x-3 overflow-hidden">
                             <div className="flex-shrink-0">
@@ -1507,12 +1502,12 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           )}
                         </div>
                         
-                        {component.documents && component.documents.filter((doc: any) => !isRestrictedFile(doc.name)).length > 0 && (
+                        {component.documents && component.documents.filter((doc: any) => !isRestrictedFile(doc.name, restrictedExtensions)).length > 0 && (
                           <div>
                             <hr className="my-3 border-gray-200" />
                             <h6 className="text-xs font-medium text-gray-700 mb-2">Dokumente:</h6>
                             <div className="space-y-1">
-                              {component.documents.filter((doc: any) => !isRestrictedFile(doc.name)).map((doc: any) => (
+                              {component.documents.filter((doc: any) => !isRestrictedFile(doc.name, restrictedExtensions)).map((doc: any) => (
                                 <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
                                   <div className="flex items-center">
                                     {getFileIcon(doc.name)}

@@ -18,8 +18,12 @@ const ws = {
       // Verbindung steht
     };
     socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      listeners.forEach((cb) => cb(data));
+      try {
+        const data = JSON.parse(event.data);
+        listeners.forEach((cb) => cb(data));
+      } catch (error) {
+        console.error('WebSocket payload parsing error:', error);
+      }
     };
     socket.onclose = () => {
       socket = null;

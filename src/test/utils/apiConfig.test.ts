@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { API_BASE, getWebSocketURL } from './apiConfig';
+import { API_BASE, getWebSocketURL } from '../../utils/apiConfig';
 
 describe('apiConfig', () => {
   it('API_BASE should be empty string for relative URLs', () => {
