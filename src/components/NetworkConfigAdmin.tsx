@@ -124,11 +124,7 @@ export default function NetworkConfigAdmin() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-      <div className="flex items-center mb-4">
-        <Settings className="w-5 h-5 text-blue-600 mr-2" />
-        <h2 className="text-lg font-medium">Netzwerkordner-Konfiguration</h2>
-      </div>
+    <div className="w-full mb-6">
       
       <div className="space-y-4">
         <div>

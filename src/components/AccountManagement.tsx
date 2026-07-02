@@ -1,4 +1,4 @@
-import { Server } from 'lucide-react';
+import { Server, Settings, ShieldAlert, Box } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import NetworkConfigAdmin from './NetworkConfigAdmin';
 import LDAPManagement from './LDAPManagement';
@@ -21,21 +21,36 @@ export default function AccountManagement() {
         {/* Netzwerkkonfiguration (nur für Admins sichtbar) */}
         {state.currentUser?.role === 'admin' ? (
           <div className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Systemkonfiguration</h3>
-            <NetworkConfigAdmin />
-            
-            <FileTypeRestrictionAdmin />
-            
+            <div>
+              <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
+                <Box className="w-4 h-4 mr-2" />
+                Materialverwaltung
+              </h4>
+              <MaterialManagement />
+            </div>
+
+            <div className="mt-6 pt-6 border-t">
+              <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
+                <ShieldAlert className="w-4 h-4 mr-2 text-orange-500" />
+                Dateityp-Filterung für Auftraggeber & Gäste
+              </h4>
+              <FileTypeRestrictionAdmin />
+            </div>
+
+            <div className="mt-6 pt-6 border-t">
+              <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
+                <Settings className="w-4 h-4 mr-2 text-blue-600" />
+                Netzwerkordner-Konfiguration
+              </h4>
+              <NetworkConfigAdmin />
+            </div>
+
             <div className="mt-6 pt-6 border-t">
               <h4 className="text-md font-semibold text-gray-900 mb-4 flex items-center">
                 <Server className="w-4 h-4 mr-2" />
                 LDAP-Verwaltung
               </h4>
               <LDAPManagement />
-            </div>
-
-            <div className="mt-6 pt-6 border-t">
-              <MaterialManagement />
             </div>
           </div>
         ) : (

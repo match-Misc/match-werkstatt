@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Check, X, Box } from 'lucide-react';
+import { Plus, Trash2, Edit2, Check, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Material } from '../types';
 
@@ -109,13 +109,8 @@ export default function MaterialManagement() {
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200">
-      <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center">
-        <Box className="w-5 h-5 text-gray-500 mr-2" />
-        <h3 className="text-md font-semibold text-gray-900">Materialverwaltung</h3>
-      </div>
-      
-      <div className="p-4">
+    <div className="w-full">
+      <div className="w-full">
         <p className="text-sm text-gray-600 mb-4">
           Hier können Sie die Materialien definieren, die bei der Bauteil-Erstellung im Dropdown zur Verfügung stehen.
         </p>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, X, Plus } from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function FileTypeRestrictionAdmin() {
@@ -78,14 +78,8 @@ export default function FileTypeRestrictionAdmin() {
   }
 
   return (
-    <div className="bg-white rounded-lg border shadow-sm p-4 mt-6">
-      <div className="flex items-center mb-4">
-        <ShieldAlert className="w-5 h-5 text-orange-500 mr-2" />
-        <div>
-          <h4 className="text-md font-semibold text-gray-900">Dateityp-Filterung für Auftraggeber & Gäste</h4>
-          <p className="text-sm text-gray-500">Dateien mit diesen Endungen werden für Auftraggeber und Gäste komplett ausgeblendet.</p>
-        </div>
-      </div>
+    <div className="w-full mb-6">
+      <p className="text-sm text-gray-600 mb-4">Dateien mit diesen Endungen werden für Auftraggeber und Gäste komplett ausgeblendet.</p>
 
       <div className="flex gap-2 mb-4">
         <div className="flex-grow">
