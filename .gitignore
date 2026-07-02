@@ -33,5 +33,7 @@ storage/*
 
 # Testing
 playwright-report/
+blob-report/
 test-results/
 coverage/
+.nyc_output/
