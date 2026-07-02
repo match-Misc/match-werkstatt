@@ -30,3 +30,10 @@ dist-ssr
 # Uploads
 storage/*
 !storage/.gitkeep
+
+# Testing
+playwright-report/
+blob-report/
+test-results/
+coverage/
+.nyc_output/
