@@ -8,12 +8,21 @@ version = "0.1.0"
 [tasks]
 # Install NPM dependencies
 install = "npm install"
+
 # Start the frontend with Vite (enables Hot Module Replacement)
 dev-frontend = "npm run dev"
 # Start the backend with auto-reload and environment variables
 dev-backend = "node --env-file=.local.env --watch server.cjs"
 # Run both frontend and backend concurrently in one terminal
 dev = "npx concurrently -c \"blue,green\" -n \"FRONT,BACK\" \"npm run dev\" \"node --env-file=.local.env --watch server.cjs\""
+
+# Testing commands
+test = "npx vitest run"
+test-watch = "npx vitest"
+test-coverage = "npx vitest run --coverage"
+test-e2e = "npx playwright test"
+test-e2e-ui = "npx playwright test --ui"
+
 
 [dependencies]
 nodejs = ">=20.0.0,<21.0"
