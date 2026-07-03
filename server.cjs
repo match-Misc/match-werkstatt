@@ -997,7 +997,7 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    let { username, password, name, role } = req.body;
+    let { username, password, name, role, email } = req.body;
     if (username) username = username.toLowerCase();
     const { client, db } = await getDB();
     
@@ -1013,9 +1013,11 @@ app.post('/api/users', async (req, res) => {
       username,
       password,
       name,
+      email,
       role: role || 'guest',
       isActive: true,
-      isApproved: false,
+      isApproved: true,
+      authSource: 'local',
       createdAt: new Date()
     };
     
@@ -1387,6 +1389,13 @@ app.put('/api/users/:id/role', async (req, res) => {
     
     console.log(`[HYBRID-AUTH] Aktualisiere Rolle für Benutzer ${req.params.id} zu: ${role}`);
     
+    // Prevent changing the primary admin's role
+    const targetUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
+    if (targetUser && targetUser.username === 'admin') {
+      await client.close();
+      return res.status(403).json({ error: 'Die Rolle des primären Administrators kann nicht geändert werden' });
+    }
+
     const result = await db.collection('User').updateOne(
       { _id: new ObjectId(req.params.id) },
       { 
@@ -1524,6 +1533,12 @@ app.put('/api/users/:id', async (req, res) => {
       console.log('User not found with ID:', req.params.id);
       return res.status(404).json({ error: 'User nicht gefunden' });
     }
+
+    // Prevent changing the primary admin's role
+    if (existingUser.username === 'admin' && role !== undefined && role !== existingUser.role) {
+      await client.close();
+      return res.status(403).json({ error: 'Die Rolle des primären Administrators kann nicht geändert werden' });
+    }
     
     const updateData = {
       updatedAt: new Date()
@@ -1535,7 +1550,7 @@ app.put('/api/users/:id', async (req, res) => {
     if (name !== undefined) updateData.name = name;
     if (company !== undefined) updateData.company = company;
     if (email !== undefined) updateData.email = email;
-    if (role !== undefined) updateData.role = role;
+    if (role !== undefined && existingUser.username !== 'admin') updateData.role = role;
     if (isActive !== undefined) updateData.isActive = isActive;
     
     console.log('Update data:', updateData);
@@ -1569,6 +1584,22 @@ app.put('/api/users/:id', async (req, res) => {
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
+    
+    const userToDelete = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
+    if (!userToDelete) {
+      await client.close();
+      return res.status(404).json({ error: 'User nicht gefunden' });
+    }
+
+    if (userToDelete.username === 'admin') {
+      await client.close();
+      return res.status(403).json({ error: 'Der primäre Administrator kann nicht gelöscht werden' });
+    }
+
+    if (userToDelete.authSource === 'ldap') {
+      await client.close();
+      return res.status(403).json({ error: 'LDAP-Benutzer können nicht lokal gelöscht werden' });
+    }
     
     const result = await db.collection('User').deleteOne({ _id: new ObjectId(req.params.id) });
     await client.close();
