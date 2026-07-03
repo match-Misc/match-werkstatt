@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.local.env' }); // Load .local.env for E2E tests
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,7 +12,10 @@ export default defineConfig({
   use: {
     // Base URL der Frontend-App (siehe vite.config.ts port)
     baseURL: 'http://localhost:5175',
-    trace: 'on-first-retry',
+    // Nimm bei JEDEM Testdurchlauf Screenshots, Videos und DOM-Traces auf
+    trace: 'on',
+    video: 'on',
+    screenshot: 'on'
   },
   projects: [
     {
