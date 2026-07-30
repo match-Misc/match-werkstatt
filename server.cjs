@@ -1111,6 +1111,24 @@ app.post('/api/login', async (req, res) => {
           
           const result = await db.collection('User').insertOne(newUser);
           localUser = await db.collection('User').findOne({ _id: result.insertedId });
+
+          // Benachrichtige Admins und Werkstattleitung über neuen Benutzer
+          try {
+            const adminUsers = await db.collection('User').find({ role: { $in: ['admin', 'manager'] } }).toArray();
+            const adminEmails = adminUsers.map(u => u.email).filter(email => email);
+            if (adminEmails.length > 0) {
+              await transporter.sendMail({
+                from: process.env.SMTP_FROM || process.env.SMTP_USER,
+                to: adminEmails.join(','),
+                subject: 'Match-Werkstatt: Neuer Benutzer registriert',
+                text: `Ein neuer Benutzer (${userInfo.username}) hat sich registriert und benötigt eine Rolle.`,
+                encoding: 'utf-8'
+              });
+              console.log('[HYBRID-AUTH] Benachrichtigung an Admins gesendet');
+            }
+          } catch (mailError) {
+            console.error('[HYBRID-AUTH] Fehler beim Senden der Benachrichtigungs-E-Mail:', mailError);
+          }
         }
         
         await client.close();
@@ -1370,6 +1388,21 @@ app.put('/api/ldap/users/:username/role', async (req, res) => {
       }
     );
 
+    // E-Mail Benachrichtigung bei Rollenänderung
+    if (user.role !== normalizedRole && user.email) {
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: user.email,
+          subject: 'Match-Werkstatt: Rolle aktualisiert',
+          text: `Hallo ${user.name || user.username},\n\ndeine Rolle in der Match-Werkstatt wurde aktualisiert auf: ${normalizedRole}.\nDu kannst das Tool nun entsprechend nutzen.`,
+          encoding: 'utf-8'
+        });
+      } catch (mailError) {
+        console.error('[LDAP-ROLE-UPDATE] Fehler beim Senden der E-Mail:', mailError);
+      }
+    }
+
     await client.close();
     return res.json({ success: true, message: `Rolle auf '${normalizedRole}' aktualisiert` });
   } catch (err) {
@@ -1413,6 +1446,21 @@ app.put('/api/users/:id/role', async (req, res) => {
     
     const updatedUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
     
+    // E-Mail Benachrichtigung bei Rollenänderung
+    if (targetUser.role !== role && updatedUser.email) {
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: updatedUser.email,
+          subject: 'Match-Werkstatt: Rolle aktualisiert',
+          text: `Hallo ${updatedUser.name || updatedUser.username},\n\ndeine Rolle in der Match-Werkstatt wurde aktualisiert auf: ${role}.\nDu kannst das Tool nun entsprechend nutzen.`,
+          encoding: 'utf-8'
+        });
+      } catch (mailError) {
+        console.error('PUT /api/users/:id/role Fehler beim Senden der E-Mail:', mailError);
+      }
+    }
+
     // Broadcast updated users list
     const wss = req.app.get('wss');
     if (wss) {
@@ -1596,10 +1644,7 @@ app.delete('/api/users/:id', async (req, res) => {
       return res.status(403).json({ error: 'Der primäre Administrator kann nicht gelöscht werden' });
     }
 
-    if (userToDelete.authSource === 'ldap') {
-      await client.close();
-      return res.status(403).json({ error: 'LDAP-Benutzer können nicht lokal gelöscht werden' });
-    }
+    // LDAP-Benutzer können nun auch gelöscht werden
     
     const result = await db.collection('User').deleteOne({ _id: new ObjectId(req.params.id) });
     await client.close();
