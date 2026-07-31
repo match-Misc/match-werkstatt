@@ -38,5 +38,4 @@ test-results/
 coverage/
 .nyc_output/
 
-# Agents
 .agents/

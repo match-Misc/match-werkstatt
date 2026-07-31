@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Upload, FileText, Trash2, Plus } from 'lucide-react';
+import { X, Upload, Trash2, Plus, Eye } from 'lucide-react';
+import { getFileIcon, getFileIconSmall, isImageFile, isPDFFile } from '../utils/fileIcons';
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import { Order, PDFDocument, Component, Material, User } from '../types';
@@ -44,6 +45,9 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
     : [];
   const [components, setComponents] = useState<Component[]>(initialComponents);
   
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [titleImageUrl, setTitleImageUrl] = useState('');
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [activeComponentDragId, setActiveComponentDragId] = useState<string | null>(null);
   const [availableMaterials, setAvailableMaterials] = useState<Material[]>([]);
@@ -89,6 +93,14 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   }, []);
 
   const uploadSingleFile = async (file: File): Promise<PDFDocument | null> => {
+    // Ignore images inside PDF if this is a PDF component being handled specially
+    if (file.type.startsWith('image/')) {
+      const isInsidePdfFolder = file.webkitRelativePath && file.webkitRelativePath.toLowerCase().includes('.pdf');
+      if (isInsidePdfFolder) {
+        return null;
+      }
+    }
+
     const sizeWarning = await checkPdfSize(file);
     if (sizeWarning) {
       const confirmed = window.confirm(`Achtung: Die Datei "${file.name}" hat ein Überformat (${sizeWarning}). Formate größer als A3 werden nicht empfohlen.\n\nMöchten Sie diese Datei trotzdem hochladen?`);
@@ -118,6 +130,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       file: undefined,
       pdfWarning: sizeWarning ? `Format: ${sizeWarning}` : undefined
     };
+  };
+
+  const handleViewImage = (doc: PDFDocument) => {
+    if (doc.url) setPreviewImageUrl(doc.url);
   };
 
   const handleCreateSubmit = async (isDraft: boolean = false) => {
@@ -589,7 +605,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 {documents.map((doc) => (
                   <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
                     <div className="flex items-center">
-                      <FileText className="w-5 h-5 text-red-600 mr-3" />
+                      {getFileIcon(doc.name || '')}
                       <span className="text-sm text-gray-900">{doc.name}</span>
                       {doc.pdfWarning && (
                         <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
@@ -597,13 +613,34 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                         </span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => removeDocument(doc.id)}
-                      className="text-red-600 hover:text-red-800 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      {isImageFile(doc.name || '') && (
+                        <button
+                          type="button"
+                          onClick={() => handleViewImage(doc)}
+                          className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs px-2"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />Anzeigen
+                        </button>
+                      )}
+                      {isPDFFile(doc.name || '') && doc.url && (
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs px-2"
+                        >
+                          <Eye className="w-4 h-4 mr-1" />Anzeigen
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeDocument(doc.id)}
+                        className="text-red-600 hover:text-red-800 transition-colors"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -758,7 +795,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                           {component.documents.map((doc) => (
                             <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border">
                               <div className="flex items-center">
-                                <FileText className="w-4 h-4 text-red-600 mr-2" />
+                                {getFileIconSmall(doc.name || '')}
                                 <span className="text-sm text-gray-900">{doc.name}</span>
                                 {doc.pdfWarning && (
                                   <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
@@ -766,13 +803,34 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                                   </span>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => removeComponentDocument(component.id, doc.id)}
-                                className="text-red-600 hover:text-red-800 transition-colors"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              <div className="flex items-center space-x-2">
+                                {isImageFile(doc.name || '') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewImage(doc)}
+                                    className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs px-2"
+                                  >
+                                    <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                  </button>
+                                )}
+                                {isPDFFile(doc.name || '') && doc.url && (
+                                  <a
+                                    href={doc.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs px-2"
+                                  >
+                                    <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeComponentDocument(component.id, doc.id)}
+                                  className="text-red-600 hover:text-red-800 transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -813,8 +871,31 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
               </button>
             </div>
           </div>
-        </form>
+      </form>
       </div>
+
+      {/* Image Preview Overlay */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-75 p-4"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div className="relative max-w-full max-h-full">
+            <button 
+              className="absolute -top-12 right-0 text-white hover:text-gray-300"
+              onClick={() => setPreviewImageUrl(null)}
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <img 
+              src={previewImageUrl} 
+              alt="Vorschau" 
+              className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl bg-white"
+              onClick={(e) => e.stopPropagation()} 
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

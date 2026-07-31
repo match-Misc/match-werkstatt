@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Upload, FileText, Trash2, Save, Box, Plus } from 'lucide-react';
+import { getFileIcon, getFileIconSmall } from '../utils/fileIcons';
 import { useApp } from '../context/AppContext';
 import { Order, PDFDocument, RevisionComment, Component } from '../types';
 import { checkPdfSize } from '../utils/pdfChecker';
@@ -438,7 +439,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                 {documents.map((doc) => (
                   <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center">
-                      <FileText className="w-5 h-5 text-red-600 mr-3" />
+                      {getFileIcon(doc.name || '')}
                       <span className="text-sm text-gray-900">{doc.name}</span>
                       {doc.pdfWarning && (
                         <span className="ml-3 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
@@ -513,7 +514,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                           {component.documents.map((doc, docIndex) => (
                             <div key={doc.id || docIndex} className="flex items-center justify-between p-2 bg-white rounded border">
                               <div className="flex items-center flex-1 min-w-0">
-                                <FileText className="w-4 h-4 text-red-600 mr-2 flex-shrink-0" />
+                                {getFileIconSmall(doc.name || '')}
                                 <span className="text-sm text-gray-700 truncate">{doc.name}</span>
                                 {doc.pdfWarning && (
                                   <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
