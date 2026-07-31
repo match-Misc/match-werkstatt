@@ -2,7 +2,7 @@
 authors = ["Henrik Lurz <henrik.lurz@web.de>"]
 channels = ["conda-forge"]
 name = "match-werkstatt"
-platforms = ["linux-aarch64"]
+platforms = ["linux-aarch64", "linux-64", "osx-arm64", "win-64"]
 version = "0.1.0"
 
 [tasks]
