@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft } from 'lucide-react';
+import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft, File, FileImage } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Order } from '../types';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
 import NetworkFileUpload from './NetworkFileUpload';
 import STLViewer from './STLViewer';
+import { getFileIcon, getFileIconSmall, isImageFile, isPDFFile } from '../utils/fileIcons';
 
 interface OrderDetailsProps {
   order: Order;
@@ -23,6 +24,9 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const [showRevisionModal, setShowRevisionModal] = useState(false);
   const [confirmationNote, setConfirmationNote] = useState('');
   const [revisionDescription, setRevisionDescription] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [titleImageUrl, setTitleImageUrl] = useState('');
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
@@ -38,26 +42,11 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     return /\.stl$/i.test(fileName);
   };
 
-  const isZIPFile = (fileName: string) => {
-    return /\.zip$/i.test(fileName);
-  };
-
-  const isEMCAMFile = (fileName: string) => {
-    return /\.emcam$/i.test(fileName);
-  };
-
-  const getFileIcon = (fileName: string) => {
-    if (isSTLFile(fileName)) return <Box className="w-5 h-5 text-purple-600" />;
-    if (isZIPFile(fileName)) return <Archive className="w-5 h-5 text-yellow-600" />;
-    if (isEMCAMFile(fileName)) return <Wrench className="w-5 h-5 text-teal-600" />;
-    return <FileText className="w-5 h-5 text-red-600" />;
-  };
-
   const getFileTypeDescription = (fileName: string) => {
     if (isSTLFile(fileName)) return '3D-Modell (STL)';
-    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
-    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
-    return 'PDF-Dokument';
+    if (isImageFile(fileName)) return 'Bilddatei';
+    if (isPDFFile(fileName)) return 'PDF-Dokument';
+    return 'Dokument';
   };
 
   const getDisplayPath = (doc: any) => {
@@ -275,18 +264,25 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     }
   };
 
-  const handleViewPDF = (doc: any) => {
-    // We omit cache busters here because adblockers/privacy extensions in Firefox
-    // sometimes block URLs containing tracking-like query parameters like 'cb='.
+  const getDocUrl = (doc: any) => {
     if (doc.id) {
-      const url = `/api/documents/${doc.id}?inline=true`;
-      window.open(url, '_blank');
+      return `/api/documents/${doc.id}?inline=true`;
     } else if (currentOrder.id && doc.name) {
-      const url = `/api/orders/${currentOrder.id}/files/${encodeURIComponent(doc.name)}?inline=true`;
-      window.open(url, '_blank');
+      return `/api/orders/${currentOrder.id}/files/${encodeURIComponent(doc.name)}?inline=true`;
     } else if (doc.url) {
-      window.open(doc.url, '_blank');
+      return doc.url;
     }
+    return '';
+  };
+
+  const handleViewPDF = (doc: any) => {
+    const url = getDocUrl(doc);
+    if (url) window.open(url, '_blank');
+  };
+
+  const handleViewImage = (doc: any) => {
+    const url = getDocUrl(doc);
+    if (url) setPreviewImageUrl(url);
   };
 
   // Materialstatus aktualisieren (nur für Kunden-Checkbox)
@@ -683,10 +679,18 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                           <div key={doc.id} className="flex items-center justify-between p-2 bg-gray-100 rounded">
                             <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                             <div className="flex items-center space-x-2">
-                              {doc.name?.toLowerCase().endsWith('.pdf') && (
+                              {isPDFFile(doc.name) && (
                                 <button
                                   onClick={() => handleViewPDF(doc)}
                                   className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                >
+                                  <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                </button>
+                              )}
+                              {isImageFile(doc.name || '') && (
+                                <button
+                                  onClick={() => handleViewImage(doc)}
+                                  className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs"
                                 >
                                   <Eye className="w-4 h-4 mr-1" />Anzeigen
                                 </button>
@@ -771,7 +775,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         <div key={doc.id} className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg shadow-sm">
                           <div className="flex items-center space-x-3 overflow-hidden">
                             <div className="flex-shrink-0">
-                              <FileText className="w-5 h-5 text-blue-600" />
+                              {getFileIcon(doc.name)}
                             </div>
                             <div className="truncate">
                               <p className="text-sm font-medium text-gray-900 truncate" title={getDisplayPath(doc)}>
@@ -788,6 +792,15 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                             </div>
                           </div>
                           <div className="flex-shrink-0 ml-4 flex space-x-2">
+                            {isImageFile(doc.name) && (
+                              <button
+                                onClick={() => handleViewImage(doc)}
+                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                title="Bild anzeigen"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
                             <a
                               href={`/api/documents/${doc.id}`}
                               target="_blank"
@@ -903,11 +916,11 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                               {component.documents.map((doc) => (
                                 <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
                                   <div className="flex items-center">
-                                    {getFileIcon(doc.name)}
+                                    {getFileIconSmall(doc.name)}
                                     <div className="ml-2">
                                       <span className="text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                                       <div className="text-xs text-gray-500">
-                                        {getFileTypeDescription(doc.name)} • {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
+                                        {new Date(doc.uploadDate).toLocaleDateString('de-DE')}
                                       </div>
                                     </div>
                                   </div>
@@ -921,10 +934,19 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                         3D
                                       </button>
                                     )}
-                                    {doc.name?.toLowerCase().endsWith('.pdf') && (
+                                    {isPDFFile(doc.name) && (
                                       <button
                                         onClick={() => handleViewPDF(doc)}
                                         className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                      >
+                                        <Eye className="w-3 h-3 mr-1" />
+                                        Anzeigen
+                                      </button>
+                                    )}
+                                    {isImageFile(doc.name || '') && (
+                                      <button
+                                        onClick={() => handleViewImage(doc)}
+                                        className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs"
                                       >
                                         <Eye className="w-3 h-3 mr-1" />
                                         Anzeigen
@@ -1034,6 +1056,29 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 {isSubmitting ? 'Wird bestätigt...' : 'Bestätigen'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-75 p-4"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div className="relative max-w-full max-h-full flex flex-col items-center justify-center">
+            <button 
+              className="absolute -top-12 right-0 text-white hover:text-gray-300"
+              onClick={() => setPreviewImageUrl(null)}
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={previewImageUrl} 
+              alt="Vorschau" 
+              className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl"
+              onClick={(e) => e.stopPropagation()} 
+            />
           </div>
         </div>
       )}

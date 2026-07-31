@@ -11,7 +11,7 @@ export default defineConfig({
   reporter: [['html', { open: 'never' }]],
   use: {
     // Base URL der Frontend-App (siehe vite.config.ts port)
-    baseURL: 'http://localhost:5175',
+    baseURL: 'http://localhost:5007',
     // Nimm bei JEDEM Testdurchlauf Screenshots, Videos und DOM-Traces auf
     trace: 'on',
     video: 'on',
@@ -27,7 +27,7 @@ export default defineConfig({
   // Der WebServer wird automatisch vor den Tests gestartet
   webServer: {
     command: 'npx concurrently -c "blue,green" -n "FRONT,BACK" "npm run dev" "node --env-file=.local.env server.cjs"',
-    url: 'http://localhost:5175',
+    url: 'http://localhost:5007',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

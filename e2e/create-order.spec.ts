@@ -113,8 +113,8 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
     const titleInput = page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung');
     await expect(titleInput).toBeVisible();
 
-    await titleInput.fill('E2E Sandbox Test Auftrag (Mit Dateien)');
-    await page.getByLabel(/Beschreibung/i).fill('Test-Auftrag mit Datei-Uploads.');
+    await titleInput.fill('E2E Sandbox Test Auftrag (Mit Dateien und Umlaute)');
+    await page.getByLabel(/Beschreibung/i).fill('Test-Auftrag mit Datei-Uploads (inkl. Umlaute).');
     const futureDate = new Date();
     futureDate.setFullYear(futureDate.getFullYear() + 1);
     await page.getByLabel(/Deadline/i).fill(futureDate.toISOString().split('T')[0]);
@@ -145,6 +145,16 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
     // UI-Prüfung, ob die Datei am Bauteil angezeigt wird
     await expect(page.locator('text=bauteil-modell.stl')).toBeVisible();
 
+    // 2. Allgemeines Dokument als Bild mit Umlauten hochladen
+    await fileInputs.nth(0).setInputFiles({
+      name: 'ÄÖÜ-Müller-Testbild.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('mock png content', 'utf-8'),
+    });
+
+    // UI-Prüfung, ob die Datei mit Umlauten richtig angezeigt wird
+    await expect(page.locator('text=ÄÖÜ-Müller-Testbild.png')).toBeVisible();
+
     const responsePromise = page.waitForResponse(response => 
       response.url().includes('/api/orders') && response.request().method() === 'POST'
     );
@@ -167,8 +177,9 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
     const components = getOrder.components;
     
     expect(documents).toBeDefined();
-    expect(documents.length).toBeGreaterThan(0);
-    expect(documents[0].name).toBe('allgemeines-dokument.pdf');
+    expect(documents.length).toBeGreaterThan(1);
+    expect(documents.some((d: any) => d.name === 'allgemeines-dokument.pdf')).toBe(true);
+    expect(documents.some((d: any) => d.name === 'ÄÖÜ-Müller-Testbild.png')).toBe(true);
     
     expect(components).toBeDefined();
     expect(components[0].documents).toBeDefined();
@@ -176,15 +187,31 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
     expect(components[0].documents[0].name).toBe('bauteil-modell.stl');
     
     // Prüfen, ob der Auftrag im Dashboard ist
-    await expect(page.locator('text=E2E Sandbox Test Auftrag (Mit Dateien)').first()).toBeVisible();
+    await expect(page.locator('text=E2E Sandbox Test Auftrag (Mit Dateien und Umlaute)').first()).toBeVisible();
 
     // In die Detailansicht navigieren und überprüfen
-    await page.locator('text=E2E Sandbox Test Auftrag (Mit Dateien)').first().click();
+    await page.locator('text=E2E Sandbox Test Auftrag (Mit Dateien und Umlaute)').first().click();
     await expect(page.locator('h2:has-text("E2E Sandbox Test Auftrag")')).toBeVisible();
     
     // Allgemeine Dateien sind im Tab "Auftragsinformationen" (oder falls Dashboard, dann klicke nicht)
     await page.click('button:has-text("Auftragsinformationen")');
     await expect(page.locator('text=allgemeines-dokument.pdf').first()).toBeVisible();
+    await expect(page.locator('text=ÄÖÜ-Müller-Testbild.png').first()).toBeVisible();
+
+    // Test: Bild im Overlay anzeigen
+    const viewImageButton = page.locator('button[title="Bild anzeigen"]').first();
+    await viewImageButton.click();
+    
+    // Overlay sollte sichtbar sein
+    const overlayImage = page.locator('img[alt="Vorschau"]');
+    await expect(overlayImage).toBeVisible();
+    
+    // Overlay schließen
+    const closeButton = page.locator('button:has(svg.lucide-x)').last();
+    await closeButton.click();
+    
+    // Overlay sollte weg sein
+    await expect(overlayImage).not.toBeVisible();
 
     // Überprüfen, ob die Bauteile und Dateien in der UI sichtbar sind
     await page.click('button:has-text("Bauteilübersicht")');

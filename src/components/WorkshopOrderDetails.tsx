@@ -24,8 +24,23 @@ import {
   ArrowLeft,
   Wrench,
   Lock,
-  GripVertical
+  GripVertical,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import {
+  getFileIcon,
+  getFileIconSmall,
+  getFileTypeDescription,
+  isSTLFile,
+  isIPTFile,
+  isCADFile,
+  isDWGFile,
+  isZIPFile,
+  isEMCAMFile,
+  isImageFile,
+  isPDFFile
+} from '../utils/fileIcons';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
@@ -118,7 +133,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [showComponentUpload, setShowComponentUpload] = useState(false);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
   const [internalFilesRefreshTrigger, setInternalFilesRefreshTrigger] = useState(0);
-
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const toggleSTLViewer = (docId: string) => {
     setShowSTLViewers(prev => ({
       ...prev,
@@ -130,39 +145,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     return /\.stl$/i.test(fileName);
   };
 
-  const isIPTFile = (fileName: string) => {
-    return /\.(ipt|iam)$/i.test(fileName);
+  const isImageFile = (fileName: string) => {
+    return /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
   };
 
-  const isDWGFile = (fileName: string) => {
-    return /\.dwg$/i.test(fileName);
+  const handleViewImage = (doc: any) => {
+    const url = doc.url || `/api/documents/${doc.id}`;
+    if (url) setPreviewImageUrl(url);
   };
 
-  const isZIPFile = (fileName: string) => {
-    return /\.zip$/i.test(fileName);
-  };
-
-  const isEMCAMFile = (fileName: string) => {
-    return /\.emcam$/i.test(fileName);
-  };
-
-  const getFileIcon = (fileName: string, className = "w-5 h-5") => {
-    if (isSTLFile(fileName)) return <Server className={`${className} text-purple-600`} />;
-    if (isIPTFile(fileName)) return <Box className={`${className} text-orange-500`} />;
-    if (isDWGFile(fileName)) return <PenTool className={`${className} text-blue-500`} />;
-    if (isZIPFile(fileName)) return <Archive className={`${className} text-yellow-600`} />;
-    if (isEMCAMFile(fileName)) return <Wrench className={`${className} text-teal-600`} />;
-    return <FileText className={`${className} text-red-600`} />;
-  };
-
-  const getFileTypeDescription = (fileName: string) => {
-    if (isSTLFile(fileName)) return '3D-Modell (STL)';
-    if (isIPTFile(fileName)) return 'CAD-Modell (IPT/IAM)';
-    if (isDWGFile(fileName)) return 'Zeichnung (DWG)';
-    if (isZIPFile(fileName)) return 'Archiv (ZIP)';
-    if (isEMCAMFile(fileName)) return 'CAM-Datei (EMCAM)';
-    return 'PDF-Dokument';
-  };
   const [showRevisionDialog, setShowRevisionDialog] = useState(false);
   const [showIncompleteTasksDialog, setShowIncompleteTasksDialog] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -1391,6 +1382,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                 <Eye className="w-4 h-4" />
                               </button>
                             )}
+                            {isImageFile(doc.name) && (
+                              <button
+                                onClick={() => handleViewImage(doc)}
+                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                title="Bild anzeigen"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleDownload(doc)}
                               className="text-gray-500 hover:text-blue-600 transition-colors p-1"
@@ -1544,6 +1544,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                         Anzeigen
                                       </button>
                                     )}
+                            {isImageFile(doc.name) && (
+                              <button
+                                onClick={() => handleViewImage(doc)}
+                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                title="Bild anzeigen"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
                                     <button
                                       onClick={() => handleDownload(doc)}
                                       className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
@@ -1897,7 +1906,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       {subTaskDocuments.map(doc => (
                         <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border">
                           <div className="flex items-center">
-                            <FileText className="w-4 h-4 text-red-600 mr-2" />
+                            {getFileIconSmall(doc.name || '')}
                             <div className="flex items-center">
                               <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                               {doc.pdfWarning && (
@@ -2235,7 +2244,9 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           {subTask.documents.map((doc) => (
                             <div key={doc.id} className="flex items-center justify-between p-2 bg-white rounded border">
                               <div className="flex items-center">
-                                <FileText className="w-4 h-4 text-red-600 mr-2" />
+                                <div className="mr-2">
+                                  {getFileIcon(doc.name)}
+                                </div>
                                 <div className="flex items-center">
                                   <span className="text-sm text-gray-900" title={getDisplayPath(doc)}>{doc.name}</span>
                                   {doc.pdfWarning && (
@@ -2250,6 +2261,15 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                   <button
                                     onClick={() => handleViewPDF(doc)}
                                     className="text-red-600 hover:text-red-800 transition-colors flex items-center"
+                                  >
+                                    <Eye className="w-3 h-3 mr-1" />
+                                    <span className="text-xs">Anzeigen</span>
+                                  </button>
+                                )}
+                                {isImageFile(doc.name) && (
+                                  <button
+                                    onClick={() => handleViewImage(doc)}
+                                    className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
                                   >
                                     <Eye className="w-3 h-3 mr-1" />
                                     <span className="text-xs">Anzeigen</span>
@@ -2500,6 +2520,30 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                 {isSubmitting ? 'Wird bestätigt...' : 'Bestätigen'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex items-center justify-center">
+            <button 
+              className="absolute top-4 right-4 bg-black bg-opacity-50 text-white rounded-full p-2 hover:bg-opacity-70 transition-all z-10"
+              onClick={() => setPreviewImageUrl(null)}
+              title="Schließen"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={previewImageUrl} 
+              alt="Vorschau" 
+              className="max-w-full max-h-full object-contain shadow-2xl rounded"
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
         </div>
       )}

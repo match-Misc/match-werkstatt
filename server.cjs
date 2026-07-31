@@ -58,7 +58,7 @@ transporter.verify((error, success) => {
 });
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3002;
 
 // CORS - dynamisch konfigurierbar für Docker
 const corsOrigins = process.env.CORS_ORIGINS
@@ -214,7 +214,16 @@ const storage = multer.diskStorage({
     cb(null, destDir);
   },
   filename: (req, file, cb) => {
-    // Keep original filename (sanitized), avoid collisions by appending (1), (2), ...
+    // Check if originalname seems to be UTF-8 decoded as latin1 (contains Ã)
+    let decodedName = file.originalname;
+    if (decodedName.includes('Ã')) {
+      try {
+        decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    // Set it back to the file object so subsequent middleware (like fileFilter) sees the fixed name
+    file.originalname = decodedName;
+
     const ext = path.extname(file.originalname);
     const baseRaw = path.basename(file.originalname, ext);
     // Sanitize for Windows and general file systems
@@ -222,7 +231,7 @@ const storage = multer.diskStorage({
       .trim()
       .replace(/[\\/:*?"<>|]/g, '_') // Windows forbidden chars
       .replace(/\s+/g, ' ')            // normalize spaces
-      .replace(/[^a-zA-Z0-9\-_.]/g, '_'); // keep common safe chars (removed space/parens just in case, but let's keep them if they were there)
+      .replace(/[^a-zA-Z0-9\-_.\u00C0-\u017F]/g, '_'); // keep common safe chars and umlaute
 
     let candidate = `${safeBase}${ext}`;
     let counter = 1;
@@ -254,7 +263,15 @@ const upload = multer({
 // Memory storage for title images
 const memoryUpload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit for images
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for images
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.includes('Ã')) {
+      try {
+        file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    cb(null, true);
+  }
 });
 
 // MongoDB Connection Setup
@@ -4472,14 +4489,36 @@ const camNetworkStorage = multer.diskStorage({
     }
   },
   filename: (req, file, cb) => {
-    const originalName = file.originalname;
-    cb(null, originalName);
+    let decodedName = file.originalname;
+    if (decodedName.includes('Ã')) {
+      try {
+        decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    file.originalname = decodedName;
+
+    // Use a clean filename for CAM upload too
+    const ext = path.extname(file.originalname);
+    const baseRaw = path.basename(file.originalname, ext);
+    const safeBase = baseRaw
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/[^a-zA-Z0-9\-_.\u00C0-\u017F]/g, '_');
+    
+    // We do not append (1) etc since it uses the same order logic and network dir logic could be different
+    // Wait, the previous logic just kept originalName
+    // We'll keep the safe name
+    cb(null, `${safeBase}${ext}`);
   }
 });
 
 const camNetworkUpload = multer({
   storage: camNetworkStorage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+  fileFilter: (req, file, cb) => {
+    cb(null, true);
+  }
 });
 
 // POST /api/orders/:id/upload-document - Upload a document and add it to the order

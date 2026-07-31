@@ -13,13 +13,13 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5175,
+    port: parseInt(process.env.APP_PORT || '5007'),
     proxy: {
-      '/api': 'http://localhost:3001',
-      '/uploads': 'http://localhost:3001', // Proxy für Datei-Downloads
-      '/network-files': 'http://localhost:3001', // Proxy für Netzwerkdateien
+      '/api': 'http://localhost:3002',
+      '/uploads': 'http://localhost:3002', // Proxy für Datei-Downloads
+      '/network-files': 'http://localhost:3002', // Proxy für Netzwerkdateien
       '/ws': {
-        target: 'ws://localhost:3001',
+        target: 'ws://localhost:3002',
         ws: true,
       },
     },
