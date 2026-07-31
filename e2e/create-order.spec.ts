@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
 
 test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
   let createdOrderId: string | null = null;
@@ -217,5 +219,25 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
     await page.click('button:has-text("Bauteilübersicht")');
     await expect(page.locator('text=Bauteil für Upload')).toBeVisible();
     await expect(page.locator('text=bauteil-modell.stl').first()).toBeVisible();
+
+    // -- NEU: Physische Dateien auf dem Server überprüfen --
+    // Bestimme den Auftragsordnernamen
+    const orderFolderName = getOrder.networkFolderName || `${getOrder.orderNumber || getOrder._id} - ${getOrder.title.trim().replace(/[\\/:*?"<>|]/g, '_')}`;
+    const uploadsDir = path.resolve(process.cwd(), 'storage');
+    const orderPath = path.join(uploadsDir, orderFolderName);
+
+    console.log(`Prüfe physische Pfade für Auftrag: ${orderFolderName}`);
+    expect(fs.existsSync(orderPath)).toBeTruthy();
+
+    expect(fs.existsSync(path.join(orderPath, 'allgemeines-dokument.pdf'))).toBeTruthy();
+    expect(fs.existsSync(path.join(orderPath, 'ÄÖÜ-Müller-Testbild.png'))).toBeTruthy();
+
+    // Bauteil-Ordner prüfen (erstes Bauteil -> 01_..., Menge standardmäßig 1)
+    const sanitizedCompName = 'Bauteil für Upload'.trim().replace(/[\\/:*?"<>|]/g, '_');
+    const compFolderName = `01_${sanitizedCompName}_x1`;
+    const compFolderPath = path.join(orderPath, compFolderName);
+    
+    expect(fs.existsSync(compFolderPath)).toBeTruthy();
+    expect(fs.existsSync(path.join(compFolderPath, 'bauteil-modell.stl'))).toBeTruthy();
   });
 });

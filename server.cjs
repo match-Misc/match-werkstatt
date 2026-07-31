@@ -3059,6 +3059,14 @@ app.delete('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
     
+    const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Order nicht gefunden' });
+    }
+
+    const orderFolderName = await getOrCreateOrderFolderName(db, order);
+
     // Delete related documents
     await db.collection('Document').deleteMany({ orderId: new ObjectId(req.params.id) });
     
@@ -3069,12 +3077,37 @@ app.delete('/api/orders/:id', async (req, res) => {
     await db.collection('NoteHistory').deleteMany({ orderId: new ObjectId(req.params.id) });
     
     // Delete order
-    const result = await db.collection('Order').deleteOne({ _id: new ObjectId(req.params.id) });
+    await db.collection('Order').deleteOne({ _id: new ObjectId(req.params.id) });
     
     await client.close();
-    
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Order nicht gefunden' });
+
+    // Clean up directories
+    const pathsToClean = [
+      path.join(__dirname, 'uploads', orderFolderName),
+      path.join(__dirname, 'storage', orderFolderName)
+    ];
+
+    try {
+      const networkConfigPath = path.join(__dirname, 'network-config.json');
+      if (fs.existsSync(networkConfigPath)) {
+        const networkConfig = JSON.parse(fs.readFileSync(networkConfigPath, 'utf8'));
+        if (networkConfig.isEnabled && networkConfig.networkPath) {
+          pathsToClean.push(path.join(networkConfig.networkPath, orderFolderName));
+        }
+      }
+    } catch (e) {
+      console.error('Error reading network config during cleanup:', e);
+    }
+
+    for (const dir of pathsToClean) {
+      if (fs.existsSync(dir)) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+          console.log(`🧹 Deleted folder: ${dir}`);
+        } catch (err) {
+          console.error(`Failed to delete folder ${dir}:`, err);
+        }
+      }
     }
     
     console.log('DELETE /api/orders/:id - Deleted order:', req.params.id);

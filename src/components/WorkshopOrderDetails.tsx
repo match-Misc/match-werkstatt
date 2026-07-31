@@ -41,7 +41,7 @@ import {
   isImageFile,
   isPDFFile
 } from '../utils/fileIcons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
@@ -110,7 +110,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const navigate = useNavigate();
   const [localOrder, setLocalOrder] = useState(order);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>('dashboard');
+  const location = useLocation();
+
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'order_info' | 'components' | 'subtasks' | 'internal_files'>(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    if (tab && ['dashboard', 'order_info', 'components', 'subtasks', 'internal_files'].includes(tab)) {
+      return tab as any;
+    }
+    return 'dashboard';
+  });
   const [autoCalculateHours, setAutoCalculateHours] = useState(true);
   const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
   const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[], dependencies: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: [], dependencies: []});

@@ -102,6 +102,7 @@ export interface SubTask {
   description: string;
   estimatedHours: number;
   actualHours: number;
+  priority?: 'high' | 'medium' | 'low';
   status: 'pending' | 'in_progress' | 'completed';
   assignedTo: string | null; // Mitarbeiter-ID (Pflicht)
   scopeType: 'order' | 'component'; // Scope: Gesamtauftrag oder Bauteil
