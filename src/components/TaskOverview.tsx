@@ -1,232 +1,359 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
-import { Order } from '../types';
-import WorkshopOrderDetails from './WorkshopOrderDetails';
+import { Order, SubTask } from '../types';
+import { useNavigate } from 'react-router-dom';
 
 export default function TaskOverview() {
-  const { state } = useApp();
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const { state, dispatch } = useApp();
+  const navigate = useNavigate();
 
-  const getMySubTasks = () => {
-    if (!['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '')) return [];
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  // Filter state
+  const [filters, setFilters] = useState({
+    orderTitle: '',
+    subTaskTitle: '',
+    assignee: '',
+    priority: '',
+    status: ''
+  });
+
+  const getAllSubTasks = () => {
+    const tasks: Array<{ order: Order; subTask: SubTask; assigneeName: string; deadline: number; originalOrderIndex: number }> = [];
     
-    const mySubTasks: Array<{order: Order, subTask: any}> = [];
     state.orders.forEach(order => {
       if (Array.isArray(order.subTasks)) {
-        order.subTasks.forEach(subTask => {
-          if (subTask.assignedTo === state.currentUser?.id && subTask.status !== 'completed') {
-            mySubTasks.push({ order, subTask });
+        order.subTasks.forEach((subTask, index) => {
+          const isOwnTask = subTask.assignedTo === state.currentUser?.id;
+          const isAdmin = state.currentUser?.role === 'admin';
+          const isVisible = subTask.status !== 'completed' && (isOwnTask || isAdmin);
+          
+          if (isVisible) {
+            const assigneeName = state.workshopAccounts.find(acc => acc.id === subTask.assignedTo)?.name || 'Unbekannt';
+            tasks.push({
+              order,
+              subTask,
+              assigneeName,
+              deadline: new Date(order.deadline).getTime(),
+              originalOrderIndex: subTask.sort_order ?? index
+            });
           }
         });
       }
     });
-    return mySubTasks;
+
+    return tasks;
   };
 
-  const getAdminOwnSubTasks = () => {
-    if (state.currentUser?.role !== 'admin') return [];
+  const allSubTasks = getAllSubTasks();
 
-    const ownSubTasks: Array<{ order: Order; subTask: any; deadline: number }> = [];
-    state.orders.forEach((order) => {
-      if (!Array.isArray(order.subTasks)) return;
-      order.subTasks.forEach((subTask) => {
-        if (subTask.assignedTo === state.currentUser?.id && subTask.status !== 'completed') {
-          ownSubTasks.push({
-            order,
-            subTask,
-            deadline: new Date(order.deadline).getTime()
-          });
-        }
-      });
+  const filteredTasks = useMemo(() => {
+    return allSubTasks.filter(task => {
+      const matchOrder = task.order.title.toLowerCase().includes(filters.orderTitle.toLowerCase());
+      const matchSubTask = task.subTask.title.toLowerCase().includes(filters.subTaskTitle.toLowerCase());
+      const matchAssignee = task.assigneeName.toLowerCase().includes(filters.assignee.toLowerCase());
+      const matchPriority = filters.priority ? (task.subTask.priority || 'medium') === filters.priority : true;
+      const matchStatus = filters.status ? task.subTask.status === filters.status : true;
+      
+      return matchOrder && matchSubTask && matchAssignee && matchPriority && matchStatus;
     });
+  }, [allSubTasks, filters]);
 
-    return ownSubTasks.sort((a, b) => a.deadline - b.deadline);
-  };
-
-  const getAdminTeamPlannedSubTasks = () => {
-    if (state.currentUser?.role !== 'admin') return [];
-
-    const plannedSubTasks: Array<{ order: Order; subTask: any; assigneeName: string; deadline: number }> = [];
-    state.orders.forEach((order) => {
-      if (!Array.isArray(order.subTasks)) return;
-      order.subTasks.forEach((subTask) => {
-        if (subTask.status === 'pending' && subTask.assignedTo && subTask.assignedTo !== state.currentUser?.id) {
-          const assigneeName = state.workshopAccounts.find(acc => acc.id === subTask.assignedTo)?.name || 'Unbekannt';
-          plannedSubTasks.push({
-            order,
-            subTask,
-            assigneeName,
-            deadline: new Date(order.deadline).getTime()
-          });
-        }
+  const sortedTasks = useMemo(() => {
+    const sortableTasks = [...filteredTasks];
+    
+    // Default sorting
+    if (!sortConfig) {
+      return sortableTasks.sort((a, b) => {
+        const titleCompare = a.order.title.localeCompare(b.order.title);
+        if (titleCompare !== 0) return titleCompare;
+        return a.originalOrderIndex - b.originalOrderIndex;
       });
-    });
-
-    return plannedSubTasks.sort((a, b) => a.deadline - b.deadline);
-  };
-
-  const getSubTaskScopeText = (order: Order, subTask: any) => {
-    if (subTask.scopeType !== 'component') {
-      return '📋 Gesamtauftrag';
     }
 
+    // Custom sorting
+    return sortableTasks.sort((a, b) => {
+      let aValue: any, bValue: any;
+      
+      switch (sortConfig.key) {
+        case 'orderTitle':
+          aValue = a.order.title;
+          bValue = b.order.title;
+          break;
+        case 'subTaskTitle':
+          aValue = a.subTask.title;
+          bValue = b.subTask.title;
+          break;
+        case 'assignee':
+          aValue = a.assigneeName;
+          bValue = b.assigneeName;
+          break;
+        case 'priority':
+          const priorityWeight: Record<string, number> = { high: 3, medium: 2, low: 1, undefined: 0 };
+          aValue = priorityWeight[a.subTask.priority || 'undefined'] || 0;
+          bValue = priorityWeight[b.subTask.priority || 'undefined'] || 0;
+          break;
+        case 'status':
+          aValue = a.subTask.status;
+          bValue = b.subTask.status;
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredTasks, sortConfig]);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const handleUpdateSubTask = async (orderId: string, subTaskId: string, updates: Partial<SubTask>) => {
+    const order = state.orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    const updatedSubTasks = order.subTasks.map(st => 
+      st.id === subTaskId ? { ...st, ...updates, updatedAt: new Date() } : st
+    );
+
+    const updatedOrder = { ...order, subTasks: updatedSubTasks };
+    dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
+
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedOrder)
+      });
+      if (!res.ok) throw new Error('Failed to update order');
+    } catch (err) {
+      console.error('Fehler beim Aktualisieren der Unteraufgabe', err);
+    }
+  };
+
+  const getSubTaskScopeText = (order: Order, subTask: SubTask) => {
+    if (subTask.scopeType !== 'component') return '📋 Gesamtauftrag';
     const component = order.components?.find((comp: any) => {
       const compId = comp.id || comp._id;
       return compId === subTask.assignedComponentId;
     });
-
-    const componentTitle = component
-      ? (component.title || component.name || 'Bauteil')
-      : (subTask.assignedComponentTitle || 'Bauteil');
-
+    const componentTitle = component ? (component.title || 'Bauteil') : (subTask.assignedComponentTitle || 'Bauteil');
     return `🔧 ${componentTitle}`;
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'accepted': return 'bg-blue-100 text-blue-800';
-      case 'in_progress': return 'bg-purple-100 text-purple-800';
-      case 'revision': return 'bg-orange-100 text-orange-800';
-      case 'rework': return 'bg-orange-100 text-orange-800';
-      case 'waiting_confirmation': return 'bg-cyan-100 text-cyan-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'pending': return 'bg-yellow-100 text-yellow-900';
+      case 'accepted': return 'bg-blue-100 text-blue-900';
+      case 'in_progress': return 'bg-purple-100 text-purple-900';
+      case 'revision': return 'bg-orange-100 text-orange-900';
+      case 'rework': return 'bg-orange-100 text-orange-900';
+      case 'waiting_confirmation': return 'bg-cyan-100 text-cyan-900';
+      case 'completed': return 'bg-green-100 text-green-900';
+      default: return 'bg-gray-100 text-gray-900';
     }
   };
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending': return 'Ausstehend';
-      case 'accepted': return 'Angenommen';
-      case 'in_progress': return 'In Bearbeitung';
-      case 'revision': return 'Überarbeitung';
-      case 'rework': return 'In Nacharbeit';
-      case 'waiting_confirmation': return 'Wartet auf Abnahme';
-      case 'completed': return 'Abgeschlossen';
-      default: return status;
+  const getPriorityColor = (priority?: string) => {
+    switch (priority) {
+      case 'high': return 'bg-red-100 text-red-900';
+      case 'medium': return 'bg-yellow-100 text-yellow-900';
+      case 'low': return 'bg-green-100 text-green-900';
+      default: return 'bg-gray-100 text-gray-900';
     }
   };
 
-  const mySubTasks = getMySubTasks();
-  const adminOwnSubTasks = getAdminOwnSubTasks();
-  const adminTeamPlannedSubTasks = getAdminTeamPlannedSubTasks();
 
-  if (selectedOrder) {
-    return <WorkshopOrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
-  }
+  const isAdmin = state.currentUser?.role === 'admin';
 
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-gray-900">Unteraufgaben</h2>
-        <p className="text-gray-600 mt-1">Ihre zugewiesenen Unteraufgaben und Team-Planung</p>
+        <p className="text-gray-600 mt-1">Übersicht aller Unteraufgaben als Liste</p>
       </div>
 
-      {state.currentUser?.role === 'admin' ? (
-        <div className="space-y-6">
-          <div className="bg-blue-50 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
-            {adminOwnSubTasks.length === 0 ? (
-              <p className="text-sm text-gray-500">Keine offenen eigenen Unteraufgaben.</p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {adminOwnSubTasks.map(({ order, subTask }) => (
-                  <div key={subTask.id} className="bg-white rounded-lg p-4 shadow-sm border">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                        <p className="text-xs text-gray-600 mt-1">{subTask.description}</p>
-                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
+      <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th 
+                  scope="col" 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('orderTitle')}
+                >
+                  Auftragsname {sortConfig?.key === 'orderTitle' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('subTaskTitle')}
+                >
+                  Aufgabename {sortConfig?.key === 'subTaskTitle' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                {isAdmin && (
+                  <th 
+                    scope="col" 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('assignee')}
+                  >
+                    Mitarbeiter {sortConfig?.key === 'assignee' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                  </th>
+                )}
+                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Weitere Informationen
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('priority')}
+                >
+                  Priorität {sortConfig?.key === 'priority' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+                <th 
+                  scope="col" 
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort('status')}
+                >
+                  Zustand {sortConfig?.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                </th>
+              </tr>
+              <tr className="bg-gray-100 border-t border-gray-200">
+                <th className="px-6 py-2">
+                  <input
+                    type="text"
+                    placeholder="Filtern..."
+                    className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
+                    value={filters.orderTitle}
+                    onChange={(e) => setFilters(prev => ({ ...prev, orderTitle: e.target.value }))}
+                  />
+                </th>
+                <th className="px-6 py-2">
+                  <input
+                    type="text"
+                    placeholder="Filtern..."
+                    className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
+                    value={filters.subTaskTitle}
+                    onChange={(e) => setFilters(prev => ({ ...prev, subTaskTitle: e.target.value }))}
+                  />
+                </th>
+                {isAdmin && (
+                  <th className="px-6 py-2">
+                    <input
+                      type="text"
+                      placeholder="Filtern..."
+                      className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
+                      value={filters.assignee}
+                      onChange={(e) => setFilters(prev => ({ ...prev, assignee: e.target.value }))}
+                    />
+                  </th>
+                )}
+                <th className="px-6 py-2"></th>
+                <th className="px-6 py-2">
+                  <select
+                    className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
+                    value={filters.priority}
+                    onChange={(e) => setFilters(prev => ({ ...prev, priority: e.target.value }))}
+                  >
+                    <option value="">Alle</option>
+                    <option value="high">Hoch</option>
+                    <option value="medium">Mittel</option>
+                    <option value="low">Tief</option>
+                  </select>
+                </th>
+                <th className="px-6 py-2">
+                  <select
+                    className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
+                    value={filters.status}
+                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+                  >
+                    <option value="">Alle</option>
+                    <option value="pending">Ausstehend</option>
+                    <option value="in_progress">In Bearbeitung</option>
+                    <option value="completed">Abgeschlossen</option>
+                  </select>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {sortedTasks.length === 0 ? (
+                <tr>
+                  <td colSpan={isAdmin ? 7 : 6} className="px-6 py-4 text-center text-sm text-gray-500">
+                    Keine Unteraufgaben gefunden.
+                  </td>
+                </tr>
+              ) : (
+                sortedTasks.map(({ order, subTask, assigneeName }) => (
+                  <tr 
+                    key={`${order.id}-${subTask.id}`} 
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => navigate(`/orders/${order.orderNumber || order.id}?tab=subtasks`)}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {order.title}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {subTask.title}
+                    </td>
+                    {isAdmin && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {assigneeName}
+                      </td>
+                    )}
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      <div className="flex flex-col space-y-1">
+                        <span className="truncate max-w-xs">{subTask.description}</span>
+                        <span className="text-xs">{getSubTaskScopeText(order, subTask)}</span>
+                        <span className="text-xs">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</span>
+                        {subTask.estimatedHours > 0 && <span className="text-xs">Geschätzt: {subTask.estimatedHours}h</span>}
                       </div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                        {getStatusText(subTask.status)}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 mb-2">Hauptauftrag: {order.title}</div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <select
+                        value={subTask.priority || 'medium'}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleUpdateSubTask(order.id, subTask.id, { priority: e.target.value as any });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`mt-1 block w-full pl-3 pr-10 py-1.5 text-sm font-medium border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md ${getPriorityColor(subTask.priority || 'medium')}`}
                       >
-                        Öffnen
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Geplante Team-Unteraufgaben (Statusübersicht)</h3>
-            {adminTeamPlannedSubTasks.length === 0 ? (
-              <p className="text-sm text-gray-500">Keine geplanten Team-Unteraufgaben.</p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {adminTeamPlannedSubTasks.map(({ order, subTask, assigneeName }) => (
-                  <div key={subTask.id} className="bg-gray-50 rounded-lg p-4 border">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                        <p className="text-xs text-gray-600 mt-1">Mitarbeiter: {assigneeName}</p>
-                        <p className="text-xs text-gray-600">Auftrag: {order.title}</p>
-                        <p className="text-xs text-gray-500 mt-1">{getSubTaskScopeText(order, subTask)}</p>
-                      </div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                        {getStatusText(subTask.status)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center mt-2">
-                      <div className="text-xs text-gray-500">Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}</div>
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                        <option value="high" className="bg-white text-gray-900">Hoch</option>
+                        <option value="medium" className="bg-white text-gray-900">Mittel</option>
+                        <option value="low" className="bg-white text-gray-900">Tief</option>
+                      </select>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <select
+                        value={subTask.status}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          handleUpdateSubTask(order.id, subTask.id, { status: e.target.value as any });
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`mt-1 block w-full pl-3 pr-10 py-1.5 text-sm font-medium border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-md ${getStatusColor(subTask.status)}`}
                       >
-                        Öffnen
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                        <option value="pending" className="bg-white text-gray-900">Ausstehend</option>
+                        <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
+                        <option value="completed" className="bg-white text-gray-900">Abgeschlossen</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      ) : (
-        <div className="bg-blue-50 rounded-lg p-6 mb-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Meine Unteraufgaben</h3>
-          {mySubTasks.length === 0 ? (
-            <p className="text-sm text-gray-500">Keine offenen eigenen Unteraufgaben.</p>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {mySubTasks.map(({ order, subTask }) => (
-                <div key={subTask.id} className="bg-white rounded-lg p-4 shadow-sm border">
-                  <div className="flex justify-between items-start mb-2">
-                    <h4 className="font-medium text-gray-900 text-sm">{subTask.title}</h4>
-                    <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(subTask.status)}`}>
-                      {getStatusText(subTask.status)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-600 mb-2">{subTask.description}</p>
-                  <div className="text-xs text-gray-500 mb-2">
-                    Hauptauftrag: {order.title}
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500">
-                    <span>{subTask.estimatedHours}h geschätzt</span>
-                    <button
-                      onClick={() => setSelectedOrder(order)}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      Öffnen
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

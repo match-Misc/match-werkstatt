@@ -27,9 +27,9 @@ export async function checkPdfSize(file: File): Promise<string | null> {
       
       // A3 max dimension is around 1191 points. We use 1200 as threshold.
       if (maxDim > 1200) {
-        if (maxDim > 2300) return 'A0 oder größer';
-        if (maxDim > 1600) return 'A1';
-        if (maxDim > 1200) return 'A2';
+        if (maxDim > 2400) return 'A0 oder größer'; // Über A1 (2384)
+        if (maxDim > 1700) return 'A1'; // Über A2 (1684)
+        if (maxDim > 1200) return 'A2'; // Über A3 (1191)
       }
     }
   } catch (error) {

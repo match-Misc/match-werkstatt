@@ -58,7 +58,7 @@ transporter.verify((error, success) => {
 });
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3002;
 
 // CORS - dynamisch konfigurierbar für Docker
 const corsOrigins = process.env.CORS_ORIGINS
@@ -214,7 +214,16 @@ const storage = multer.diskStorage({
     cb(null, destDir);
   },
   filename: (req, file, cb) => {
-    // Keep original filename (sanitized), avoid collisions by appending (1), (2), ...
+    // Check if originalname seems to be UTF-8 decoded as latin1 (contains Ã)
+    let decodedName = file.originalname;
+    if (decodedName.includes('Ã')) {
+      try {
+        decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    // Set it back to the file object so subsequent middleware (like fileFilter) sees the fixed name
+    file.originalname = decodedName;
+
     const ext = path.extname(file.originalname);
     const baseRaw = path.basename(file.originalname, ext);
     // Sanitize for Windows and general file systems
@@ -222,7 +231,7 @@ const storage = multer.diskStorage({
       .trim()
       .replace(/[\\/:*?"<>|]/g, '_') // Windows forbidden chars
       .replace(/\s+/g, ' ')            // normalize spaces
-      .replace(/[^a-zA-Z0-9\-_.]/g, '_'); // keep common safe chars (removed space/parens just in case, but let's keep them if they were there)
+      .replace(/[^a-zA-Z0-9\-_.\u00C0-\u017F]/g, '_'); // keep common safe chars and umlaute
 
     let candidate = `${safeBase}${ext}`;
     let counter = 1;
@@ -254,7 +263,15 @@ const upload = multer({
 // Memory storage for title images
 const memoryUpload = multer({ 
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit for images
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit for images
+  fileFilter: (req, file, cb) => {
+    if (file.originalname.includes('Ã')) {
+      try {
+        file.originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    cb(null, true);
+  }
 });
 
 // MongoDB Connection Setup
@@ -1111,6 +1128,24 @@ app.post('/api/login', async (req, res) => {
           
           const result = await db.collection('User').insertOne(newUser);
           localUser = await db.collection('User').findOne({ _id: result.insertedId });
+
+          // Benachrichtige Admins und Werkstattleitung über neuen Benutzer
+          try {
+            const adminUsers = await db.collection('User').find({ role: { $in: ['admin', 'manager'] } }).toArray();
+            const adminEmails = adminUsers.map(u => u.email).filter(email => email);
+            if (adminEmails.length > 0) {
+              await transporter.sendMail({
+                from: process.env.SMTP_FROM || process.env.SMTP_USER,
+                to: adminEmails.join(','),
+                subject: 'Match-Werkstatt: Neuer Benutzer registriert',
+                text: `Ein neuer Benutzer (${userInfo.username}) hat sich registriert und benötigt eine Rolle.`,
+                encoding: 'utf-8'
+              });
+              console.log('[HYBRID-AUTH] Benachrichtigung an Admins gesendet');
+            }
+          } catch (mailError) {
+            console.error('[HYBRID-AUTH] Fehler beim Senden der Benachrichtigungs-E-Mail:', mailError);
+          }
         }
         
         await client.close();
@@ -1370,6 +1405,21 @@ app.put('/api/ldap/users/:username/role', async (req, res) => {
       }
     );
 
+    // E-Mail Benachrichtigung bei Rollenänderung
+    if (user.role !== normalizedRole && user.email) {
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: user.email,
+          subject: 'Match-Werkstatt: Rolle aktualisiert',
+          text: `Hallo ${user.name || user.username},\n\ndeine Rolle in der Match-Werkstatt wurde aktualisiert auf: ${normalizedRole}.\nDu kannst das Tool nun entsprechend nutzen.`,
+          encoding: 'utf-8'
+        });
+      } catch (mailError) {
+        console.error('[LDAP-ROLE-UPDATE] Fehler beim Senden der E-Mail:', mailError);
+      }
+    }
+
     await client.close();
     return res.json({ success: true, message: `Rolle auf '${normalizedRole}' aktualisiert` });
   } catch (err) {
@@ -1413,6 +1463,21 @@ app.put('/api/users/:id/role', async (req, res) => {
     
     const updatedUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
     
+    // E-Mail Benachrichtigung bei Rollenänderung
+    if (targetUser.role !== role && updatedUser.email) {
+      try {
+        await transporter.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: updatedUser.email,
+          subject: 'Match-Werkstatt: Rolle aktualisiert',
+          text: `Hallo ${updatedUser.name || updatedUser.username},\n\ndeine Rolle in der Match-Werkstatt wurde aktualisiert auf: ${role}.\nDu kannst das Tool nun entsprechend nutzen.`,
+          encoding: 'utf-8'
+        });
+      } catch (mailError) {
+        console.error('PUT /api/users/:id/role Fehler beim Senden der E-Mail:', mailError);
+      }
+    }
+
     // Broadcast updated users list
     const wss = req.app.get('wss');
     if (wss) {
@@ -1596,10 +1661,7 @@ app.delete('/api/users/:id', async (req, res) => {
       return res.status(403).json({ error: 'Der primäre Administrator kann nicht gelöscht werden' });
     }
 
-    if (userToDelete.authSource === 'ldap') {
-      await client.close();
-      return res.status(403).json({ error: 'LDAP-Benutzer können nicht lokal gelöscht werden' });
-    }
+    // LDAP-Benutzer können nun auch gelöscht werden
     
     const result = await db.collection('User').deleteOne({ _id: new ObjectId(req.params.id) });
     await client.close();
@@ -2997,6 +3059,14 @@ app.delete('/api/orders/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
     
+    const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Order nicht gefunden' });
+    }
+
+    const orderFolderName = await getOrCreateOrderFolderName(db, order);
+
     // Delete related documents
     await db.collection('Document').deleteMany({ orderId: new ObjectId(req.params.id) });
     
@@ -3007,12 +3077,37 @@ app.delete('/api/orders/:id', async (req, res) => {
     await db.collection('NoteHistory').deleteMany({ orderId: new ObjectId(req.params.id) });
     
     // Delete order
-    const result = await db.collection('Order').deleteOne({ _id: new ObjectId(req.params.id) });
+    await db.collection('Order').deleteOne({ _id: new ObjectId(req.params.id) });
     
     await client.close();
-    
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: 'Order nicht gefunden' });
+
+    // Clean up directories
+    const pathsToClean = [
+      path.join(__dirname, 'uploads', orderFolderName),
+      path.join(__dirname, 'storage', orderFolderName)
+    ];
+
+    try {
+      const networkConfigPath = path.join(__dirname, 'network-config.json');
+      if (fs.existsSync(networkConfigPath)) {
+        const networkConfig = JSON.parse(fs.readFileSync(networkConfigPath, 'utf8'));
+        if (networkConfig.isEnabled && networkConfig.networkPath) {
+          pathsToClean.push(path.join(networkConfig.networkPath, orderFolderName));
+        }
+      }
+    } catch (e) {
+      console.error('Error reading network config during cleanup:', e);
+    }
+
+    for (const dir of pathsToClean) {
+      if (fs.existsSync(dir)) {
+        try {
+          fs.rmSync(dir, { recursive: true, force: true });
+          console.log(`🧹 Deleted folder: ${dir}`);
+        } catch (err) {
+          console.error(`Failed to delete folder ${dir}:`, err);
+        }
+      }
     }
     
     console.log('DELETE /api/orders/:id - Deleted order:', req.params.id);
@@ -4427,14 +4522,36 @@ const camNetworkStorage = multer.diskStorage({
     }
   },
   filename: (req, file, cb) => {
-    const originalName = file.originalname;
-    cb(null, originalName);
+    let decodedName = file.originalname;
+    if (decodedName.includes('Ã')) {
+      try {
+        decodedName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      } catch(e) {}
+    }
+    file.originalname = decodedName;
+
+    // Use a clean filename for CAM upload too
+    const ext = path.extname(file.originalname);
+    const baseRaw = path.basename(file.originalname, ext);
+    const safeBase = baseRaw
+      .trim()
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .replace(/[^a-zA-Z0-9\-_.\u00C0-\u017F]/g, '_');
+    
+    // We do not append (1) etc since it uses the same order logic and network dir logic could be different
+    // Wait, the previous logic just kept originalName
+    // We'll keep the safe name
+    cb(null, `${safeBase}${ext}`);
   }
 });
 
 const camNetworkUpload = multer({
   storage: camNetworkStorage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+  fileFilter: (req, file, cb) => {
+    cb(null, true);
+  }
 });
 
 // POST /api/orders/:id/upload-document - Upload a document and add it to the order

@@ -61,7 +61,7 @@ services:
     image: ghcr.io/match-misc/match-werkstatt-frontend:main
     restart: unless-stopped
     ports:
-      - "5007:80"
+      - "${APP_PORT:-5007}:80"
     depends_on:
       - match-werkstatt-backend
     networks:

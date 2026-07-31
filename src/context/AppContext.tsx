@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, ReactNode, useEffect } from 'react';
 import { User, Order, SubTask, WorkshopAccount, ClientAccount } from '../types';
 
-interface AppState {
+export interface AppState {
   currentUser: User | null;
   orders: Order[];
   workshopAccounts: WorkshopAccount[];
@@ -11,7 +11,7 @@ interface AppState {
   systemConfigs: { id: string; key: string; value: string; description?: string }[];
 }
 
-type AppAction =
+export type AppAction =
   | { type: 'LOGIN'; payload: User }
   | { type: 'UPDATE_CURRENT_USER'; payload: Partial<User> }
   | { type: 'LOGOUT' }
@@ -37,7 +37,7 @@ type AppAction =
   | { type: 'LOAD_SYSTEM_CONFIGS'; payload: { id: string; key: string; value: string; description?: string }[] }
   | { type: 'UPDATE_SYSTEM_CONFIG'; payload: { id: string; key: string; value: string; description?: string } };
 
-const initialState: AppState = {
+export const initialState: AppState = {
   currentUser: null,
   orders: [],
   workshopAccounts: [],
@@ -47,7 +47,7 @@ const initialState: AppState = {
   systemConfigs: []
 };
 
-function appReducer(state: AppState, action: AppAction): AppState {
+export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'LOGIN':
       return {

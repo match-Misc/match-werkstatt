@@ -279,7 +279,6 @@ export default function UserManagement() {
             <tbody className="bg-white divide-y divide-gray-200">
               {users.map((user) => {
                 const isAdmin = user.username === 'admin';
-                const isLdap = user.authSource === 'ldap';
                 
                 return (
                   <tr key={user.id}>
@@ -316,7 +315,7 @@ export default function UserManagement() {
                       </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {!isAdmin && !isLdap && (
+                      {!isAdmin && (
                         <button
                           onClick={() => handleDeleteUser(user.id)}
                           className="text-red-600 hover:text-red-900 focus:outline-none"
