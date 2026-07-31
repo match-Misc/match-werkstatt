@@ -37,3 +37,6 @@ blob-report/
 test-results/
 coverage/
 .nyc_output/
+
+# Agents
+.agents/
