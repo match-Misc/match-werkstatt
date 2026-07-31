@@ -20,7 +20,7 @@ dev = "npx concurrently -c \"blue,green\" -n \"FRONT,BACK\" \"npm run dev\" \"no
 test = "npx vitest run"
 test-watch = "npx vitest"
 test-coverage = "npx vitest run --coverage"
-test-e2e = "npx playwright test"
+test-e2e = "node --env-file=.local.env scripts/seed-e2e-users.cjs && npx playwright test"
 test-e2e-ui = "npx playwright test --ui"
 test-report = "npx playwright show-report --host 0.0.0.0"
 
