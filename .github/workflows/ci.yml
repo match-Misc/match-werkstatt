@@ -12,6 +12,12 @@ jobs:
     permissions:
       contents: read
 
+    services:
+      mongodb:
+        image: mongo:latest
+        ports:
+          - 27017:27017
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -30,6 +36,26 @@ jobs:
 
     - name: Install Playwright Browsers
       run: pixi run npx playwright install --with-deps chromium
+
+    - name: Create .local.env file
+      run: |
+        cat << 'EOF' > .local.env
+        PORT=3002
+        APP_PORT=5007
+        MONGO_DB_NAME=match-werkstatt-db
+        DB_NAME=match-werkstatt-db
+        MONGODB_URL=mongodb://127.0.0.1:27017/match-werkstatt-db
+        E2E_TEST_USER_AUFTRAGGEBER_USERNAME=test-user-auftraggeber
+        E2E_TEST_USER_AUFTRAGGEBER_PASSWORD=test123
+        E2E_TEST_USER_ADMIN_USERNAME=admin
+        E2E_TEST_USER_ADMIN_PASSWORD=admin
+        E2E_TEST_USER_WORKSHOP_USERNAME=workshop
+        E2E_TEST_USER_WORKSHOP_PASSWORD=workshop
+        E2E_TEST_USER_MANAGER_USERNAME=manager
+        E2E_TEST_USER_MANAGER_PASSWORD=manager
+        E2E_TEST_USER_GUEST_USERNAME=guest
+        E2E_TEST_USER_GUEST_PASSWORD=guest
+        EOF
 
     - name: Run End-to-End Tests (Playwright)
       run: pixi run test-e2e
