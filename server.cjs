@@ -58,7 +58,7 @@ transporter.verify((error, success) => {
 });
 
 const app = express();
-const port = process.env.PORT || 3002;
+const port = process.env.PORT || 3001;
 
 // CORS - dynamisch konfigurierbar für Docker
 const corsOrigins = process.env.CORS_ORIGINS
