@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Check, Plus, Trash2, Merge } from 'lucide-react';
+import { ShieldAlert, Check, Plus, Trash2, Merge, Server, Users } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import LDAPManagement from './LDAPManagement';
 
 interface User {
   id: string;
@@ -19,6 +20,7 @@ export default function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'ldap' | 'local'>('ldap');
 
   // Form state for creating user
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -192,6 +194,10 @@ export default function UserManagement() {
     }
   };
 
+  const displayedUsers = activeTab === 'ldap' 
+    ? users.filter(u => u.authSource === 'ldap')
+    : users.filter(u => u.authSource !== 'ldap');
+
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8 flex justify-between items-center">
@@ -207,13 +213,15 @@ export default function UserManagement() {
             <Merge className="w-4 h-4 mr-2" />
             Accounts zusammenführen
           </button>
-          <button 
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center shadow-sm"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Benutzer erstellen
-          </button>
+          {activeTab === 'local' && (
+            <button 
+              onClick={() => setShowCreateForm(!showCreateForm)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center shadow-sm"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Benutzer erstellen
+            </button>
+          )}
         </div>
       </div>
 
@@ -243,7 +251,7 @@ export default function UserManagement() {
         </div>
       )}
 
-      {showCreateForm && (
+      {showCreateForm && activeTab === 'local' && (
         <div className="mb-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Neuen Benutzer anlegen</h3>
           <form onSubmit={handleCreateUser} className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-6">
@@ -375,79 +383,128 @@ export default function UserManagement() {
         </div>
       )}
 
-      {loading ? (
-        <div className="flex justify-center p-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="bg-white rounded-lg shadow-sm border mb-8">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+            <button
+              onClick={() => setActiveTab('ldap')}
+              className={`${
+                activeTab === 'ldap'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+            >
+              <Server className="w-4 h-4 mr-2" />
+              LDAP Benutzer
+            </button>
+            <button
+              onClick={() => setActiveTab('local')}
+              className={`${
+                activeTab === 'local'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Lokale Benutzer
+            </button>
+          </nav>
         </div>
-      ) : (
-        <div className="overflow-x-auto border rounded-lg shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name / Username</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auth Source</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registriert am</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rolle</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {users.map((user) => {
-                const isAdmin = user.username === 'admin';
-                
-                return (
-                  <tr key={user.id}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{user.name}</div>
-                      <div className="text-sm text-gray-500">{user.username}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.email || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.authSource || 'local'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString('de-DE') : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <select
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                        disabled={isAdmin}
-                        className={`mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md disabled:opacity-75 disabled:bg-gray-100 ${
-                          user.role === 'admin' ? 'bg-purple-50 text-purple-800 border-purple-200' :
-                          user.role === 'guest' ? 'bg-gray-50 text-gray-600 border-gray-200' :
-                          user.role === 'client' ? 'bg-green-50 text-green-800 border-green-200' :
-                          'bg-blue-50 text-blue-800 border-blue-200'
-                        }`}
-                      >
-                        <option value="guest">Gast</option>
-                        <option value="client">Auftraggeber</option>
-                        <option value="employee">Werkstattmitarbeiter</option>
-                        <option value="manager">Werkstattleitung</option>
-                        <option value="admin">Admin</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      {!isAdmin && (
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="text-red-600 hover:text-red-900 focus:outline-none"
-                          title="Benutzer löschen"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      )}
-                    </td>
+        
+        <div className="p-6">
+          {activeTab === 'ldap' && (
+            <div className="mb-8">
+              <LDAPManagement />
+            </div>
+          )}
+          
+          <h3 className="text-lg font-medium text-gray-900 mb-4">
+            {activeTab === 'ldap' ? 'Über LDAP angemeldete Benutzer' : 'Lokale Benutzer'}
+          </h3>
+          
+          {loading ? (
+            <div className="flex justify-center p-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border rounded-lg shadow-sm">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name / Username</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auth Source</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Registriert am</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rolle</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {displayedUsers.length > 0 ? (
+                    displayedUsers.map((user) => {
+                      const isAdmin = user.username === 'admin';
+                      
+                      return (
+                        <tr key={user.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                            <div className="text-sm text-gray-500">{user.username}</div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {user.email || '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {user.authSource || 'local'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString('de-DE') : '-'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <select
+                              value={user.role}
+                              onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                              disabled={isAdmin}
+                              className={`mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md disabled:opacity-75 disabled:bg-gray-100 ${
+                                user.role === 'admin' ? 'bg-purple-50 text-purple-800 border-purple-200' :
+                                user.role === 'guest' ? 'bg-gray-50 text-gray-600 border-gray-200' :
+                                user.role === 'client' ? 'bg-green-50 text-green-800 border-green-200' :
+                                'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              <option value="guest">Gast</option>
+                              <option value="client">Auftraggeber</option>
+                              <option value="employee">Werkstattmitarbeiter</option>
+                              <option value="manager">Werkstattleitung</option>
+                              <option value="admin">Admin</option>
+                            </select>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            {!isAdmin && (
+                              <button
+                                onClick={() => handleDeleteUser(user.id)}
+                                className="text-red-600 hover:text-red-900 focus:outline-none"
+                                title="Benutzer löschen"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
+                        Keine Benutzer in dieser Kategorie gefunden.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
