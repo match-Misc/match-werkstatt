@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, Check, Plus, Trash2 } from 'lucide-react';
+import { ShieldAlert, Check, Plus, Trash2, Merge } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 interface User {
@@ -28,6 +28,12 @@ export default function UserManagement() {
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('employee');
   const [creating, setCreating] = useState(false);
+
+  // Form state for combining accounts
+  const [showCombineForm, setShowCombineForm] = useState(false);
+  const [sourceUserId, setSourceUserId] = useState('');
+  const [targetUserId, setTargetUserId] = useState('');
+  const [combining, setCombining] = useState(false);
 
   const fetchUsers = async () => {
     try {
@@ -140,6 +146,52 @@ export default function UserManagement() {
     }
   };
 
+  const handleCombineAccounts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sourceUserId || !targetUserId) {
+      setError('Bitte wählen Sie Quell- und Ziel-Account aus.');
+      return;
+    }
+    if (sourceUserId === targetUserId) {
+      setError('Quell- und Ziel-Account dürfen nicht identisch sein.');
+      return;
+    }
+
+    const sourceUser = users.find(u => u.id === sourceUserId);
+    const targetUser = users.find(u => u.id === targetUserId);
+
+    if (!window.confirm(`Möchten Sie wirklich den Account "${sourceUser?.username}" in den Account "${targetUser?.username}" überführen? Der Quell-Account wird danach unwiderruflich gelöscht!`)) {
+      return;
+    }
+
+    try {
+      setCombining(true);
+      setError(null);
+      setSuccess(null);
+      const res = await fetch('/api/users/combine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceUserId, targetUserId })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || data.message || 'Fehler beim Zusammenführen');
+      }
+
+      setSuccess('Accounts erfolgreich zusammengeführt');
+      setShowCombineForm(false);
+      setSourceUserId('');
+      setTargetUserId('');
+      fetchUsers();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setCombining(false);
+    }
+  };
+
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8 flex justify-between items-center">
@@ -147,13 +199,22 @@ export default function UserManagement() {
           <h2 className="text-2xl font-bold text-gray-900">Benutzerverwaltung</h2>
           <p className="text-gray-600 mt-1">Verwalten Sie Rollen und Berechtigungen der Benutzer.</p>
         </div>
-        <button 
-          onClick={() => setShowCreateForm(!showCreateForm)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center shadow-sm"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Benutzer erstellen
-        </button>
+        <div className="flex space-x-4">
+          <button 
+            onClick={() => setShowCombineForm(!showCombineForm)}
+            className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md flex items-center shadow-sm"
+          >
+            <Merge className="w-4 h-4 mr-2" />
+            Accounts zusammenführen
+          </button>
+          <button 
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center shadow-sm"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Benutzer erstellen
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -253,6 +314,61 @@ export default function UserManagement() {
                 className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none disabled:opacity-50"
               >
                 {creating ? 'Speichern...' : 'Speichern'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showCombineForm && (
+        <div className="mb-8 bg-orange-50 border border-orange-200 rounded-lg p-6">
+          <h3 className="text-lg font-medium text-orange-900 mb-4 flex items-center">
+            <Merge className="w-5 h-5 mr-2" />
+            Accounts zusammenführen
+          </h3>
+          <p className="text-sm text-orange-700 mb-4">
+            Achtung: Dies überträgt alle Aufträge vom Quell-Account auf den Ziel-Account. Der Quell-Account wird danach unwiderruflich gelöscht.
+          </p>
+          <form onSubmit={handleCombineAccounts} className="grid grid-cols-1 gap-y-6 gap-x-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Quell-Account (wird gelöscht) *</label>
+              <select
+                required
+                value={sourceUserId}
+                onChange={(e) => setSourceUserId(e.target.value)}
+                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-orange-500 focus:border-orange-500 sm:text-sm rounded-md"
+              >
+                <option value="">Bitte wählen...</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.username} {u.name ? `(${u.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Ziel-Account (bleibt bestehen) *</label>
+              <select
+                required
+                value={targetUserId}
+                onChange={(e) => setTargetUserId(e.target.value)}
+                className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+              >
+                <option value="">Bitte wählen...</option>
+                {users.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.username} {u.name ? `(${u.name})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="sm:col-span-2 flex justify-end">
+              <button
+                type="submit"
+                disabled={combining}
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-orange-600 hover:bg-orange-700 focus:outline-none disabled:opacity-50"
+              >
+                {combining ? 'Führe zusammen...' : 'Accounts zusammenführen'}
               </button>
             </div>
           </form>

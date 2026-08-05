@@ -1646,6 +1646,73 @@ app.put('/api/users/:id', async (req, res) => {
   }
 });
 
+app.post('/api/users/combine', async (req, res) => {
+  try {
+    const { sourceUserId, targetUserId } = req.body;
+    if (!sourceUserId || !targetUserId) {
+      return res.status(400).json({ error: 'Quell- und Ziel-Account müssen angegeben werden.' });
+    }
+    if (sourceUserId === targetUserId) {
+      return res.status(400).json({ error: 'Quell- und Ziel-Account können nicht gleich sein.' });
+    }
+
+    // Rollen-Check für Admin
+    const cookies = parseCookies(req);
+    if (!cookies.sessionId) {
+      return res.status(401).json({ error: 'Nicht authentifiziert' });
+    }
+
+    const { client, db } = await getDB();
+    const session = await db.collection('Session').findOne({ token: cookies.sessionId });
+    if (!session) {
+      await client.close();
+      return res.status(401).json({ error: 'Ungültige Session' });
+    }
+    
+    const adminUser = await db.collection('User').findOne({ _id: new ObjectId(session.userId) });
+    if (!adminUser || adminUser.role !== 'admin') {
+      await client.close();
+      return res.status(403).json({ error: 'Nur Administratoren dürfen Accounts zusammenführen' });
+    }
+    
+    // Beide Accounts laden
+    const sourceUser = await db.collection('User').findOne({ _id: new ObjectId(sourceUserId) });
+    const targetUser = await db.collection('User').findOne({ _id: new ObjectId(targetUserId) });
+
+    if (!sourceUser || !targetUser) {
+      await client.close();
+      return res.status(404).json({ error: 'Einer der Accounts wurde nicht gefunden.' });
+    }
+
+    // Orders aktualisieren (Auftraggeber)
+    await db.collection('Order').updateMany(
+      { clientId: { $in: [sourceUserId, sourceUserId.toString()] } },
+      { $set: { clientId: targetUserId.toString(), clientName: targetUser.name || targetUser.username } }
+    );
+
+    // Orders aktualisieren (Bearbeiter)
+    await db.collection('Order').updateMany(
+      { assignedTo: { $in: [sourceUserId, sourceUserId.toString()] } },
+      { $set: { assignedTo: targetUserId.toString() } }
+    );
+
+    // Historie aktualisieren (falls vorhanden)
+    await db.collection('NoteHistory').updateMany(
+      { 'author.id': { $in: [sourceUserId, sourceUserId.toString()] } },
+      { $set: { 'author.id': targetUserId.toString(), 'author.name': targetUser.name || targetUser.username } }
+    );
+
+    // Source User löschen
+    await db.collection('User').deleteOne({ _id: new ObjectId(sourceUserId) });
+
+    await client.close();
+    res.json({ success: true, message: 'Accounts erfolgreich zusammengeführt.' });
+  } catch (err) {
+    console.error('POST /api/users/combine error:', err);
+    res.status(500).json({ error: 'Fehler beim Zusammenführen der Accounts', details: err.message });
+  }
+});
+
 app.delete('/api/users/:id', async (req, res) => {
   try {
     const { client, db } = await getDB();
