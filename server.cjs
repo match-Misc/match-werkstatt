@@ -998,6 +998,103 @@ app.delete('/api/materials/:id', async (req, res) => {
   }
 });
 
+// === COST CENTERS API ===
+app.get('/api/cost-centers', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const costCenters = await db.collection('CostCenter').find({}).toArray();
+    await client.close();
+    res.json(convertMongoDocs(costCenters));
+  } catch (err) {
+    console.error('GET /api/cost-centers error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden der Kostenstellen', details: err.message });
+  }
+});
+
+app.post('/api/cost-centers', async (req, res) => {
+  try {
+    const { number, projectName } = req.body;
+    if (!number || !projectName) {
+      return res.status(400).json({ error: 'Nummer und Projektname sind erforderlich' });
+    }
+
+    const { client, db } = await getDB();
+    const existing = await db.collection('CostCenter').findOne({ number });
+    if (existing) {
+      await client.close();
+      return res.status(400).json({ error: 'Eine Kostenstelle mit dieser Nummer existiert bereits' });
+    }
+
+    const newCostCenter = {
+      number,
+      projectName,
+      createdAt: new Date().toISOString()
+    };
+
+    const result = await db.collection('CostCenter').insertOne(newCostCenter);
+    await client.close();
+
+    res.status(201).json({ id: result.insertedId.toString(), ...newCostCenter });
+  } catch (err) {
+    console.error('POST /api/cost-centers error:', err);
+    res.status(500).json({ error: 'Fehler beim Erstellen der Kostenstelle', details: err.message });
+  }
+});
+
+app.put('/api/cost-centers/:id', async (req, res) => {
+  try {
+    const { number, projectName } = req.body;
+    if (!number || !projectName) {
+      return res.status(400).json({ error: 'Nummer und Projektname sind erforderlich' });
+    }
+
+    const { client, db } = await getDB();
+    
+    // Check if another cost center has this number
+    const existing = await db.collection('CostCenter').findOne({ 
+      number, 
+      _id: { $ne: new ObjectId(req.params.id) } 
+    });
+    
+    if (existing) {
+      await client.close();
+      return res.status(400).json({ error: 'Eine andere Kostenstelle mit dieser Nummer existiert bereits' });
+    }
+
+    const result = await db.collection('CostCenter').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { number, projectName } }
+    );
+    await client.close();
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Kostenstelle nicht gefunden' });
+    }
+
+    res.json({ success: true, message: 'Kostenstelle aktualisiert' });
+  } catch (err) {
+    console.error('PUT /api/cost-centers error:', err);
+    res.status(500).json({ error: 'Fehler beim Aktualisieren der Kostenstelle', details: err.message });
+  }
+});
+
+app.delete('/api/cost-centers/:id', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const result = await db.collection('CostCenter').deleteOne({ _id: new ObjectId(req.params.id) });
+    await client.close();
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Kostenstelle nicht gefunden' });
+    }
+
+    res.json({ success: true, message: 'Kostenstelle gelöscht' });
+  } catch (err) {
+    console.error('DELETE /api/cost-centers error:', err);
+    res.status(500).json({ error: 'Fehler beim Löschen der Kostenstelle', details: err.message });
+  }
+});
+
 // === USERS API ===
 app.get('/api/users', async (req, res) => {
   try {
