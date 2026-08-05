@@ -122,7 +122,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   });
   const [autoCalculateHours, setAutoCalculateHours] = useState(true);
   const [editingSubTaskId, setEditingSubTaskId] = useState<string | null>(null);
-  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[], dependencies: string[]}>({title: '', description: '', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: [], dependencies: []});
+  const [editSubTaskForm, setEditSubTaskForm] = useState<{title: string, description: string, priority: 'low'|'medium'|'high', estimatedHours: string, assignedTo: string | null, scopeType: 'order' | 'component', assignedComponentIds: string[], dependencies: string[]}>({title: '', description: '', priority: 'medium', estimatedHours: '0', assignedTo: null, scopeType: 'order', assignedComponentIds: [], dependencies: []});
 
   const [estimatedHours, setEstimatedHours] = useState(localOrder.estimatedHours?.toString() || '0');
   const [actualHours, setActualHours] = useState(localOrder.actualHours?.toString() || '0');
@@ -130,6 +130,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [internalWorkshopNote, setInternalWorkshopNote] = useState(localOrder.internalWorkshopNote || '');
   const [showAddSubTask, setShowAddSubTask] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState('');
+  const [subTaskPriority, setSubTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [subTaskDescription, setSubTaskDescription] = useState('');
   const [subTaskHours, setSubTaskHours] = useState('');
   const [subTaskDocuments, setSubTaskDocuments] = useState<PDFDocument[]>([]);
@@ -513,10 +514,11 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
     }
     
     const newSubTask: SubTask = {
-      id: `subtask_${Date.now()}_${Math.random()}`,
+      id: Math.random().toString(36).substr(2, 9),
       orderId: localOrder.id,
       title: subTaskTitle,
       description: subTaskDescription,
+      priority: subTaskPriority,
       estimatedHours: parseFloat(subTaskHours) || 0,
       actualHours: 0,
       status: 'pending',
@@ -1756,6 +1758,17 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
 
+                    <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Priorität</label>
+                    <select
+                      value={subTaskPriority}
+                      onChange={(e) => setSubTaskPriority(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="low">Niedrig</option>
+                      <option value="medium">Mittel</option>
+                      <option value="high">Hoch</option>
+                    </select>
+
                     <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Geschätzte Stunden</label>
                     <input
                       type="number"
@@ -1987,6 +2000,17 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                   placeholder="Titel"
                                 />
                                 
+                                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Priorität</label>
+                                <select
+                                  value={editSubTaskForm.priority}
+                                  onChange={e => setEditSubTaskForm({ ...editSubTaskForm, priority: e.target.value as 'low'|'medium'|'high' })}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="low">Niedrig</option>
+                                  <option value="medium">Mittel</option>
+                                  <option value="high">Hoch</option>
+                                </select>
+                                
                                 <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Geschätzte Stunden</label>
                                 <input
                                   type="number"
@@ -2139,6 +2163,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     handleUpdateSubTask(subTask, {
                                       title: editSubTaskForm.title,
                                       description: editSubTaskForm.description,
+                                      priority: editSubTaskForm.priority,
                                       estimatedHours: parseFloat(editSubTaskForm.estimatedHours) || 0,
                                       assignedTo: editSubTaskForm.assignedTo,
                                       scopeType: editSubTaskForm.scopeType,
@@ -2157,7 +2182,25 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           </div>
                         ) : (
                           <>
-                            <h4 className="font-medium text-gray-900">{subTask.title}</h4>
+                            <div className="flex items-center space-x-2">
+                              <h4 className="font-medium text-gray-900">{subTask.title}</h4>
+                              {canModify || state.currentUser?.role === 'admin' || subTask.assignedTo === state.currentUser?.id ? (
+                                <select
+                                  value={subTask.priority || 'medium'}
+                                  onChange={(e) => handleUpdateSubTask(subTask, { priority: e.target.value as 'low' | 'medium' | 'high' })}
+                                  className={`px-2 py-0.5 text-xs rounded-full border font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer ${getPriorityColor(subTask.priority || 'medium')}`}
+                                  style={{ paddingRight: '1.5rem' }}
+                                >
+                                  <option value="low" className="bg-white text-gray-900">Niedrig</option>
+                                  <option value="medium" className="bg-white text-gray-900">Mittel</option>
+                                  <option value="high" className="bg-white text-gray-900">Hoch</option>
+                                </select>
+                              ) : (
+                                <span className={`px-2 py-0.5 text-xs rounded-full border ${getPriorityColor(subTask.priority || 'medium')}`}>
+                                  {getPriorityText(subTask.priority || 'medium')}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-sm text-gray-600 mt-1">{subTask.description}</p>
                           </>
                         )}
@@ -2220,6 +2263,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                   setEditSubTaskForm({
                                     title: subTask.title,
                                     description: subTask.description || '',
+                                    priority: subTask.priority || 'medium',
                                     estimatedHours: subTask.estimatedHours?.toString() || '0',
                                     assignedTo: subTask.assignedTo || null,
                                     scopeType: subTask.scopeType || 'order',

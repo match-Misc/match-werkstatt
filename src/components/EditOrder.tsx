@@ -362,6 +362,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                 Kostenstelle *
               </label>
               <CostCenterPicker
+                id="costCenter"
                 value={costCenter}
                 onChange={setCostCenter}
                 required={true}

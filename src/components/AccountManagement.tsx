@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { Settings, ShieldAlert, Box, Briefcase } from 'lucide-react';
+import { Settings, ShieldAlert, Box, Briefcase, UserCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import NetworkConfigAdmin from './NetworkConfigAdmin';
 import MaterialManagement from './MaterialManagement';
 import FileTypeRestrictionAdmin from './FileTypeRestrictionAdmin';
 import CostCenterManagement from './CostCenterManagement';
+import DefaultAssigneeAdmin from './DefaultAssigneeAdmin';
 
 export default function AccountManagement() {
   const { state } = useApp();
-  const [activeTab, setActiveTab] = useState<'material' | 'filetypes' | 'network' | 'costcenter'>('material');
+  const [activeTab, setActiveTab] = useState<'material' | 'filetypes' | 'network' | 'costcenter' | 'defaultassignee'>('material');
 
   const isAdminOrManager = state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager';
 
@@ -70,6 +71,17 @@ export default function AccountManagement() {
                   <Briefcase className="w-4 h-4 mr-2" />
                   Kostenstellen
                 </button>
+                <button
+                  onClick={() => setActiveTab('defaultassignee')}
+                  className={`${
+                    activeTab === 'defaultassignee'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                >
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  Standard-Zuweisung
+                </button>
               </nav>
             </div>
 
@@ -92,6 +104,11 @@ export default function AccountManagement() {
               {activeTab === 'costcenter' && (
                 <div>
                   <CostCenterManagement />
+                </div>
+              )}
+              {activeTab === 'defaultassignee' && (
+                <div>
+                  <DefaultAssigneeAdmin />
                 </div>
               )}
             </div>

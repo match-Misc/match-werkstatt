@@ -136,7 +136,21 @@ async function fileDownloadGuard(req, res, next) {
 
 // Static files
 const uploadsDir = path.join(__dirname, 'storage');
-app.use('/uploads', fileDownloadGuard, express.static(uploadsDir, {
+app.use('/uploads', fileDownloadGuard, (req, res, next) => {
+  if (req.url && req.url !== '/') {
+    try {
+      const decodedPath = decodeURIComponent(req.url);
+      const regularPath = path.join(uploadsDir, decodedPath);
+      if (!fs.existsSync(regularPath)) {
+        const archivPath = path.join(uploadsDir, 'Archiv', decodedPath);
+        if (fs.existsSync(archivPath)) {
+          req.url = '/Archiv' + req.url;
+        }
+      }
+    } catch(e) { }
+  }
+  next();
+}, express.static(uploadsDir, {
   etag: false,
   lastModified: false,
   setHeaders: (res, filePath) => {
@@ -172,6 +186,18 @@ app.use('/network-files', fileDownloadGuard, async (req, res, next) => {
     res.set('Surrogate-Control', 'no-store');
     
     if (networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath)) {
+      if (req.url && req.url !== '/') {
+        try {
+          const decodedPath = decodeURIComponent(req.url);
+          const regularPath = path.join(networkConfig.networkPath, decodedPath);
+          if (!fs.existsSync(regularPath)) {
+            const archivPath = path.join(networkConfig.networkPath, 'Archiv', decodedPath);
+            if (fs.existsSync(archivPath)) {
+              req.url = '/Archiv' + req.url;
+            }
+          }
+        } catch(e) { }
+      }
       express.static(networkConfig.networkPath, {
         etag: false,
         lastModified: false,
@@ -337,6 +363,10 @@ async function autoMigrateOrderFiles(db, orderId) {
       destBasePath = uploadsDir;
       urlPrefix = ''; // Will result in /uploads/...
       isMigrated = false;
+    }
+    
+    if (order.status === 'archived') {
+      destBasePath = path.join(destBasePath, 'Archiv');
     }
     
     // Get documents to organize - process BOTH embedded and separate collection
@@ -2739,6 +2769,40 @@ app.put('/api/orders/:id', async (req, res) => {
       );
     }
     
+    // Check if status changed to/from archived and move physical folder
+    const oldStatus = existingOrder.status;
+    const newStatus = updateData.status !== undefined ? updateData.status : oldStatus;
+    
+    if (oldStatus !== newStatus && (oldStatus === 'archived' || newStatus === 'archived')) {
+      try {
+        const orderFolderName = await getOrCreateOrderFolderName(db, existingOrder);
+        const settingsCollection = db.collection('settings');
+        const networkConfig = await settingsCollection.findOne({ type: 'network-config' });
+        
+        let destBasePath = uploadsDir;
+        if (networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath)) {
+          destBasePath = networkConfig.networkPath;
+        }
+        
+        const basePath = path.join(destBasePath, orderFolderName);
+        const archivPath = path.join(destBasePath, 'Archiv', orderFolderName);
+        
+        const sourcePath = oldStatus === 'archived' ? archivPath : basePath;
+        const targetPath = newStatus === 'archived' ? archivPath : basePath;
+        
+        if (fs.existsSync(sourcePath)) {
+          const targetDir = path.dirname(targetPath);
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          fs.renameSync(sourcePath, targetPath);
+          console.log(`[File-Organization] Moved folder from ${sourcePath} to ${targetPath}`);
+        }
+      } catch (err) {
+        console.error('[File-Organization] Failed to move folder for archiving:', err);
+      }
+    }
+    
     // Trigger auto-migration/organization with the existing db connection
     await autoMigrateOrderFiles(db, req.params.id);
 
@@ -3137,6 +3201,15 @@ app.post('/api/orders', async (req, res) => {
       deadline = new Date(orderData.deadline);
     }
     
+    // Check for default assignee
+    let assignedTo = orderData.assignedTo || null;
+    if (!assignedTo) {
+      const defaultAssigneeConfig = await db.collection('settings').findOne({ type: 'default-assignee-config' });
+      if (defaultAssigneeConfig && defaultAssigneeConfig.userId) {
+        assignedTo = defaultAssigneeConfig.userId;
+      }
+    }
+    
     // Create new order
     const newOrder = {
       orderNumber: orderNumber,
@@ -3150,7 +3223,7 @@ app.post('/api/orders', async (req, res) => {
       status: orderData.status || 'pending',
       estimatedHours: orderData.estimatedHours || 0,
       actualHours: orderData.actualHours || 0,
-      assignedTo: orderData.assignedTo || null,
+      assignedTo: assignedTo,
       notes: orderData.notes || '',
       internalWorkshopNote: orderData.internalWorkshopNote || '',
       orderType: orderData.orderType,
@@ -3248,7 +3321,9 @@ app.delete('/api/orders/:id', async (req, res) => {
     // Clean up directories
     const pathsToClean = [
       path.join(__dirname, 'uploads', orderFolderName),
-      path.join(__dirname, 'storage', orderFolderName)
+      path.join(__dirname, 'uploads', 'Archiv', orderFolderName),
+      path.join(__dirname, 'storage', orderFolderName),
+      path.join(__dirname, 'storage', 'Archiv', orderFolderName)
     ];
 
     try {
@@ -3257,6 +3332,7 @@ app.delete('/api/orders/:id', async (req, res) => {
         const networkConfig = JSON.parse(fs.readFileSync(networkConfigPath, 'utf8'));
         if (networkConfig.isEnabled && networkConfig.networkPath) {
           pathsToClean.push(path.join(networkConfig.networkPath, orderFolderName));
+          pathsToClean.push(path.join(networkConfig.networkPath, 'Archiv', orderFolderName));
         }
       }
     } catch (e) {
@@ -3273,6 +3349,8 @@ app.delete('/api/orders/:id', async (req, res) => {
         }
       }
     }
+    
+
     
     console.log('DELETE /api/orders/:id - Deleted order:', req.params.id);
     res.json({ success: true });
@@ -4429,6 +4507,54 @@ app.post('/api/admin/network-config', async (req, res) => {
   } catch (err) {
     console.error('POST /api/admin/network-config error:', err);
     res.status(500).json({ success: false, error: 'Fehler beim Speichern der Netzwerkkonfiguration' });
+  }
+});
+
+app.get('/api/admin/default-assignee', async (req, res) => {
+  try {
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    const settingsCollection = db.collection('settings');
+    
+    const config = await settingsCollection.findOne({ type: 'default-assignee-config' });
+    
+    await client.close();
+    
+    res.json(config || { userId: null });
+  } catch (err) {
+    console.error('GET /api/admin/default-assignee error:', err);
+    res.status(500).json({ error: 'Fehler beim Laden der Standard-Zuweisung' });
+  }
+});
+
+app.post('/api/admin/default-assignee', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    const client = new MongoClient(MONGODB_URL);
+    await client.connect();
+    const db = client.db(DB_NAME);
+    const settingsCollection = db.collection('settings');
+    
+    await settingsCollection.updateOne(
+      { type: 'default-assignee-config' },
+      { 
+        $set: { 
+          type: 'default-assignee-config',
+          userId: userId || null,
+          updatedAt: new Date()
+        } 
+      },
+      { upsert: true }
+    );
+    
+    await client.close();
+    
+    res.json({ success: true, message: 'Standard-Zuweisung gespeichert' });
+  } catch (err) {
+    console.error('POST /api/admin/default-assignee error:', err);
+    res.status(500).json({ success: false, error: 'Fehler beim Speichern der Standard-Zuweisung' });
   }
 });
 

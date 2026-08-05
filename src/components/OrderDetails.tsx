@@ -1070,6 +1070,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
             <button 
               className="absolute -top-12 right-0 text-white hover:text-gray-300"
               onClick={() => setPreviewImageUrl(null)}
+              title="Schließen"
             >
               <X className="w-6 h-6" />
             </button>

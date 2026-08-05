@@ -525,6 +525,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 Kostenstelle *
               </label>
               <CostCenterPicker
+                id="costCenter"
                 value={costCenter}
                 onChange={setCostCenter}
                 required={true}

@@ -8,12 +8,13 @@ interface CostCenter {
 }
 
 interface CostCenterPickerProps {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
 }
 
-export default function CostCenterPicker({ value, onChange, required = false }: CostCenterPickerProps) {
+export default function CostCenterPicker({ id, value, onChange, required = false }: CostCenterPickerProps) {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +84,7 @@ export default function CostCenterPicker({ value, onChange, required = false }: 
     <div className="relative">
       <div className="flex gap-2">
         <select
+          id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           required={required}
