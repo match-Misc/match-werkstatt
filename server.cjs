@@ -3163,17 +3163,21 @@ app.post('/api/orders', async (req, res) => {
     const today = new Date();
     const yearMonth = today.toISOString().slice(2, 7).replace('-', ''); // YYMM
     const prefix = orderData.orderType === 'fertigung' ? 'F' : 'S';
+    const counterKey = `order-counter-${prefix}`;
     
-    // Find highest sequential number across all orders in DB
-    const existingOrders = await db.collection('Order').find({}, { projection: { orderNumber: 1 } }).toArray();
+    // Find highest sequential number across all orders in DB with the SAME prefix
+    const existingOrders = await db.collection('Order').find(
+      { orderNumber: { $regex: `^${prefix}-` } }, 
+      { projection: { orderNumber: 1 } }
+    ).toArray();
     
     let maxDbNumber = 0;
     if (existingOrders.length > 0) {
       const numbers = existingOrders.map(order => {
         if (!order.orderNumber) return 0;
         // Format: F-XXXX-YYMM or S-XXXX-YYMM (extract XXXX)
-        const match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
-        if (match) return parseInt(match[1], 10);
+        const match = order.orderNumber.match(/^([FS])-(\d+)-\d{4}$/);
+        if (match && match[1] === prefix) return parseInt(match[2], 10);
         return 0;
       }).filter(num => num > 0);
       
@@ -3183,7 +3187,7 @@ app.post('/api/orders', async (req, res) => {
     }
     
     // Also get the highest ever assigned number from settings
-    const counterDoc = await db.collection('settings').findOne({ type: 'order-counter' });
+    const counterDoc = await db.collection('settings').findOne({ type: counterKey });
     const counterValue = counterDoc ? counterDoc.value : 0;
     
     let nextNumber = Math.max(maxDbNumber, counterValue) + 1;
@@ -3200,7 +3204,7 @@ app.post('/api/orders', async (req, res) => {
     
     // Update the counter to the newly assigned number
     await db.collection('settings').updateOne(
-      { type: 'order-counter' },
+      { type: counterKey },
       { $set: { value: nextNumber } },
       { upsert: true }
     );
@@ -3321,14 +3325,16 @@ app.delete('/api/orders/:id', async (req, res) => {
 
     // If this order had the latest assigned index, release it
     if (order.orderNumber) {
-      const match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
+      const match = order.orderNumber.match(/^([FS])-(\d+)-\d{4}$/);
       if (match) {
-        const deletedNumber = parseInt(match[1], 10);
-        const counterDoc = await db.collection('settings').findOne({ type: 'order-counter' });
+        const orderPrefix = match[1];
+        const counterKey = `order-counter-${orderPrefix}`;
+        const deletedNumber = parseInt(match[2], 10);
+        const counterDoc = await db.collection('settings').findOne({ type: counterKey });
         
         if (counterDoc && counterDoc.value === deletedNumber) {
           await db.collection('settings').updateOne(
-            { type: 'order-counter' },
+            { type: counterKey },
             { $set: { value: deletedNumber - 1 } }
           );
         }
