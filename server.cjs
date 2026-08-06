@@ -3347,7 +3347,6 @@ app.delete('/api/orders/:id', async (req, res) => {
     // Delete order
     await db.collection('Order').deleteOne({ _id: new ObjectId(req.params.id) });
     
-    await client.close();
 
     // Clean up directories
     const pathsToClean = [
@@ -3358,16 +3357,18 @@ app.delete('/api/orders/:id', async (req, res) => {
     ];
 
     try {
-      const networkConfigPath = path.join(__dirname, 'network-config.json');
-      if (fs.existsSync(networkConfigPath)) {
-        const networkConfig = JSON.parse(fs.readFileSync(networkConfigPath, 'utf8'));
-        if (networkConfig.isEnabled && networkConfig.networkPath) {
-          pathsToClean.push(path.join(networkConfig.networkPath, orderFolderName));
-          pathsToClean.push(path.join(networkConfig.networkPath, 'Archiv', orderFolderName));
-        }
+      const networkConfig = await db.collection('settings').findOne({ type: 'network-config' });
+      if (networkConfig && networkConfig.networkPath) {
+        // Also check if it's enabled (or just assume accessible)
+        // Some users might have it temporarily disabled but we still want to clean up if we can.
+        // The network file system structure uses the same format
+        pathsToClean.push(path.join(networkConfig.networkPath, orderFolderName));
+        pathsToClean.push(path.join(networkConfig.networkPath, 'Archiv', orderFolderName));
       }
     } catch (e) {
       console.error('Error reading network config during cleanup:', e);
+    } finally {
+      await client.close();
     }
 
     for (const dir of pathsToClean) {

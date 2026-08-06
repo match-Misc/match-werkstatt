@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft, File, FileImage } from 'lucide-react';
+import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft, File, FileImage, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Order } from '../types';
 import ws from '../utils/websocket';
@@ -28,6 +28,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingNetwork, setIsCheckingNetwork] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [titleImageUrl, setTitleImageUrl] = useState('');
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
@@ -443,6 +444,77 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
     }
   };
 
+  const handleNetworkButtonClick = async () => {
+    setIsCheckingNetwork(true);
+    try {
+      const response = await fetch(`/api/orders/${currentOrder.id}/network-folder`);
+      if (!response.ok) {
+        throw new Error('Fehler beim Abrufen des Netzwerkstatus');
+      }
+      
+      const data = await response.json();
+      const smbPath = data.potentialPath || data.networkPath;
+      
+      if (smbPath) {
+        // Fallback for HTTP (non-HTTPS) clipboard access
+        const copyToClipboard = async (text: string) => {
+          if (navigator.clipboard && window.isSecureContext) {
+            try {
+              await navigator.clipboard.writeText(text);
+              return true;
+            } catch (err) {
+              console.error('Clipboard API failed', err);
+            }
+          }
+          
+          // Fallback
+          const textArea = document.createElement("textarea");
+          textArea.value = text;
+          textArea.style.position = "fixed";
+          textArea.style.left = "-999999px";
+          textArea.style.top = "-999999px";
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          try {
+            document.execCommand('copy');
+            textArea.remove();
+            return true;
+          } catch (err) {
+            console.error('Fallback clipboard failed', err);
+            textArea.remove();
+            return false;
+          }
+        };
+
+        const copied = await copyToClipboard(smbPath);
+        if (copied) {
+          dispatch({ 
+            type: 'SHOW_NOTIFICATION', 
+            payload: { message: 'Netzwerkpfad in Zwischenablage kopiert!', type: 'success' } 
+          });
+        } else {
+          dispatch({ 
+            type: 'SHOW_NOTIFICATION', 
+            payload: { message: 'Fehler beim Kopieren. Bitte manuell kopieren: ' + smbPath, type: 'error' } 
+          });
+        }
+      } else {
+        dispatch({ 
+          type: 'SHOW_NOTIFICATION', 
+          payload: { message: 'Kein Netzwerkpfad verfügbar. Ordner existiert nur lokal.', type: 'error' } 
+        });
+      }
+    } catch (error) {
+      dispatch({ 
+        type: 'SHOW_NOTIFICATION', 
+        payload: { message: 'Fehler bei der Verbindung zum Server.', type: 'error' } 
+      });
+    } finally {
+      setIsCheckingNetwork(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-4">
@@ -461,7 +533,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={currentOrder.title}>{currentOrder.title}</h2>
             <p className="text-gray-600 mt-1">Auftrags-Nr.: {currentOrder.orderNumber || currentOrder.id}</p>
           </div>
-          {currentOrder.status !== 'completed' && currentOrder.status !== 'archived' && (
+          <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(`/orders/${currentOrder.orderNumber || currentOrder.id}/edit`)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -470,7 +542,16 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
               <Edit2 className="w-4 h-4 mr-2" />
               Bearbeiten
             </button>
-          )}
+            <button
+              onClick={handleNetworkButtonClick}
+              disabled={isCheckingNetwork}
+              className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center"
+              title="Netzwerkpfad in Zwischenablage kopieren"
+            >
+              <Server className="w-4 h-4 mr-2" />
+              {isCheckingNetwork ? 'Prüfe...' : 'Netzwerkordner'}
+            </button>
+          </div>
         </div>
 
         {/* Tabs Navigation */}

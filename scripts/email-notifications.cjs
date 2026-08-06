@@ -1,30 +1,63 @@
 const { ObjectId } = require('mongodb');
 
+const path = require('path');
+
+const renderButton = (url, text) => `
+<div style="text-align: center; margin: 35px 0 15px 0;">
+  <!--[if mso]>
+  <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${url}" style="height:50px;v-text-anchor:middle;width:280px;" arcsize="12%" stroke="f" fillcolor="#2563eb">
+    <w:anchorlock/>
+    <center>
+  <![endif]-->
+      <a href="${url}" style="background-color:#2563eb;border-radius:6px;color:#ffffff;display:inline-block;font-family:sans-serif;font-size:16px;font-weight:bold;line-height:50px;text-align:center;text-decoration:none;width:280px;-webkit-text-size-adjust:none;">${text}</a>
+  <!--[if mso]>
+    </center>
+  </v:roundrect>
+  <![endif]-->
+</div>
+`;
+
 // Helfer-Funktion für Outlook-kompatibles HTML
 const createBaseEmailHtml = (title, content) => `
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<style>
-  body { font-family: Arial, sans-serif; color: #333; line-height: 1.6; }
-  .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 5px; }
-  .header { font-size: 20px; font-weight: bold; margin-bottom: 20px; color: #005A9C; }
-  .table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-  .table th, .table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-  .table th { background-color: #f4f4f4; }
-  .footer { margin-top: 30px; font-size: 12px; color: #666; border-top: 1px solid #eee; padding-top: 10px; }
-</style>
 </head>
-<body>
-  <div class="container">
-    <div class="header">${title}</div>
-    ${content}
-    <div class="footer">
-      Dies ist eine automatisch generierte Nachricht aus der Match Werkstatt-App.<br>
-      Bitte antworten Sie nicht direkt auf diese E-Mail.
-    </div>
-  </div>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #374151; line-height: 1.6; background-color: #f3f4f6; margin: 0; padding: 40px 20px;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f3f4f6; padding: 40px 20px;">
+    <tr>
+      <td align="center">
+        <!--[if mso]>
+        <table role="presentation" align="center" border="0" cellspacing="0" cellpadding="0" width="800">
+        <tr>
+        <td style="padding: 35px; background-color: #ffffff;">
+        <![endif]-->
+        <table width="800" border="0" cellspacing="0" cellpadding="0" style="max-width: 800px; background-color: #ffffff; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden;">
+          <tr>
+            <td style="padding: 35px;">
+              <div style="text-align: center; margin-bottom: 25px; border-bottom: 2px solid #e5e7eb; padding-bottom: 20px;">
+                <img src="cid:matchlogo" alt="Match Logo" height="60" width="170" style="height: 60px; width: 170px; max-width: 100%; display: inline-block;">
+                <h1 style="font-size: 24px; font-weight: 700; margin-top: 15px; margin-bottom: 0; color: #111827; text-align: left;">${title}</h1>
+              </div>
+              <div style="font-size: 16px; color: #374151;">
+                ${content}
+              </div>
+              <div style="margin-top: 40px; font-size: 13px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px; text-align: center;">
+                Dies ist eine automatisch generierte Nachricht aus der Match Werkstatt-App.<br>
+                Bitte antworten Sie nicht direkt auf diese E-Mail.
+              </div>
+            </td>
+          </tr>
+        </table>
+        <!--[if mso]>
+        </td>
+        </tr>
+        </table>
+        <![endif]-->
+      </td>
+    </tr>
+  </table>
 </body>
 </html>
 `;
@@ -82,6 +115,9 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
     const createdAt = orderData.createdAt ? new Date(orderData.createdAt).toLocaleDateString('de-DE') : 'Unbekannt';
     const readyAt = new Date().toLocaleDateString('de-DE');
 
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const orderLink = `${appUrl}/orders/${orderNumber}`;
+
     const html = createBaseEmailHtml(
       `Ihr Auftrag ${orderNumber} ist abholbereit`,
       `
@@ -98,6 +134,7 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
 
       <h3>Bauteile in diesem Auftrag:</h3>
       ${componentsHtml}
+      ${renderButton(orderLink, 'Auftrag in der App öffnen')}
       `
     );
 
@@ -105,7 +142,12 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
       from: process.env.SMTP_FROM,
       to: clientUser.email,
       subject: `Werkstatt-Auftrag ${orderNumber}: Zur Abnahme freigegeben`,
-      html: html
+      html: html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
     });
     console.log(`[EMAIL] Freigabe-E-Mail an Kunden gesendet: ${info.messageId}`);
   } catch (error) {
@@ -177,6 +219,9 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
     const clientName = commentData?.userName || orderData.clientName || 'Kunde';
     const comment = commentData?.comment || 'Kein Kommentar hinterlegt';
 
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const orderLink = `${appUrl}/orders/${orderNumber}`;
+
     const html = createBaseEmailHtml(
       `Auftrag ${orderNumber} wurde ${statusText}`,
       `
@@ -188,7 +233,7 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
         <em>"${comment}"</em>
       </div>
 
-      <p>Bitte prüfen Sie den Vorgang in der Werkstatt-App.</p>
+      ${renderButton(orderLink, 'Auftrag in der App öffnen')}
       `
     );
 
@@ -196,7 +241,12 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
       from: process.env.SMTP_FROM,
       to: Array.from(targetEmails).join(','),
       subject: `[Werkstatt] Auftrag ${orderNumber}: ${isCompleted ? 'Abgenommen' : 'Nacharbeit'}`,
-      html: html
+      html: html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
     });
     console.log(`[EMAIL] Status-Update E-Mail an Werkstatt gesendet: ${info.messageId}`);
   } catch (error) {
@@ -267,8 +317,7 @@ async function sendOrderEditedEmail(transporter, db, orderId, orderData, changed
         ${changesList || '<li>Keine spezifischen Felder erkannt (oder allgemeine Aktualisierung)</li>'}
       </ul>
 
-      <p>Sie können den aktualisierten Auftrag hier einsehen:</p>
-      <p><a href="${orderLink}" style="display: inline-block; padding: 10px 15px; background-color: #005A9C; color: #fff; text-decoration: none; border-radius: 5px;">Zum Auftrag</a></p>
+      ${renderButton(orderLink, 'Aktualisierten Auftrag öffnen')}
       `
     );
 
@@ -276,7 +325,12 @@ async function sendOrderEditedEmail(transporter, db, orderId, orderData, changed
       from: process.env.SMTP_FROM,
       to: Array.from(targetEmails).join(','),
       subject: `[Werkstatt] Auftrag bearbeitet: ${orderNumber}`,
-      html: html
+      html: html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
     });
     console.log(`[EMAIL] Bearbeitungs-E-Mail gesendet: ${info.messageId}`);
   } catch (error) {
