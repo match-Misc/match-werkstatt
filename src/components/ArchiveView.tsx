@@ -3,10 +3,12 @@ import { useApp } from '../context/AppContext';
 import { Order } from '../types';
 import OrderDetails from './OrderDetails';
 import { Eye, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 
 export default function ArchiveView() {
-  const { state, dispatch } = useApp();
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const { state } = useApp();
+  const navigate = useNavigate();
+  const { orderNumber } = useParams<{ orderNumber: string }>();
   const [sortConfig, setSortConfig] = useState<{ key: keyof Order | 'orderNumber', direction: 'asc' | 'desc' }>({ 
     key: 'orderNumber', 
     direction: 'desc' 
@@ -54,9 +56,12 @@ export default function ArchiveView() {
     return undefined; // Kein Bild vorhanden
   };
 
+  const selectedOrder = orderNumber 
+    ? state.orders.find(o => (o.orderNumber || o.id) === orderNumber) 
+    : null;
 
   if (selectedOrder) {
-    return <OrderDetails order={selectedOrder} onClose={() => setSelectedOrder(null)} />;
+    return <OrderDetails order={selectedOrder} onClose={() => navigate('/archive')} />;
   }
 
   return (
@@ -97,7 +102,11 @@ export default function ArchiveView() {
                 {archivedOrders.map((order) => {
                   const imageUrl = getTitleImageUrl(order);
                   return (
-                    <tr key={order.id} className="hover:bg-gray-50">
+                    <tr 
+                      key={order.id} 
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => navigate(`/archive/${order.orderNumber || order.id}`)}
+                    >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-4">
                           {imageUrl && (
@@ -121,7 +130,10 @@ export default function ArchiveView() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div className="flex space-x-3">
                           <button
-                            onClick={() => setSelectedOrder(order)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/archive/${order.orderNumber || order.id}`);
+                            }}
                             className="text-blue-600 hover:text-blue-800 flex items-center"
                           >
                             <Eye className="w-4 h-4 mr-1" />

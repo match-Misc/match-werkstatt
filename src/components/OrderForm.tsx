@@ -616,9 +616,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                         <button
                           type="button"
                           onClick={() => handleViewImage(doc)}
-                          className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs px-2"
+                          className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
+                          title="Bild anzeigen"
                         >
-                          <Eye className="w-4 h-4 mr-1" />Anzeigen
+                          <Eye className="w-4 h-4" />
                         </button>
                       )}
                       {isPDFFile(doc.name || '') && doc.url && (
@@ -626,9 +627,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                           href={doc.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs px-2"
+                          className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                          title="PDF anzeigen"
                         >
-                          <Eye className="w-4 h-4 mr-1" />Anzeigen
+                          <Eye className="w-4 h-4" />
                         </a>
                       )}
                       <button
@@ -806,9 +808,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                                   <button
                                     type="button"
                                     onClick={() => handleViewImage(doc)}
-                                    className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs px-2"
+                                    className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
+                                    title="Bild anzeigen"
                                   >
-                                    <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                    <Eye className="w-4 h-4" />
                                   </button>
                                 )}
                                 {isPDFFile(doc.name || '') && doc.url && (
@@ -816,9 +819,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                                     href={doc.url}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs px-2"
+                                    className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                                    title="PDF anzeigen"
                                   >
-                                    <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                    <Eye className="w-4 h-4" />
                                   </a>
                                 )}
                                 <button

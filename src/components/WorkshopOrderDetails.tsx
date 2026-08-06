@@ -144,6 +144,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
   const [internalFilesRefreshTrigger, setInternalFilesRefreshTrigger] = useState(0);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const toggleSTLViewer = (docId: string) => {
     setShowSTLViewers(prev => ({
       ...prev,
@@ -829,7 +830,6 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       alert('Nur Admins und Werkstattleiter dürfen Aufträge löschen!');
       return;
     }
-    if (!window.confirm('Diesen Auftrag wirklich unwiderruflich löschen?')) return;
     try {
       const response = await fetch(`/api/orders/${localOrder.id}`, {
         method: 'DELETE',
@@ -1396,15 +1396,24 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                             {isImageFile(doc.name) && (
                               <button
                                 onClick={() => handleViewImage(doc)}
-                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
                                 title="Bild anzeigen"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
+                            {isPDFFile(doc.name) && (
+                              <button
+                                onClick={() => handleViewPDF(doc)}
+                                className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                                title="PDF anzeigen"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
                             )}
                             <button
                               onClick={() => handleDownload(doc)}
-                              className="text-gray-500 hover:text-blue-600 transition-colors p-1"
+                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors p-1.5 rounded"
                               title="Herunterladen"
                             >
                               <Download className="w-4 h-4" />
@@ -1540,36 +1549,36 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     {isSTLFile(doc.name) && (
                                       <button
                                         onClick={() => toggleSTLViewer(doc.id)}
-                                        className="text-purple-600 hover:text-purple-800 transition-colors flex items-center text-xs"
+                                        className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 transition-colors p-1.5 rounded"
+                                        title="3D Ansicht"
                                       >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        3D
+                                        <Eye className="w-4 h-4" />
                                       </button>
                                     )}
                                     {doc.name.toLowerCase().endsWith('.pdf') && (
                                       <button
                                         onClick={() => handleViewPDF(doc)}
-                                        className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                        className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                                        title="PDF anzeigen"
                                       >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        Anzeigen
+                                        <Eye className="w-4 h-4" />
                                       </button>
                                     )}
-                            {isImageFile(doc.name) && (
-                              <button
-                                onClick={() => handleViewImage(doc)}
-                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
-                                title="Bild anzeigen"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                            )}
+                                    {isImageFile(doc.name) && (
+                                      <button
+                                        onClick={() => handleViewImage(doc)}
+                                        className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
+                                        title="Bild anzeigen"
+                                      >
+                                        <Eye className="w-4 h-4" />
+                                      </button>
+                                    )}
                                     <button
                                       onClick={() => handleDownload(doc)}
-                                      className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
+                                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors p-1.5 rounded"
+                                      title="Herunterladen"
                                     >
-                                      <Download className="w-3 h-3 mr-1" />
-                                      Download
+                                      <Download className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -2452,7 +2461,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
         {activeTab === 'dashboard' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager') && (
           <div className="flex justify-center mt-12 mb-2">
             <button
-              onClick={handleDeleteOrder}
+              onClick={() => setShowDeleteConfirm(true)}
               className="px-6 py-3 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition-colors text-lg font-semibold"
               title="Auftrag löschen"
             >
@@ -2461,6 +2470,35 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           </div>
         )}
       </div>
+
+      {/* Modal für Löschen-Bestätigung */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4 text-red-600">Auftrag löschen</h3>
+            <p className="text-gray-700 mb-6">
+              Möchten Sie diesen Auftrag wirklich unwiderruflich löschen?
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  handleDeleteOrder();
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Löschen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Revision-Kommentar Dialog */}
       {showRevisionDialog && (

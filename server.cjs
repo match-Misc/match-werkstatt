@@ -139,7 +139,8 @@ const uploadsDir = path.join(__dirname, 'storage');
 app.use('/uploads', fileDownloadGuard, (req, res, next) => {
   if (req.url && req.url !== '/') {
     try {
-      const decodedPath = decodeURIComponent(req.url);
+      const pathname = req.url.split('?')[0];
+      const decodedPath = decodeURIComponent(pathname);
       const regularPath = path.join(uploadsDir, decodedPath);
       if (!fs.existsSync(regularPath)) {
         const archivPath = path.join(uploadsDir, 'Archiv', decodedPath);
@@ -188,7 +189,8 @@ app.use('/network-files', fileDownloadGuard, async (req, res, next) => {
     if (networkConfig && networkConfig.networkPath && fs.existsSync(networkConfig.networkPath)) {
       if (req.url && req.url !== '/') {
         try {
-          const decodedPath = decodeURIComponent(req.url);
+          const pathname = req.url.split('?')[0];
+          const decodedPath = decodeURIComponent(pathname);
           const regularPath = path.join(networkConfig.networkPath, decodedPath);
           if (!fs.existsSync(regularPath)) {
             const archivPath = path.join(networkConfig.networkPath, 'Archiv', decodedPath);
@@ -3162,10 +3164,10 @@ app.post('/api/orders', async (req, res) => {
     const yearMonth = today.toISOString().slice(2, 7).replace('-', ''); // YYMM
     const prefix = orderData.orderType === 'fertigung' ? 'F' : 'S';
     
-    // Find highest sequential number across all orders
+    // Find highest sequential number across all orders in DB
     const existingOrders = await db.collection('Order').find({}, { projection: { orderNumber: 1 } }).toArray();
     
-    let nextNumber = 1;
+    let maxDbNumber = 0;
     if (existingOrders.length > 0) {
       const numbers = existingOrders.map(order => {
         if (!order.orderNumber) return 0;
@@ -3176,9 +3178,15 @@ app.post('/api/orders', async (req, res) => {
       }).filter(num => num > 0);
       
       if (numbers.length > 0) {
-        nextNumber = Math.max(...numbers) + 1;
+        maxDbNumber = Math.max(...numbers);
       }
     }
+    
+    // Also get the highest ever assigned number from settings
+    const counterDoc = await db.collection('settings').findOne({ type: 'order-counter' });
+    const counterValue = counterDoc ? counterDoc.value : 0;
+    
+    let nextNumber = Math.max(maxDbNumber, counterValue) + 1;
     
     let orderNumber;
     while (true) {
@@ -3189,6 +3197,13 @@ app.post('/api/orders', async (req, res) => {
       }
       nextNumber++;
     }
+    
+    // Update the counter to the newly assigned number
+    await db.collection('settings').updateOne(
+      { type: 'order-counter' },
+      { $set: { value: nextNumber } },
+      { upsert: true }
+    );
     
     // Handle draft fallbacks
     let title = orderData.title;
@@ -3303,6 +3318,22 @@ app.delete('/api/orders/:id', async (req, res) => {
     }
 
     const orderFolderName = await getOrCreateOrderFolderName(db, order);
+
+    // If this order had the latest assigned index, release it
+    if (order.orderNumber) {
+      const match = order.orderNumber.match(/^[FS]-(\d+)-\d{4}$/);
+      if (match) {
+        const deletedNumber = parseInt(match[1], 10);
+        const counterDoc = await db.collection('settings').findOne({ type: 'order-counter' });
+        
+        if (counterDoc && counterDoc.value === deletedNumber) {
+          await db.collection('settings').updateOne(
+            { type: 'order-counter' },
+            { $set: { value: deletedNumber - 1 } }
+          );
+        }
+      }
+    }
 
     // Delete related documents
     await db.collection('Document').deleteMany({ orderId: new ObjectId(req.params.id) });
@@ -4177,7 +4208,14 @@ app.get('/api/orders/:id/files/:filename', fileDownloadGuard, async (req, res) =
           networkPath = p;
           console.log(`[Download] Network file found: ${networkPath}`);
         } else {
-          console.log(`[Download] Network file not found`);
+          const orderFolderName = order.orderNumber || order._id.toString();
+          const pArchiv = path.join(networkConfig.networkPath, 'Archiv', orderFolderName, filename);
+          if (fs.existsSync(pArchiv)) {
+            networkPath = pArchiv;
+            console.log(`[Download] Network file found in Archiv: ${networkPath}`);
+          } else {
+            console.log(`[Download] Network file not found`);
+          }
         }
       } else {
         console.log(`[Download] Network path doesn't exist: ${networkConfig.networkPath}`);
@@ -4200,7 +4238,25 @@ app.get('/api/orders/:id/files/:filename', fileDownloadGuard, async (req, res) =
           uploadsPath = p;
           console.log(`[Download] Uploads file found: ${uploadsPath}`);
         } else {
-          console.log(`[Download] Uploads file not found`);
+          // It might be in the new structured order folder or in Archiv
+          // First, check the new structured path
+          const orderFolderName = order.orderNumber || order._id.toString();
+          const pStructured = path.join(uploadsDir, orderFolderName, filename);
+          const pArchiv = path.join(uploadsDir, 'Archiv', orderFolderName, filename);
+          const pArchivOld = path.join(uploadsDir, 'Archiv', path.basename(doc.url));
+          
+          if (fs.existsSync(pStructured)) {
+            uploadsPath = pStructured;
+            console.log(`[Download] Uploads file found in structured dir: ${uploadsPath}`);
+          } else if (fs.existsSync(pArchiv)) {
+            uploadsPath = pArchiv;
+            console.log(`[Download] Uploads file found in Archiv: ${uploadsPath}`);
+          } else if (fs.existsSync(pArchivOld)) {
+            uploadsPath = pArchivOld;
+            console.log(`[Download] Uploads file found in old Archiv: ${uploadsPath}`);
+          } else {
+            console.log(`[Download] Uploads file not found`);
+          }
         }
       } else {
         console.log(`[Download] No document record found in database`);
@@ -4347,7 +4403,12 @@ app.get('/api/documents/:id', async (req, res) => {
     } else if (networkConfig && networkConfig.networkPath && order) {
       const orderFolderName = order.orderNumber || order._id.toString();
       const p = path.join(networkConfig.networkPath, orderFolderName, document.name);
-      if (fs.existsSync(p)) networkPath = p;
+      if (fs.existsSync(p)) {
+        networkPath = p;
+      } else {
+        const pArchiv = path.join(networkConfig.networkPath, 'Archiv', orderFolderName, document.name);
+        if (fs.existsSync(pArchiv)) networkPath = pArchiv;
+      }
     }
 
     let uploadsPath = undefined;
@@ -4356,10 +4417,26 @@ app.get('/api/documents/:id', async (req, res) => {
       if (decodedUrl.startsWith('/uploads/')) {
         const relativePath = decodedUrl.substring('/uploads/'.length);
         const pUp = path.join(uploadsDir, relativePath);
-        if (fs.existsSync(pUp)) uploadsPath = pUp;
+        if (fs.existsSync(pUp)) {
+          uploadsPath = pUp;
+        } else {
+          const pArchiv = path.join(uploadsDir, 'Archiv', relativePath);
+          if (fs.existsSync(pArchiv)) uploadsPath = pArchiv;
+        }
       } else {
         const pUp = path.join(uploadsDir, path.basename(document.url));
-        if (fs.existsSync(pUp)) uploadsPath = pUp;
+        if (fs.existsSync(pUp)) {
+          uploadsPath = pUp;
+        } else if (order) {
+          const orderFolderName = order.orderNumber || order._id.toString();
+          const pArchiv = path.join(uploadsDir, 'Archiv', orderFolderName, path.basename(document.url));
+          if (fs.existsSync(pArchiv)) {
+            uploadsPath = pArchiv;
+          } else {
+            const pArchivOld = path.join(uploadsDir, 'Archiv', path.basename(document.url));
+            if (fs.existsSync(pArchivOld)) uploadsPath = pArchivOld;
+          }
+        }
       }
     }
 

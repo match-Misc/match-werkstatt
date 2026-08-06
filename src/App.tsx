@@ -178,6 +178,12 @@ function AppContent() {
             </RequireRole>
           } />
           
+          <Route path="/archive/:orderNumber" element={
+            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+              <ArchiveView />
+            </RequireRole>
+          } />
+          
           <Route path="/drafts" element={
             <RequireRole allowedRoles={['admin', 'manager', 'client']}>
               <DraftsOverview />

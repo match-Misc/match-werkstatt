@@ -28,6 +28,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [titleImageUrl, setTitleImageUrl] = useState('');
   const [showSTLViewers, setShowSTLViewers] = useState<{[key: string]: boolean}>({});
 
@@ -319,7 +320,6 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
       alert('Nur Admins dürfen Aufträge löschen!');
       return;
     }
-    if (!window.confirm('Diesen Auftrag wirklich unwiderruflich löschen?')) return;
     try {
       const response = await fetch(`/api/orders/${currentOrder.id}`, {
         method: 'DELETE',
@@ -682,21 +682,23 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                               {isPDFFile(doc.name) && (
                                 <button
                                   onClick={() => handleViewPDF(doc)}
-                                  className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                  className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded flex items-center"
+                                  title="PDF anzeigen"
                                 >
-                                  <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                  <Eye className="w-4 h-4" />
                                 </button>
                               )}
                               {isImageFile(doc.name || '') && (
                                 <button
                                   onClick={() => handleViewImage(doc)}
-                                  className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs"
+                                  className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded flex items-center"
+                                  title="Bild anzeigen"
                                 >
-                                  <Eye className="w-4 h-4 mr-1" />Anzeigen
+                                  <Eye className="w-4 h-4" />
                                 </button>
                               )}
-                              <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 flex items-center text-xs">
-                                <Download className="w-4 h-4 mr-1" />Download
+                              <button onClick={() => handleDownload(doc)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors p-1.5 rounded flex items-center" title="Herunterladen">
+                                <Download className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
@@ -795,8 +797,17 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                             {isImageFile(doc.name) && (
                               <button
                                 onClick={() => handleViewImage(doc)}
-                                className="text-blue-600 hover:text-blue-800 transition-colors p-1"
+                                className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
                                 title="Bild anzeigen"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                            )}
+                            {isPDFFile(doc.name) && (
+                              <button
+                                onClick={() => handleViewPDF(doc)}
+                                className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                                title="PDF anzeigen"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
@@ -805,7 +816,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                               href={`/api/documents/${doc.id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-gray-500 hover:text-blue-600 transition-colors p-1"
+                              className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors p-1.5 rounded"
                               title="Herunterladen"
                             >
                               <Download className="w-4 h-4" />
@@ -928,36 +939,36 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                                     {isSTLFile(doc.name) && (
                                       <button
                                         onClick={() => toggleSTLViewer(doc.id)}
-                                        className="text-purple-600 hover:text-purple-800 transition-colors flex items-center text-xs"
+                                        className="text-purple-600 hover:text-purple-800 hover:bg-purple-50 transition-colors p-1.5 rounded"
+                                        title="3D Ansicht"
                                       >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        3D
+                                        <Eye className="w-4 h-4" />
                                       </button>
                                     )}
                                     {isPDFFile(doc.name) && (
                                       <button
                                         onClick={() => handleViewPDF(doc)}
-                                        className="text-red-600 hover:text-red-800 transition-colors flex items-center text-xs"
+                                        className="text-red-600 hover:text-red-800 hover:bg-red-50 transition-colors p-1.5 rounded"
+                                        title="PDF anzeigen"
                                       >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        Anzeigen
+                                        <Eye className="w-4 h-4" />
                                       </button>
                                     )}
                                     {isImageFile(doc.name || '') && (
                                       <button
                                         onClick={() => handleViewImage(doc)}
-                                        className="text-green-600 hover:text-green-800 transition-colors flex items-center text-xs"
+                                        className="text-green-600 hover:text-green-800 hover:bg-green-50 transition-colors p-1.5 rounded"
+                                        title="Bild anzeigen"
                                       >
-                                        <Eye className="w-3 h-3 mr-1" />
-                                        Anzeigen
+                                        <Eye className="w-4 h-4" />
                                       </button>
                                     )}
                                     <button
                                       onClick={() => handleDownload(doc)}
-                                      className="text-blue-600 hover:text-blue-800 transition-colors flex items-center text-xs"
+                                      className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 transition-colors p-1.5 rounded"
+                                      title="Herunterladen"
                                     >
-                                      <Download className="w-3 h-3 mr-1" />
-                                      Download
+                                      <Download className="w-4 h-4" />
                                     </button>
                                   </div>
                                 </div>
@@ -1024,7 +1035,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
           <div className="p-6 bg-gray-50 border-t">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Admin-Aktionen</h3>
             <button
-              onClick={handleDelete}
+              onClick={() => setShowDeleteConfirm(true)}
               className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
             >
               Auftrag löschen
@@ -1080,6 +1091,35 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
               className="max-w-full max-h-[90vh] object-contain rounded shadow-2xl"
               onClick={(e) => e.stopPropagation()} 
             />
+          </div>
+        </div>
+      )}
+
+      {/* Modal für Löschen-Bestätigung */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-8 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4 text-red-600">Auftrag löschen</h3>
+            <p className="text-gray-700 mb-6">
+              Möchten Sie diesen Auftrag wirklich unwiderruflich löschen?
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  handleDelete();
+                }}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                Löschen
+              </button>
+            </div>
           </div>
         </div>
       )}
