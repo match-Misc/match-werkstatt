@@ -47,7 +47,7 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     
     // Optional check for "Spalten anpassen" if table exists (empty DB fallback for CI)
     const tableHeaderDe = page.getByTitle('Spalten anpassen');
-    const emptyStateDe = page.locator('text=Keine archivierten Aufträge vorhanden.');
+    const emptyStateDe = page.locator('text=Keine abgeschlossenen Aufträge gefunden.');
     await expect(tableHeaderDe.or(emptyStateDe)).toBeVisible();
 
     // Switch to EN
