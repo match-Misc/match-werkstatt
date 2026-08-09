@@ -44,12 +44,19 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     // Check DE
     await page.selectOption('[data-testid="language-select"]', 'de');
     await expect(page.locator('h2', { hasText: 'Archiv' })).toBeVisible();
-    await expect(page.getByTitle('Spalten anpassen')).toBeVisible();
+    
+    // Optional check for "Spalten anpassen" if table exists (empty DB fallback for CI)
+    const tableHeaderDe = page.getByTitle('Spalten anpassen');
+    const emptyStateDe = page.locator('text=Keine archivierten Aufträge vorhanden.');
+    await expect(tableHeaderDe.or(emptyStateDe)).toBeVisible();
 
     // Switch to EN
     await page.selectOption('[data-testid="language-select"]', 'en');
     await expect(page.locator('h2', { hasText: 'Archive' })).toBeVisible();
-    await expect(page.getByTitle('Adjust Columns')).toBeVisible();
+    
+    const tableHeaderEn = page.getByTitle('Adjust Columns');
+    const emptyStateEn = page.locator('text=No completed orders found.');
+    await expect(tableHeaderEn.or(emptyStateEn)).toBeVisible();
   });
 
   test('Admin translates correctly', async ({ page }) => {
