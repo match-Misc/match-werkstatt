@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Check, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import { Material } from '../types';
 
 export default function MaterialManagement() {
   const { dispatch } = useApp();
+  const { t } = useTranslation();
   const [materials, setMaterials] = useState<Material[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newMaterialName, setNewMaterialName] = useState('');
@@ -112,7 +114,7 @@ export default function MaterialManagement() {
     <div className="w-full">
       <div className="w-full">
         <p className="text-sm text-gray-600 mb-4">
-          Hier können Sie die Materialien definieren, die bei der Bauteil-Erstellung im Dropdown zur Verfügung stehen.
+          {t('admin.materialDesc', 'Hier können Sie die Materialien definieren, die bei der Bauteil-Erstellung im Dropdown zur Verfügung stehen.')}
         </p>
 
         <form onSubmit={handleAddMaterial} className="flex gap-2 mb-6">
@@ -120,7 +122,7 @@ export default function MaterialManagement() {
             type="text"
             value={newMaterialName}
             onChange={(e) => setNewMaterialName(e.target.value)}
-            placeholder="Neues Material hinzufügen (z.B. S235JR)"
+            placeholder={t('admin.newMaterialPlaceholder', 'Neues Material hinzufügen (z.B. S235JR)')}
             className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
           />
           <button
@@ -129,7 +131,7 @@ export default function MaterialManagement() {
             className="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-medium text-white text-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Plus className="w-4 h-4 mr-1" />
-            Hinzufügen
+            {t('admin.add', 'Hinzufügen')}
           </button>
         </form>
 

@@ -42,14 +42,14 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
       test('kann einen neuen Auftrag (ohne Bauteil) erstellen', async ({ page }) => {
         if (!user.canOrder) {
           await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
-          await expect(page.locator('button:has-text("Auftrag anlegen")')).not.toBeVisible();
+          await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
           return;
         }
 
         if (user.role === 'Auftraggeber') {
           await page.click('button:has-text("Neuer Auftrag")');
         } else {
-          await page.click('button:has-text("Auftrag anlegen")');
+          await page.click('button:has-text("Neuer Auftrag")');
         }
         
         const titleInput = page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung');
@@ -64,7 +64,7 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         await page.waitForTimeout(500); // Wait for CostCenter picker fetch just in case
         
         const ccNumber1 = `CC-TEST-${Date.now()}-1`;
-        await page.getByTitle('Neue Kostenstelle anlegen').click();
+        await page.getByTitle('Neue Kostenstelle').click();
         await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber1);
         await page.getByPlaceholder('z.B. Projekt X').fill('E2E Test Projekt');
         await page.click('button:has-text("Anlegen & Auswählen")');
@@ -93,14 +93,14 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         if (!user.canOrder) {
           // Anstatt den Test zu überspringen, prüfen wir auch hier nochmal, dass die Buttons unsichtbar sind
           await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
-          await expect(page.locator('button:has-text("Auftrag anlegen")')).not.toBeVisible();
+          await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
           return;
         }
 
         if (user.role === 'Auftraggeber') {
           await page.click('button:has-text("Neuer Auftrag")');
         } else {
-          await page.click('button:has-text("Auftrag anlegen")');
+          await page.click('button:has-text("Neuer Auftrag")');
         }
 
         const titleInput = page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung');
@@ -115,7 +115,7 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         await page.waitForTimeout(500);
         
         const ccNumber2 = `CC-TEST-${Date.now()}-2`;
-        await page.getByTitle('Neue Kostenstelle anlegen').click();
+        await page.getByTitle('Neue Kostenstelle').click();
         await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber2);
         await page.getByPlaceholder('z.B. Projekt X').fill('E2E Test Projekt');
         await page.click('button:has-text("Anlegen & Auswählen")');
@@ -163,14 +163,14 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         if (!user.canOrder) {
           // Anstatt den Test zu überspringen, prüfen wir auch hier nochmal, dass die Buttons unsichtbar sind
           await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
-          await expect(page.locator('button:has-text("Auftrag anlegen")')).not.toBeVisible();
+          await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
           return;
         }
 
         if (user.role === 'Auftraggeber') {
           await page.click('button:has-text("Neuer Auftrag")');
         } else {
-          await page.click('button:has-text("Auftrag anlegen")');
+          await page.click('button:has-text("Neuer Auftrag")');
         }
         
         const titleInput = page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung');
@@ -185,7 +185,7 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         await page.waitForTimeout(500);
 
         const ccNumber3 = `CC-TEST-${Date.now()}-3`;
-        await page.getByTitle('Neue Kostenstelle anlegen').click();
+        await page.getByTitle('Neue Kostenstelle').click();
         await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber3);
         await page.getByPlaceholder('z.B. Projekt X').fill('E2E Test Projekt');
         await page.click('button:has-text("Anlegen & Auswählen")');
@@ -262,7 +262,7 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         await expect(page.locator(`text=E2E Sandbox Test Auftrag (Mit Dateien und Umlaute) - ${user.role}`).first()).toBeVisible();
 
         // In die Detailansicht navigieren und überprüfen
-        await page.locator(`text=E2E Sandbox Test Auftrag (Mit Dateien und Umlaute) - ${user.role}`).first().click();
+        await page.locator(`td`, { hasText: `E2E Sandbox Test Auftrag (Mit Dateien und Umlaute) - ${user.role}` }).first().click();
         await expect(page.locator('h2', { hasText: 'E2E Sandbox Test Auftrag' })).toBeVisible();
         
         // Allgemeine Dateien sind im Tab "Auftragsinformationen"
@@ -279,10 +279,20 @@ test.describe('Auftragserstellung (Sandbox / Cleanup)', () => {
         await expect(overlayImage).toBeVisible();
         
         // Overlay schließen
-        const closeButton = page.locator('button[title="Schließen"]').first();
-        await closeButton.click();
+        // Overlay über den expliziten Schließen-Button im Modal schließen
+        const closeButton = page.locator('div.fixed.inset-0.z-\\[100\\] button[title="Schließen"]').first();
+        await expect(closeButton).toBeVisible();
+        await closeButton.click({ force: true });
         
         // Overlay sollte weg sein
+        await expect(overlayImage).not.toBeVisible();
+
+        // 2. Test: Noch einmal öffnen und Klick auf den Hintergrund (Backdrop) testen
+        await viewImageButton.click({ force: true });
+        await expect(overlayImage).toBeVisible();
+        
+        // Overlay durch Klick auf Hintergrund schließen
+        await page.locator('div.fixed.inset-0').first().click({ position: { x: 10, y: 10 }, force: true });
         await expect(overlayImage).not.toBeVisible();
 
         // Überprüfen, ob die Bauteile und Dateien in der UI sichtbar sind

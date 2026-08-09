@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Trash2, Edit2, Check, X, ShieldAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface CostCenter {
   id: string;
@@ -9,6 +10,7 @@ interface CostCenter {
 }
 
 export default function CostCenterManagement() {
+  const { t } = useTranslation();
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,14 +145,14 @@ export default function CostCenterManagement() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h4 className="text-md font-semibold text-gray-900">
-          Kostenstellen verwalten
+          {t('admin.costCenters', 'Kostenstellen verwalten')}
         </h4>
         <button
           onClick={() => setShowCreateForm(!showCreateForm)}
           className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md text-sm font-medium flex items-center shadow-sm"
         >
           <Plus className="w-4 h-4 mr-1" />
-          Neue Kostenstelle
+          {t('admin.newCostCenter', 'Neue Kostenstelle')}
         </button>
       </div>
 

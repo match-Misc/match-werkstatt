@@ -41,7 +41,7 @@ test.describe('Standard-Zuweisung', () => {
     });
 
     // Create order 1
-    await page.click('button:has-text("Auftrag anlegen")');
+    await page.click('button:has-text("Neuer Auftrag")');
     await page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung').fill('E2E Assignee Test 1 (None)');
     await page.getByLabel(/Beschreibung/i).fill('Test 1');
     const futureDate = new Date();
@@ -50,7 +50,7 @@ test.describe('Standard-Zuweisung', () => {
 
     await page.waitForTimeout(500);
     const ccNumber1 = `CC-ASSIGN-${Date.now()}-1`;
-    await page.getByTitle('Neue Kostenstelle anlegen').click();
+    await page.getByTitle('Neue Kostenstelle').click();
     await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber1);
     await page.getByPlaceholder('z.B. Projekt X').fill('E2E Test Projekt');
     await page.click('button:has-text("Anlegen & Auswählen")');
@@ -73,7 +73,7 @@ test.describe('Standard-Zuweisung', () => {
 
     // Verify UI has no assignee selected
     await page.locator('text=E2E Assignee Test 1 (None)').first().click();
-    await expect(page.locator('select').first()).toHaveValue('');
+    await expect(page.locator('label:has-text("Zugewiesen an") + select')).toHaveValue('');
 
     // 2. Admin als Standard
     await page.request.post('/api/admin/default-assignee', {
@@ -84,14 +84,14 @@ test.describe('Standard-Zuweisung', () => {
     await page.goto('/');
 
     // Create order 2
-    await page.click('button:has-text("Auftrag anlegen")');
+    await page.click('button:has-text("Neuer Auftrag")');
     await page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung').fill('E2E Assignee Test 2 (Admin)');
     await page.getByLabel(/Beschreibung/i).fill('Test 2');
     await page.getByLabel(/Deadline/i).fill(futureDate.toISOString().split('T')[0]);
 
     await page.waitForTimeout(500);
     const ccNumber2 = `CC-ASSIGN-${Date.now()}-2`;
-    await page.getByTitle('Neue Kostenstelle anlegen').click();
+    await page.getByTitle('Neue Kostenstelle').click();
     await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber2);
     await page.getByPlaceholder('z.B. Projekt X').fill('E2E Test Projekt');
     await page.click('button:has-text("Anlegen & Auswählen")');
@@ -114,6 +114,6 @@ test.describe('Standard-Zuweisung', () => {
 
     // Verify UI has admin selected
     await page.locator('text=E2E Assignee Test 2 (Admin)').first().click();
-    await expect(page.locator('select').first()).toHaveValue(adminId);
+    await expect(page.locator('label:has-text("Zugewiesen an") + select')).toHaveValue(adminId);
   });
 });

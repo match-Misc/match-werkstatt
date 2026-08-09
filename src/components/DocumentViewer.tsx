@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Download, Eye, FileText, Box, Archive, Wrench } from 'lucide-react';
 import STLViewer from './STLViewer';
 
@@ -21,6 +22,7 @@ const DocumentViewer = ({
   showPreview = true,
   className = '' 
 }: DocumentViewerProps) => {
+  const { t } = useTranslation();
   const [showSTLViewer, setShowSTLViewer] = useState(false);
   
   // Check if file is a 3D file that we can view
@@ -44,19 +46,19 @@ const DocumentViewer = ({
   const getFileTypeDescription = () => {
     const ext = document.name.split('.').pop()?.toLowerCase();
     switch (ext) {
-      case 'stl': return '3D-Modell (STL)';
-      case 'obj': return '3D-Modell (OBJ)';
-      case 'ply': return '3D-Modell (PLY)';
-      case 'pdf': return 'PDF-Dokument';
-      case 'dwg': return 'CAD-Zeichnung (DWG)';
-      case 'dxf': return 'CAD-Zeichnung (DXF)';
+      case 'stl': return t('fileTypes.stl', '3D-Modell (STL)');
+      case 'obj': return t('fileTypes.obj', '3D-Modell (OBJ)');
+      case 'ply': return t('fileTypes.ply', '3D-Modell (PLY)');
+      case 'pdf': return t('fileTypes.pdf', 'PDF-Dokument');
+      case 'dwg': return t('fileTypes.dwg', 'CAD-Zeichnung (DWG)');
+      case 'dxf': return t('fileTypes.dxf', 'CAD-Zeichnung (DXF)');
       case 'step':
-      case 'stp': return 'CAD-Modell (STEP)';
+      case 'stp': return t('fileTypes.step', 'CAD-Modell (STEP)');
       case 'iges':
-      case 'igs': return 'CAD-Modell (IGES)';
-      case 'zip': return 'Archiv (ZIP)';
-      case 'emcam': return 'CAM-Datei (EMCAM)';
-      default: return 'Dokument';
+      case 'igs': return t('fileTypes.iges', 'CAD-Modell (IGES)');
+      case 'zip': return t('fileTypes.zip', 'Archiv (ZIP)');
+      case 'emcam': return t('fileTypes.emcam', 'CAM-Datei (EMCAM)');
+      default: return t('fileTypes.default', 'Dokument');
     }
   };
   
@@ -102,10 +104,10 @@ const DocumentViewer = ({
               <button
                 onClick={toggleSTLViewer}
                 className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-purple-600 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-md transition-colors"
-                title="3D-Ansicht"
+                title={t('fileTypes.view3dTitle', '3D-Ansicht')}
               >
                 <Eye className="w-3 h-3 mr-1" />
-                {showSTLViewer ? '3D ausblenden' : '3D anzeigen'}
+                {showSTLViewer ? t('fileTypes.hide3d', '3D ausblenden') : t('fileTypes.show3d', '3D anzeigen')}
               </button>
             )}
             
@@ -113,10 +115,10 @@ const DocumentViewer = ({
             <button
               onClick={handleDownload}
               className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
-              title="Herunterladen"
+              title={t('common.download', 'Herunterladen')}
             >
               <Download className="w-3 h-3 mr-1" />
-              Download
+              {t('common.downloadShort', 'Download')}
             </button>
           </div>
         </div>
@@ -141,8 +143,8 @@ const DocumentViewer = ({
             <Box className="w-3 h-3 mr-1" />
             <span>
               {isViewable3DFile 
-                ? '3D-Modell kann in der Vorschau angezeigt werden' 
-                : '3D-Datei (Vorschau nicht verfügbar)'
+                ? t('fileTypes.previewAvailable', '3D-Modell kann in der Vorschau angezeigt werden')
+                : t('fileTypes.previewNotAvailable', '3D-Datei (Vorschau nicht verfügbar)')
               }
             </span>
           </div>

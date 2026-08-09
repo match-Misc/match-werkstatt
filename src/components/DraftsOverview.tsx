@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import { Order } from '../types';
 
 export default function DraftsOverview() {
   const { state } = useApp();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [drafts, setDrafts] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,8 +75,8 @@ export default function DraftsOverview() {
   return (
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Entwürfe</h2>
-        <p className="text-gray-600 mt-1">Verwalten Sie Ihre gespeicherten, aber noch nicht eingereichten Aufträge.</p>
+        <h2 className="text-2xl font-bold text-gray-900">{t('dashboard.drafts', 'Entwürfe')}</h2>
+        <p className="text-gray-600 mt-1">{t('dashboard.draftsDesc', 'Verwalten Sie Ihre gespeicherten, aber noch nicht eingereichten Aufträge.')}</p>
       </div>
 
       {loading ? (
@@ -92,7 +94,7 @@ export default function DraftsOverview() {
                     onClick={() => handleSort('orderNumber')}
                   >
                     <div className="flex items-center">
-                      Auftrags-Nr
+                      {t('dashboard.orderNo', 'Auftrags-Nr')}
                       {renderSortIcon('orderNumber')}
                     </div>
                   </th>
@@ -101,7 +103,7 @@ export default function DraftsOverview() {
                     onClick={() => handleSort('title')}
                   >
                     <div className="flex items-center">
-                      Titel
+                      {t('dashboard.title', 'Titel')}
                       {renderSortIcon('title')}
                     </div>
                   </th>
@@ -110,17 +112,17 @@ export default function DraftsOverview() {
                     onClick={() => handleSort('createdAt')}
                   >
                     <div className="flex items-center">
-                      Erstellt am
+                      {t('dashboard.createdAt', 'Erstellt am')}
                       {renderSortIcon('createdAt')}
                     </div>
                   </th>
                   {state.currentUser?.role !== 'client' && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Auftraggeber
+                      {t('dashboard.client', 'Auftraggeber')}
                     </th>
                   )}
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Aktionen
+                    {t('dashboard.actions', 'Aktionen')}
                   </th>
                 </tr>
               </thead>
@@ -131,7 +133,7 @@ export default function DraftsOverview() {
                       {draft.orderNumber || draft.id}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                      {draft.title || 'Unbenannter Entwurf'}
+                      {draft.title || t('dashboard.untitledDraft', 'Unbenannter Entwurf')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {new Date(draft.createdAt).toLocaleDateString('de-DE')}
@@ -145,10 +147,10 @@ export default function DraftsOverview() {
                       <button
                         onClick={() => navigate(`/orders/${draft.orderNumber || draft.id}/edit`)}
                         className="inline-flex items-center text-blue-600 hover:text-blue-900 bg-blue-50 px-3 py-1 rounded-md"
-                        title="Entwurf bearbeiten / Weitermachen"
+                        title={t('dashboard.continueDraft', 'Entwurf bearbeiten / Weitermachen')}
                       >
                         <Edit2 className="w-4 h-4 mr-2" />
-                        Weitermachen
+                        {t('dashboard.continue', 'Weitermachen')}
                       </button>
                     </td>
                   </tr>
@@ -159,7 +161,7 @@ export default function DraftsOverview() {
         </div>
       ) : (
         <div className="text-center py-12 bg-white rounded-lg shadow-sm border border-gray-200">
-          <p className="text-gray-500">Keine Entwürfe gefunden.</p>
+          <p className="text-gray-500">{t('dashboard.noDrafts', 'Keine Entwürfe gefunden.')}</p>
         </div>
       )}
     </div>

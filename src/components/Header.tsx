@@ -1,6 +1,7 @@
 import React from 'react';
 import { LogOut, Building2, User, Menu } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from 'react-i18next';
 
 interface HeaderProps {
   toggleSidebar?: () => void;
@@ -9,10 +10,20 @@ interface HeaderProps {
 
 export default function Header({ toggleSidebar, isSidebarExpanded }: HeaderProps) {
   const { state, dispatch } = useApp();
+  const { t, i18n } = useTranslation();
 
   const handleLogout = () => {
     dispatch({ type: 'LOGOUT' });
   };
+
+  React.useEffect(() => {
+    if (state.currentUser?.id) {
+      const savedLang = localStorage.getItem(`lang_${state.currentUser.id}`);
+      if (savedLang && savedLang !== i18n.language) {
+        i18n.changeLanguage(savedLang);
+      }
+    }
+  }, [state.currentUser?.id, i18n]);
 
   return (
     <header className="bg-white shadow-sm border-b shrink-0">
@@ -24,7 +35,7 @@ export default function Header({ toggleSidebar, isSidebarExpanded }: HeaderProps
               className="flex items-center hover:opacity-80 transition-opacity"
             >
               <Building2 className="w-8 h-8 text-blue-600 mr-3" />
-              <h1 className="text-xl font-bold text-gray-900 hidden sm:block">Werkstatt-Verwaltung</h1>
+              <h1 className="text-xl font-bold text-gray-900 hidden sm:block">{t('login.title', 'Werkstatt-Verwaltung')}</h1>
             </button>
           </div>
           
@@ -44,15 +55,32 @@ export default function Header({ toggleSidebar, isSidebarExpanded }: HeaderProps
                   : 'bg-green-100 text-green-800'
               }`}>
                 {state.currentUser?.role === 'admin'
-                  ? 'Admin'
+                  ? t('header.roles.admin', 'Admin')
                   : state.currentUser?.role === 'manager'
-                  ? 'Werkstattleitung'
+                  ? t('header.roles.manager', 'Werkstattleitung')
                   : ['employee', 'workshop'].includes(state.currentUser?.role || '')
-                  ? 'Werkstattmitarbeiter'
+                  ? t('header.roles.employee', 'Werkstattmitarbeiter')
                   : state.currentUser?.role === 'guest'
-                  ? 'Gast'
-                  : 'Auftraggeber'}
+                  ? t('header.roles.guest', 'Gast')
+                  : t('header.roles.client', 'Auftraggeber')}
               </span>
+            </div>
+            <div className="flex items-center space-x-2 mr-4">
+              <select 
+                data-testid="language-select"
+                value={i18n.language} 
+                onChange={(e) => {
+                  const lang = e.target.value;
+                  i18n.changeLanguage(lang);
+                  if (state.currentUser) {
+                    localStorage.setItem(`lang_${state.currentUser.id}`, lang);
+                  }
+                }}
+                className="text-sm bg-transparent border-none text-gray-600 cursor-pointer focus:ring-0"
+              >
+                <option value="de">DE</option>
+                <option value="en">EN</option>
+              </select>
             </div>
             
             <button
@@ -60,7 +88,7 @@ export default function Header({ toggleSidebar, isSidebarExpanded }: HeaderProps
               className="flex items-center space-x-1 text-gray-600 hover:text-red-600 transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span className="text-sm">Abmelden</span>
+              <span className="text-sm">{t('header.logout')}</span>
             </button>
           </div>
         </div>

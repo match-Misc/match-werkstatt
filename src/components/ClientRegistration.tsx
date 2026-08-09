@@ -6,7 +6,10 @@ interface ClientRegistrationProps {
   onClose: () => void;
 }
 
+import { useTranslation } from 'react-i18next';
+
 export default function ClientRegistration({ onClose }: ClientRegistrationProps) {
+  const { t, i18n } = useTranslation();
   const [formData, setFormData] = useState({
     username: '',
     password: '',
@@ -61,7 +64,20 @@ export default function ClientRegistration({ onClose }: ClientRegistrationProps)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative">
+        <div className="absolute top-4 right-4">
+          <select 
+            value={i18n.language} 
+            onChange={(e) => {
+              const lang = e.target.value;
+              i18n.changeLanguage(lang);
+            }}
+            className="text-sm bg-transparent border border-gray-200 rounded text-gray-600 cursor-pointer focus:ring-0"
+          >
+            <option value="de">DE</option>
+            <option value="en">EN</option>
+          </select>
+        </div>
         <div className="flex justify-between items-center mb-6">
           <div className="text-center flex-1">
             <div className="bg-green-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">

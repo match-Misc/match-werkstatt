@@ -321,10 +321,15 @@ async function getOrCreateOrderFolderName(db, order) {
     return order.networkFolderName;
   }
   
-  // Folder name: "Auftragsnummer - Name des Auftrags"
+  // Folder name: "Auftragsnummer - Projektname - Name des Auftrags" (Projektname optional für Abwärtskompatibilität)
   const orderNumber = order.orderNumber || order._id.toString();
   const sanitizedOrderTitle = (order.title || 'unnamed').trim().replace(/[\\/:*?"<>|]/g, '_');
-  const folderName = `${orderNumber} - ${sanitizedOrderTitle}`;
+  
+  let folderName = `${orderNumber} - ${sanitizedOrderTitle}`;
+  if (order.projectName && order.projectName.trim()) {
+    const sanitizedProjectName = order.projectName.trim().replace(/[\\/:*?"<>|]/g, '_');
+    folderName = `${orderNumber} - ${sanitizedProjectName} - ${sanitizedOrderTitle}`;
+  }
   
   await db.collection('Order').updateOne(
     { _id: order._id },
@@ -583,6 +588,20 @@ async function autoMigrateOrderFiles(db, orderId) {
       }
     }
     
+    // 3. Ensure all component folders exist, even if they have no documents
+    const allComponents = await db.collection('Component').find({ orderId: new ObjectId(orderId) }).toArray();
+    for (const comp of allComponents) {
+      try {
+        const componentFolderName = await getComponentFolderName(db, orderId, comp._id, uploadsFolderPath);
+        const componentFolderPath = path.join(uploadsFolderPath, componentFolderName);
+        if (!fs.existsSync(componentFolderPath)) {
+          fs.mkdirSync(componentFolderPath, { recursive: true });
+        }
+      } catch (err) {
+        console.error(`[File-Organization] Error creating empty component folder:`, err);
+      }
+    }
+
     // Update embedded documents in Order
     if (documentsAreEmbedded && migratedDocuments.length > 0) {
       const updatedDocuments = order.documents.map((doc, idx) => {
@@ -1143,7 +1162,7 @@ app.get('/api/users', async (req, res) => {
 
 app.post('/api/users', async (req, res) => {
   try {
-    let { username, password, name, role, email } = req.body;
+    let { username, password, name, role, email, tableConfig } = req.body;
     if (username) username = username.toLowerCase();
     const { client, db } = await getDB();
     
@@ -1161,6 +1180,7 @@ app.post('/api/users', async (req, res) => {
       name,
       email,
       role: role || 'guest',
+      tableConfig: tableConfig || {},
       isActive: true,
       isApproved: true,
       authSource: 'local',
@@ -1718,7 +1738,7 @@ app.put('/api/users/:id', async (req, res) => {
     console.log('PUT /api/users/:id - Body:', req.body);
     
     const { client, db } = await getDB();
-    const { username, password, name, company, email, role, isActive } = req.body;
+    const { username, password, name, company, email, role, isActive, tableConfig } = req.body;
     
     // Check if user exists first
     const existingUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
@@ -1746,6 +1766,7 @@ app.put('/api/users/:id', async (req, res) => {
     if (email !== undefined) updateData.email = email;
     if (role !== undefined && existingUser.username !== 'admin') updateData.role = role;
     if (isActive !== undefined) updateData.isActive = isActive;
+    if (tableConfig !== undefined) updateData.tableConfig = tableConfig;
     
     console.log('Update data:', updateData);
     
@@ -2458,7 +2479,7 @@ app.put('/api/orders/:id', async (req, res) => {
     
     // Extract allowed fields
     const {
-      title, description, clientId, clientName, deadline, costCenter,
+      title, projectName, description, clientId, clientName, deadline, costCenter,
       priority, status, estimatedHours, actualHours, assignedTo, notes,
       orderType, subTasks, documents, components, revisionRequest, revisionComment,
       userId, userName, materialOrderedByWorkshop, materialOrderedByClient,
@@ -2514,13 +2535,25 @@ app.put('/api/orders/:id', async (req, res) => {
 
     // Only add defined fields
     if (title !== undefined) updateData.title = title || (status === 'Entwurf' ? 'Unbenannter Entwurf' : '');
+    if (projectName !== undefined) updateData.projectName = projectName;
     if (description !== undefined) updateData.description = description;
     if (clientId !== undefined) updateData.clientId = clientId;
     if (clientName !== undefined) updateData.clientName = clientName;
     if (deadline !== undefined) updateData.deadline = deadline ? new Date(deadline) : null;
     if (costCenter !== undefined) updateData.costCenter = costCenter;
     if (priority !== undefined) updateData.priority = priority;
-    if (status !== undefined) updateData.status = status;
+    if (status !== undefined) {
+      updateData.status = status;
+      if (status === 'waiting_confirmation' && existingOrder.status !== 'waiting_confirmation') {
+        updateData.waitingConfirmationSince = new Date();
+      }
+      if (status === 'completed' && existingOrder.status !== 'completed') {
+        updateData.confirmationDate = new Date();
+      }
+      if ((status === 'accepted' || status === 'in_progress') && existingOrder.status !== 'accepted' && existingOrder.status !== 'in_progress') {
+        updateData.acceptedDate = new Date();
+      }
+    }
     if (estimatedHours !== undefined) updateData.estimatedHours = estimatedHours;
     if (actualHours !== undefined) updateData.actualHours = actualHours;
     if (assignedTo !== undefined) updateData.assignedTo = assignedTo;
@@ -2807,6 +2840,70 @@ app.put('/api/orders/:id', async (req, res) => {
     
     // Trigger auto-migration/organization with the existing db connection
     await autoMigrateOrderFiles(db, req.params.id);
+
+
+    // --- Audit Logging ---
+    try {
+      const auditLogs = [];
+      if (oldStatus !== newStatus) {
+        auditLogs.push({
+          id: new ObjectId().toString(),
+          orderId: req.params.id,
+          userId: effectiveUserId || 'unknown',
+          userName: effectiveUserName || 'Unbekannt',
+          action: newStatus === 'archived' ? 'archived' : 'status_changed',
+          details: `Status geändert von '${oldStatus}' zu '${newStatus}'`,
+          timestamp: new Date()
+        });
+      }
+
+      if (updateData.actualHours !== undefined && existingOrder.actualHours !== updateData.actualHours) {
+        auditLogs.push({
+          id: new ObjectId().toString(),
+          orderId: req.params.id,
+          userId: effectiveUserId || 'unknown',
+          userName: effectiveUserName || 'Unbekannt',
+          action: 'time_changed',
+          details: `Gesamtzeit geändert von ${existingOrder.actualHours || 0} auf ${updateData.actualHours}`,
+          timestamp: new Date()
+        });
+      }
+
+      if (subTasks && Array.isArray(subTasks)) {
+        for (const newSt of subTasks) {
+          const oldSt = existingOrder.subTasks?.find(s => s.id === newSt.id);
+          if (oldSt && oldSt.actualHours !== newSt.actualHours) {
+            auditLogs.push({
+              id: new ObjectId().toString(),
+              orderId: req.params.id,
+              userId: effectiveUserId || 'unknown',
+              userName: effectiveUserName || 'Unbekannt',
+              action: 'time_changed',
+              details: `Zeit für Unteraufgabe '${newSt.title}' geändert von ${oldSt.actualHours || 0} auf ${newSt.actualHours}`,
+              timestamp: new Date()
+            });
+          }
+          if (oldSt && oldSt.status !== newSt.status) {
+             auditLogs.push({
+              id: new ObjectId().toString(),
+              orderId: req.params.id,
+              userId: effectiveUserId || 'unknown',
+              userName: effectiveUserName || 'Unbekannt',
+              action: 'subtask_changed',
+              details: `Status von Unteraufgabe '${newSt.title}' geändert auf '${newSt.status}'`,
+              timestamp: new Date()
+            });
+          }
+        }
+      }
+
+      if (auditLogs.length > 0) {
+        await db.collection('AuditLog').insertMany(auditLogs);
+      }
+    } catch (auditErr) {
+      console.error('Failed to write audit logs:', auditErr);
+    }
+    // --- End Audit Logging ---
 
     // Get updated order with all relations (like GET /api/orders/:id)
     const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(req.params.id) });
@@ -3186,11 +3283,7 @@ app.post('/api/orders', async (req, res) => {
       }
     }
     
-    // Also get the highest ever assigned number from settings
-    const counterDoc = await db.collection('settings').findOne({ type: counterKey });
-    const counterValue = counterDoc ? counterDoc.value : 0;
-    
-    let nextNumber = Math.max(maxDbNumber, counterValue) + 1;
+    let nextNumber = maxDbNumber + 1;
     
     let orderNumber;
     while (true) {
@@ -3202,12 +3295,7 @@ app.post('/api/orders', async (req, res) => {
       nextNumber++;
     }
     
-    // Update the counter to the newly assigned number
-    await db.collection('settings').updateOne(
-      { type: counterKey },
-      { $set: { value: nextNumber } },
-      { upsert: true }
-    );
+
     
     // Handle draft fallbacks
     let title = orderData.title;
@@ -3232,6 +3320,7 @@ app.post('/api/orders', async (req, res) => {
     // Create new order
     const newOrder = {
       orderNumber: orderNumber,
+      projectName: orderData.projectName || '',
       title: title,
       description: orderData.description || '',
       clientId: orderData.clientId,
@@ -3588,6 +3677,61 @@ app.delete('/api/components/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /api/components/:id error:', err);
     res.status(500).json({ error: 'Fehler beim Löschen der Komponente', details: err.message });
+  }
+});
+
+
+// POST /api/orders/:id/remind - Send manual reminder
+app.post('/api/orders/:id/remind', requireRoleLevel('employee'), async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const order = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    
+    if (!order) {
+      await client.close();
+      return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+    
+    if (order.status !== 'waiting_confirmation') {
+      await client.close();
+      return res.status(400).json({ error: 'Auftrag wartet nicht auf Endabnahme' });
+    }
+
+    const clientUser = await db.collection('User').findOne({ _id: new ObjectId(order.clientId) });
+    if (!clientUser || !clientUser.email) {
+      await client.close();
+      return res.status(400).json({ error: 'Kunde hat keine E-Mail-Adresse hinterlegt' });
+    }
+
+    const emailScript = require('./scripts/email-notifications.cjs');
+    await emailScript.sendWaitingConfirmationEmail(transporter, db, req.params.id, order, true);
+
+    // Add 0 to remindersSent if manually triggered (or just leave it out so auto-reminder still works for today)
+    // We don't necessarily need to add to remindersSent here, but it's fine.
+
+    await client.close();
+    res.json({ message: 'Erinnerung erfolgreich gesendet' });
+  } catch (err) {
+    console.error('POST /api/orders/:id/remind error:', err);
+    res.status(500).json({ error: 'Fehler beim Senden der Erinnerung' });
+  }
+});
+
+
+// GET /api/orders/:id/audit-log - Get audit logs for an order
+app.get('/api/orders/:id/audit-log', async (req, res) => {
+  try {
+    const { client, db } = await getDB();
+    const logs = await db.collection('AuditLog')
+      .find({ orderId: req.params.id })
+      .sort({ timestamp: -1 })
+      .toArray();
+      
+    await client.close();
+    res.json(logs);
+  } catch (err) {
+    console.error('Error fetching audit logs:', err);
+    res.status(500).json({ error: 'Server error' });
   }
 });
 
@@ -5242,6 +5386,68 @@ function cleanupStaleTmpFolders() {
 // Run cleanup once on startup and then every hour
 cleanupStaleTmpFolders();
 setInterval(cleanupStaleTmpFolders, 60 * 60 * 1000);
+
+// --- Reminder Cron Job ---
+const checkReminders = async () => {
+  try {
+    const { client, db } = await getDB();
+    // Find all orders waiting for confirmation
+    const waitingOrders = await db.collection('Order').find({ status: 'waiting_confirmation' }).toArray();
+    
+    const now = new Date();
+    
+    for (const order of waitingOrders) {
+      const waitingSince = order.waitingConfirmationSince ? new Date(order.waitingConfirmationSince) : new Date(order.updatedAt);
+      const diffMs = now.getTime() - waitingSince.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      const remindersSent = order.remindersSent || [];
+      
+      // Timeline: 1, 5, 8, then daily (9, 10, 11...)
+      let shouldSend = false;
+      if (diffDays === 1 && !remindersSent.includes(1)) {
+        shouldSend = true;
+      } else if (diffDays === 5 && !remindersSent.includes(5)) {
+        shouldSend = true;
+      } else if (diffDays >= 8 && !remindersSent.includes(diffDays)) {
+        shouldSend = true;
+      }
+      
+      if (shouldSend) {
+        const clientUser = await db.collection('User').findOne({ _id: new ObjectId(order.clientId) });
+        if (clientUser && clientUser.email) {
+          const mailOptions = {
+            from: process.env.SMTP_USER || 'werkstatt@uni-hannover.de',
+            to: clientUser.email,
+            subject: `Erinnerung: Endabnahme für Auftrag "${order.title}" erforderlich`,
+            text: `Guten Tag ${clientUser.name},\n\nDer Auftrag "${order.title}" (Nr. ${order.orderNumber || order.id}) wartet seit ${diffDays} Tag(en) auf Ihre Endabnahme.\n\nBitte prüfen Sie den Auftrag zeitnah im Portal und schließen Sie ihn ab.\n\nMit freundlichen Grüßen\nIhre Werkstatt`
+          };
+          
+          try {
+            await transporter.sendMail(mailOptions);
+            await db.collection('Order').updateOne(
+              { _id: order._id },
+              { $push: { remindersSent: diffDays } }
+            );
+            console.log(`[Reminder] Gesendet für Auftrag ${order.id} (Tag ${diffDays})`);
+          } catch (e) {
+            console.error(`[Reminder] Fehler beim Senden für Auftrag ${order.id}:`, e);
+          }
+        }
+      }
+    }
+    
+    await client.close();
+  } catch (err) {
+    console.error('Error in checkReminders cron job:', err);
+  }
+};
+
+// Check reminders every hour
+setInterval(checkReminders, 60 * 60 * 1000);
+// Also run once on startup after 1 minute
+setTimeout(checkReminders, 60 * 1000);
+
 
 server.listen(port, serverHost, async () => {
   console.log(`Backend listening on port ${port}`);

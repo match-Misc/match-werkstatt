@@ -16,8 +16,8 @@ async function globalTeardown() {
     await client.connect();
     const db = client.db(dbName);
 
-    // 1. Alle Test-Aufträge löschen, die "E2E" im Titel haben
-    const orderQuery = { title: { $regex: /E2E/i } };
+    // 1. Alle Test-Aufträge löschen, die "E2E" oder "i18n Test" im Titel haben
+    const orderQuery = { title: { $regex: /(E2E|i18n Test)/i } };
     const ordersResult = await db.collection('Order').deleteMany(orderQuery);
     console.log(`✅ ${ordersResult.deletedCount} übriggebliebene E2E Test-Aufträge aus Datenbank gelöscht.`);
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, Check, Plus, Trash2, Merge, Server, Users } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import LDAPManagement from './LDAPManagement';
 
@@ -15,6 +16,7 @@ interface User {
 
 export default function UserManagement() {
   const { state, dispatch } = useApp();
+  const { t } = useTranslation();
   const viewerRole = state.currentUser?.role || '';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,8 +204,8 @@ export default function UserManagement() {
     <div className="w-full px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8 flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Benutzerverwaltung</h2>
-          <p className="text-gray-600 mt-1">Verwalten Sie Rollen und Berechtigungen der Benutzer.</p>
+          <h2 className="text-2xl font-bold text-gray-900">{t('admin.userManagement', 'Benutzerverwaltung')}</h2>
+          <p className="text-gray-600 mt-1">{t('admin.userManagementSub', 'Verwalten Sie Rollen und Berechtigungen der Benutzer.')}</p>
         </div>
         <div className="flex space-x-4">
           <button 
@@ -211,7 +213,7 @@ export default function UserManagement() {
             className="bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-md flex items-center shadow-sm"
           >
             <Merge className="w-4 h-4 mr-2" />
-            Accounts zusammenführen
+            {t('admin.combineAccounts', 'Accounts zusammenführen')}
           </button>
           {activeTab === 'local' && (
             <button 
@@ -219,7 +221,7 @@ export default function UserManagement() {
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex items-center shadow-sm"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Benutzer erstellen
+              {t('admin.createUser', 'Benutzer erstellen')}
             </button>
           )}
         </div>

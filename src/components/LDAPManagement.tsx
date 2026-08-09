@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface LDAPConfig {
   host: string;
@@ -8,6 +9,7 @@ interface LDAPConfig {
 }
 
 export default function LDAPManagement() {
+  const { t } = useTranslation();
   const [ldapConfig, setLdapConfig] = useState<LDAPConfig | null>(null);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -31,7 +33,7 @@ export default function LDAPManagement() {
       <div className="flex items-center mb-4">
         <div className={`w-3 h-3 rounded-full mr-3 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
         <span className={`font-medium ${isConnected ? 'text-green-700' : 'text-red-700'}`}>
-          {isConnected ? 'Verbunden' : 'Nicht verbunden'}
+          {isConnected ? t('admin.connected', 'Verbunden') : t('admin.disconnected', 'Nicht verbunden')}
         </span>
       </div>
 

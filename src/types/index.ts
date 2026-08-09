@@ -6,6 +6,26 @@ export interface User {
   company?: string;
   isActive?: boolean;
   password?: string;
+  tableConfig?: Record<string, boolean>;
+}
+
+export interface InternalFile {
+  id: string;
+  name: string;
+  url: string;
+  uploadedAt: Date;
+  uploadedBy: string; // User ID
+  size: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  orderId: string;
+  userId: string;
+  userName?: string;
+  action: 'status_changed' | 'time_changed' | 'created' | 'updated' | 'subtask_changed' | 'archived';
+  details: string;
+  timestamp: Date;
 }
 
 export interface PDFDocument {
@@ -55,6 +75,7 @@ export interface Image {
 export interface Order {
   id: string;
   orderNumber?: string; // Auftragsnummer (F-250707-1, etc.)
+  projectName?: string; // Projektname (neu)
   title: string;
   description: string;
   clientId: string;
@@ -76,6 +97,9 @@ export interface Order {
   canEdit?: boolean; // For revision state
   confirmationNote?: string; // Endabnahme-Kommentar vom Kunden
   confirmationDate?: Date;   // Wann bestätigt
+  waitingConfirmationSince?: Date; // Zeitpunkt, an dem auf Endabnahme gestellt wurde (für Erinnerungs-Mails)
+  remindersSent?: number[];  // Speichert die Anzahl der Tage nach Abschluss, für die bereits eine Erinnerung versendet wurde
+  acceptedDate?: string;
   // Materialstatus
   materialOrderedByWorkshop?: boolean; // Material von der Werkstatt bestellt
   materialOrderedByClient?: boolean;   // Material durch den Kunden bestellt (MUSS bestellt werden)

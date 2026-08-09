@@ -16,6 +16,7 @@ import CreateOrder from './components/CreateOrder';
 import EditOrderPage from './components/EditOrderPage';
 import OrderDetailsPage from './components/OrderDetailsPage';
 import DraftsOverview from './components/DraftsOverview';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
 
 // Auth Guard
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -173,8 +174,14 @@ function AppContent() {
           } />
           
           <Route path="/archive" element={
-            <RequireRole allowedRoles={['admin', 'workshop', 'employee', 'manager', 'client']}>
+            <RequireRole allowedRoles={['admin', 'manager', 'employee', 'client']}>
               <ArchiveView />
+            </RequireRole>
+          } />
+
+          <Route path="/analytics" element={
+            <RequireRole allowedRoles={['admin', 'manager']}>
+              <AnalyticsDashboard />
             </RequireRole>
           } />
           

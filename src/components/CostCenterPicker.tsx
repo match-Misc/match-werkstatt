@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, ShieldAlert } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface CostCenter {
   id: string;
@@ -15,6 +16,7 @@ interface CostCenterPickerProps {
 }
 
 export default function CostCenterPicker({ id, value, onChange, required = false }: CostCenterPickerProps) {
+  const { t } = useTranslation();
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +93,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
           disabled={loading}
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:opacity-75"
         >
-          <option value="">Bitte wählen...</option>
+          <option value="">{t('orderForm.pleaseSelect', 'Bitte wählen...')}</option>
           {costCenters.map(cc => (
             <option key={cc.id} value={cc.number}>
               {cc.number} ({cc.projectName})
@@ -99,14 +101,14 @@ export default function CostCenterPicker({ id, value, onChange, required = false
           ))}
           {/* Allow maintaining the existing value even if it's not in the list (backward compatibility) */}
           {value && !costCenters.find(cc => cc.number === value) && (
-            <option value={value}>{value} (Unbekannt)</option>
+            <option value={value}>{value} ({t('orderForm.unknown', 'Unbekannt')})</option>
           )}
         </select>
         <button
           type="button"
           onClick={() => setShowModal(true)}
           className="flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-lg px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          title="Neue Kostenstelle anlegen"
+          title={t('admin.newCostCenter', 'Neue Kostenstelle anlegen')}
         >
           <Plus className="w-5 h-5" />
         </button>
@@ -122,7 +124,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
               <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                    Neue Kostenstelle anlegen
+                    {t('admin.newCostCenter', 'Neue Kostenstelle anlegen')}
                   </h3>
                   <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-500 focus:outline-none">
                     <X className="w-5 h-5" />
@@ -138,7 +140,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
 
                 <div>
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nummer *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.number', 'Nummer')} *</label>
                     <input
                       type="text"
                       required
@@ -149,7 +151,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
                     />
                   </div>
                   <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Projektname *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('admin.projectName', 'Projektname')} *</label>
                     <input
                       type="text"
                       required
@@ -165,7 +167,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
                       onClick={() => setShowModal(false)}
                       className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
                     >
-                      Abbrechen
+                      {t('common.cancel', 'Abbrechen')}
                     </button>
                     <button
                       type="button"
@@ -173,7 +175,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
                       disabled={creating}
                       className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none disabled:opacity-50"
                     >
-                      {creating ? 'Wird angelegt...' : 'Anlegen & Auswählen'}
+                      {creating ? t('admin.creating', 'Wird angelegt...') : t('admin.createAndSelect', 'Anlegen & Auswählen')}
                     </button>
                   </div>
                 </div>

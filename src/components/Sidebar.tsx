@@ -7,9 +7,12 @@ import {
   Settings, 
   Users, 
   Menu,
-  FileEdit
+  FileEdit,
+  BarChart2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTranslation } from 'react-i18next';
+import matchNurLogo from '../assets/match_NURLogo_10pt.png';
 
 interface SidebarProps {
   isExpanded: boolean;
@@ -18,6 +21,7 @@ interface SidebarProps {
 
 export default function Sidebar({ isExpanded, setIsExpanded }: SidebarProps) {
   const { state } = useApp();
+  const { t } = useTranslation();
   const role = state.currentUser?.role || '';
   const location = useLocation();
 
@@ -31,19 +35,29 @@ export default function Sidebar({ isExpanded, setIsExpanded }: SidebarProps) {
   };
 
   const navItems = [
-    { name: 'Auftragsübersicht', icon: LayoutDashboard, path: '/dashboard', section: 'Core' },
-    ...(['client', 'admin', 'manager'].includes(role) ? [{ name: 'Entwürfe', icon: FileEdit, path: '/drafts', section: 'Core' }] : []),
-    ...(!isClient ? [{ name: 'Unteraufgaben', icon: CheckSquare, path: '/tasks', section: 'Core' }] : []),
+    { name: t('nav.dashboard', 'Auftragsübersicht'), icon: LayoutDashboard, path: '/dashboard', section: 'Core' },
+    ...(['client', 'admin', 'manager'].includes(role) ? [{ name: t('nav.drafts', 'Entwürfe'), icon: FileEdit, path: '/drafts', section: 'Core' }] : []),
+    ...(!isClient ? [{ name: t('nav.tasks', 'Unteraufgaben'), icon: CheckSquare, path: '/tasks', section: 'Core' }] : []),
     { name: 'Archiv', icon: Archive, path: '/archive', section: 'Core' },
-    ...(!isClient ? [{ name: 'Einstellungen', icon: Settings, path: '/settings', section: 'Management' }] : []),
-    ...(showUserManagement ? [{ name: 'Benutzerverwaltung', icon: Users, path: '/admin/users', section: 'Management' }] : [])
+    ...(['admin', 'manager'].includes(role) ? [{ name: 'Auswertungen', icon: BarChart2, path: '/analytics', section: 'Management' }] : []),
+    ...(['admin', 'manager'].includes(role) ? [{ name: 'Einstellungen', icon: Settings, path: '/settings', section: 'Management' }] : []),
+    ...(showUserManagement ? [{ name: t('nav.admin', 'Benutzerverwaltung'), icon: Users, path: '/admin/users', section: 'Management' }] : [])
   ];
 
   return (
     <div className={`bg-gray-900 text-white transition-all duration-300 flex flex-col relative h-full shrink-0 ${isExpanded ? 'w-64' : 'w-16'}`}>
+      {/* Logo Section */}
+      <div className={`flex items-center justify-center h-16 shrink-0 border-b border-gray-800`}>
+        <img 
+          src={matchNurLogo} 
+          alt="match Logo" 
+          className={`transition-all duration-300 ${isExpanded ? 'h-8' : 'h-5 w-5 object-contain'}`} 
+        />
+      </div>
+
       {/* Header / Toggle Section */}
       <div className={`flex items-center h-16 border-b border-gray-800 ${isExpanded ? 'px-4 justify-between' : 'justify-center'}`}>
-        {isExpanded && <span className="font-bold text-lg truncate">Menü</span>}
+        {isExpanded && <span className="font-bold text-lg truncate">{t('nav.menu', 'Menü')}</span>}
         <button
           onClick={handleToggle}
           className="text-gray-400 hover:text-white p-1.5 rounded-md hover:bg-gray-800 transition-colors"

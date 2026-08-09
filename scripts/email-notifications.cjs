@@ -65,7 +65,7 @@ const createBaseEmailHtml = (title, content) => `
 /**
  * Sendet E-Mail an den Kunden, wenn der Auftrag zur Abnahme freigegeben wurde.
  */
-async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData) {
+async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData, isReminder = false) {
   try {
     if (!orderData.clientId) {
       console.log(`[EMAIL] Keine clientId für Auftrag ${orderId} vorhanden.`);
@@ -119,7 +119,7 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
     const orderLink = `${appUrl}/orders/${orderNumber}`;
 
     const html = createBaseEmailHtml(
-      `Ihr Auftrag ${orderNumber} ist abholbereit`,
+      isReminder ? `Erinnerung: Ihr Auftrag ${orderNumber} ist abholbereit` : `Ihr Auftrag ${orderNumber} ist abholbereit`,
       `
       <p>Hallo ${clientUser.name || 'Kunde'},</p>
       <p>die Bauteile für Ihren Auftrag <strong>"${orderData.title}"</strong> wurden gefertigt und der Auftrag steht nun zur Endabnahme bereit.</p>
@@ -138,17 +138,21 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData)
       `
     );
 
-    const info = await transporter.sendMail({
-      from: process.env.SMTP_FROM,
+    const targetEmails = await getWorkshopRecipients(db, orderData);
+
+    const mailOptions = {
+      from: process.env.SMTP_USER || 'werkstatt@uni-hannover.de',
       to: clientUser.email,
-      subject: `Werkstatt-Auftrag ${orderNumber}: Zur Abnahme freigegeben`,
+      cc: Array.from(targetEmails).join(','),
+      subject: isReminder ? `Erinnerung: Endabnahme für Auftrag "${orderData.title}" erforderlich` : `Endabnahme für Auftrag "${orderData.title}" erforderlich`,
       html: html,
       attachments: [{
         filename: 'match_Logo_2023.png',
         path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
-        cid: 'matchlogo'
+        cid: 'matchlogo' // same cid value as in the html img src
       }]
-    });
+    };
+    const info = await transporter.sendMail(mailOptions);
     console.log(`[EMAIL] Freigabe-E-Mail an Kunden gesendet: ${info.messageId}`);
   } catch (error) {
     console.error('[EMAIL] Fehler beim Senden der Kunden-E-Mail:', error);

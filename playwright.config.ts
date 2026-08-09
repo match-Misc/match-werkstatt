@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 dotenv.config({ path: '.local.env' }); // Load .local.env for E2E tests
 
 export default defineConfig({
+  timeout: 30000,
   testDir: './e2e',
   globalTeardown: './e2e/global-teardown.ts',
   fullyParallel: false,
@@ -31,5 +32,7 @@ export default defineConfig({
     url: 'http://localhost:5007',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { X, ShieldAlert, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 
 interface User {
@@ -19,6 +20,7 @@ interface UserManagementModalProps {
 
 export default function UserManagementModal({ onClose, viewerRole }: UserManagementModalProps) {
   const { state, dispatch } = useApp();
+  const { t } = useTranslation();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +82,7 @@ export default function UserManagementModal({ onClose, viewerRole }: UserManagem
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl flex flex-col max-h-[90vh]">
         <div className="flex justify-between items-center p-6 border-b">
-          <h2 className="text-2xl font-bold text-gray-900">Benutzerverwaltung</h2>
+          <h2 className="text-2xl font-bold text-gray-900">{t('admin.userManagement', 'Benutzerverwaltung')}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
             <X className="w-6 h-6" />
           </button>

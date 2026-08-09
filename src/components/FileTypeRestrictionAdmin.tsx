@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 
 export default function FileTypeRestrictionAdmin() {
   const { dispatch } = useApp();
+  const { t } = useTranslation();
   const [extensions, setExtensions] = useState<string[]>([]);
   const [newExtension, setNewExtension] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -79,7 +81,7 @@ export default function FileTypeRestrictionAdmin() {
 
   return (
     <div className="w-full mb-6">
-      <p className="text-sm text-gray-600 mb-4">Dateien mit diesen Endungen werden für Auftraggeber und Gäste komplett ausgeblendet.</p>
+      <p className="text-sm text-gray-600 mb-4">{t('admin.fileTypeDesc', 'Dateien mit diesen Endungen werden für Auftraggeber und Gäste komplett ausgeblendet.')}</p>
 
       <div className="flex gap-2 mb-4">
         <div className="flex-grow">
@@ -88,7 +90,7 @@ export default function FileTypeRestrictionAdmin() {
             value={newExtension}
             onChange={(e) => setNewExtension(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="z.B. .zip oder .xlsx"
+            placeholder={t('admin.fileTypePlaceholder', 'z.B. .zip oder .xlsx')}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
           />
         </div>
@@ -97,12 +99,12 @@ export default function FileTypeRestrictionAdmin() {
           className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 transition-colors flex items-center"
         >
           <Plus className="w-4 h-4 mr-1" />
-          Hinzufügen
+          {t('admin.add', 'Hinzufügen')}
         </button>
       </div>
 
       {extensions.length === 0 ? (
-        <p className="text-sm text-gray-400 italic">Derzeit sind keine Dateitypen blockiert.</p>
+        <p className="text-sm text-gray-400 italic">{t('admin.noBlockedFiles', 'Derzeit sind keine Dateitypen blockiert.')}</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           {extensions.map((ext) => (

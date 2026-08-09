@@ -22,7 +22,7 @@ test.describe('Archiv Ordner Verhalten', () => {
     await expect(page.locator('button:has-text("Abmelden")')).toBeVisible();
 
     // Auftrag erstellen
-    await page.click('button:has-text("Auftrag anlegen")');
+    await page.click('button:has-text("Neuer Auftrag")');
     const titleInput = page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung');
     await titleInput.fill(`E2E Archive Test`);
     
@@ -34,11 +34,14 @@ test.describe('Archiv Ordner Verhalten', () => {
     
     // Kostenstelle
     const ccNumber = `CC-ARCH-${Date.now()}`;
-    await page.getByTitle('Neue Kostenstelle anlegen').click();
+    await page.getByTitle('Neue Kostenstelle').click();
     await page.getByPlaceholder('z.B. KOSTEN-001').fill(ccNumber);
     await page.getByPlaceholder('z.B. Projekt X').fill('Archive Projekt');
     await page.click('button:has-text("Anlegen & Auswählen")');
     await expect(page.locator('text=Anlegen & Auswählen')).not.toBeVisible();
+
+    // Als Serviceauftrag einreichen, um das Bauteil-Warn-Modal zu umgehen
+    await page.getByLabel(/Auftragstyp/i).selectOption('service');
 
     // Dokument hochladen, um den Ordner zu erzwingen
     const fileInputs = page.locator('input[type="file"]');
@@ -51,7 +54,6 @@ test.describe('Archiv Ordner Verhalten', () => {
 
     const responsePromise = page.waitForResponse(r => r.url().includes('/api/orders') && r.request().method() === 'POST');
     await page.click('button:has-text("Auftrag einreichen")');
-    await page.click('button:has-text("Auftrag trotzdem einreichen")');
 
     const response = await responsePromise;
     const responseData = await response.json();

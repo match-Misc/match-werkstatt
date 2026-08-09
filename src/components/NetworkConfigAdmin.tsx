@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Settings, CheckCircle, XCircle, Save, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function NetworkConfigAdmin() {
   const { state, dispatch } = useApp();
+  const { t } = useTranslation();
   const [useNetworkDrive, setUseNetworkDrive] = useState(false);
   const [networkPath, setNetworkPath] = useState('');
   const [networkPathDescription, setNetworkPathDescription] = useState('');
@@ -140,7 +142,7 @@ export default function NetworkConfigAdmin() {
               className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
             />
             <label htmlFor="useNetworkDrive" className="ml-2 block text-sm font-medium text-gray-700">
-              Netzwerklaufwerk (SMB/CIFS) über Docker verwenden
+              {t('admin.useNetworkDrive', 'Netzwerklaufwerk (SMB/CIFS) über Docker verwenden')}
             </label>
           </div>
           
@@ -154,20 +156,20 @@ export default function NetworkConfigAdmin() {
                 {connectionStatus.status === 'testing' ? (
                   <Loader2 className="w-4 h-4 animate-spin text-blue-600 mr-2" />
                 ) : null}
-                Verbindung Testen
+                {t('admin.testConnection', 'Verbindung Testen')}
               </button>
             </div>
           )}
           
           <div className="mt-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Beschreibung (optional)
+              {t('admin.descriptionOptional', 'Beschreibung (optional)')}
             </label>
             <input
               type="text"
               value={networkPathDescription}
               onChange={(e) => setNetworkPathDescription(e.target.value)}
-              placeholder="z.B. 'Hauptnetzwerkordner für Aufträge'"
+              placeholder={t('admin.networkDescPlaceholder', "z.B. 'Hauptnetzwerkordner für Aufträge'")}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
               disabled={!useNetworkDrive}
             />

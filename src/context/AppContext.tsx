@@ -285,7 +285,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch(ordersUrl)
       .then(res => res.json())
       .then((orders: Order[]) => {
-        dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Aufträge geladen', type: 'info' } });
         dispatch({ type: 'LOAD_ORDERS', payload: orders });
       });
     fetch('/api/users')

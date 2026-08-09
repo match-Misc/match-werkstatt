@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft, File, FileImage, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Order } from '../types';
+import { useTranslation } from 'react-i18next';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
 import NetworkFileUpload from './NetworkFileUpload';
@@ -16,6 +17,7 @@ interface OrderDetailsProps {
 export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   // Immer die aktuellste Order aus dem Context holen
   const currentOrder = state.orders.find(o => o.id === order.id) || order;
 
@@ -523,7 +525,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
           className="flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors"
         >
           <ArrowLeft className="w-5 h-5 mr-2" />
-          Zurück zur Übersicht
+          {t('orderDetails.backToOverview', 'Zurück zur Übersicht')}
         </button>
       </div>
       <div className="bg-white rounded-lg shadow-xl w-full max-w-7xl flex flex-col">
@@ -531,25 +533,25 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
         <div className="flex justify-between items-center p-6 border-b bg-gray-50 rounded-t-lg">
           <div>
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={currentOrder.title}>{currentOrder.title}</h2>
-            <p className="text-gray-600 mt-1">Auftrags-Nr.: {currentOrder.orderNumber || currentOrder.id}</p>
+            <p className="text-gray-600 mt-1">{t('orderDetails.orderNo', 'Auftrags-Nr.')}: {currentOrder.orderNumber || currentOrder.id}</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(`/orders/${currentOrder.orderNumber || currentOrder.id}/edit`)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-              title="Auftrag bearbeiten"
+              title={t('orderDetails.editOrder', 'Auftrag bearbeiten')}
             >
               <Edit2 className="w-4 h-4 mr-2" />
-              Bearbeiten
+              {t('orderDetails.edit', 'Bearbeiten')}
             </button>
             <button
               onClick={handleNetworkButtonClick}
               disabled={isCheckingNetwork}
               className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center"
-              title="Netzwerkpfad in Zwischenablage kopieren"
+              title={t('orderDetails.copyNetworkPath', 'Netzwerkpfad in Zwischenablage kopieren')}
             >
               <Server className="w-4 h-4 mr-2" />
-              {isCheckingNetwork ? 'Prüfe...' : 'Netzwerkordner'}
+              {isCheckingNetwork ? t('orderDetails.checking', 'Prüfe...') : t('orderDetails.networkFolder', 'Netzwerkordner')}
             </button>
           </div>
         </div>
@@ -565,7 +567,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Dashboard
+              {t('orderDetails.tabDashboard', 'Dashboard')}
             </button>
             <button
               onClick={() => setActiveTab('order_info')}
@@ -575,7 +577,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Auftragsinformationen
+              {t('orderDetails.tabOrderInfo', 'Auftragsinformationen')}
             </button>
             <button
               onClick={() => setActiveTab('components')}
@@ -585,7 +587,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Bauteilübersicht
+              {t('orderDetails.tabComponents', 'Bauteilübersicht')}
             </button>
           </nav>
         </div>

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { UserPlus, Save, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import type { User } from '../types';
 
 export default function DefaultAssigneeAdmin() {
   const { dispatch } = useApp();
+  const { t } = useTranslation();
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
@@ -89,16 +91,16 @@ export default function DefaultAssigneeAdmin() {
       <div className="mb-6">
         <h3 className="text-lg font-medium text-gray-900 mb-2 flex items-center">
           <UserPlus className="w-5 h-5 mr-2 text-blue-600" />
-          Standard-Zuweisung für neue Aufträge
+          {t('admin.defaultAssignee', 'Standard-Zuweisung für neue Aufträge')}
         </h3>
         <p className="text-sm text-gray-500">
-          Wähle einen Benutzer aus, der standardmäßig neuen Aufträgen zugewiesen wird.
+          {t('admin.defaultAssigneeDesc', 'Wähle einen Benutzer aus, der standardmäßig neuen Aufträgen zugewiesen wird.')}
         </p>
       </div>
 
       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-6">
         <label htmlFor="defaultAssignee" className="block text-sm font-medium text-gray-700 mb-2">
-          Zugewiesener Benutzer
+          {t('admin.assignedUser', 'Zugewiesener Benutzer')}
         </label>
         <select
           id="defaultAssignee"
@@ -106,7 +108,7 @@ export default function DefaultAssigneeAdmin() {
           onChange={(e) => setSelectedUserId(e.target.value)}
           className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
-          <option value="">Niemand (leer lassen)</option>
+          <option value="">{t('admin.nobody', 'Niemand (leer lassen)')}</option>
           {users.map(user => (
             <option key={user.id} value={user.id}>
               {user.name} ({user.username}) - {user.role === 'admin' ? 'Administrator' : user.role === 'manager' ? 'Werkstattleitung' : 'Werkstattmitarbeiter'}
@@ -126,7 +128,7 @@ export default function DefaultAssigneeAdmin() {
           ) : (
             <Save className="w-4 h-4 mr-2" />
           )}
-          Speichern
+          {t('admin.save', 'Speichern')}
         </button>
       </div>
     </div>

@@ -26,7 +26,8 @@ import {
   Lock,
   GripVertical,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Mail
 } from 'lucide-react';
 import {
   getFileIcon,
@@ -44,6 +45,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../types';
+import { useTranslation } from 'react-i18next';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
 import NetworkFilesViewer from './NetworkFilesViewer';
 
@@ -108,6 +110,7 @@ interface WorkshopOrderDetailsProps {
 export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDetailsProps) {
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [localOrder, setLocalOrder] = useState(order);
 
   const location = useLocation();
@@ -370,6 +373,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       status: newStatus,
     };
 
+    if (newStatus === 'accepted' && !localOrder.acceptedDate) {
+      updatedFields.acceptedDate = new Date().toISOString();
+    }
+
     let message = '';
     switch (newStatus) {
       case 'accepted': message = 'Auftrag wurde erfolgreich angenommen'; break;
@@ -459,6 +466,22 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
+
+  const handleSendReminder = async () => {
+    try {
+      const response = await fetch(`/api/orders/${localOrder.id}/remind`, {
+        method: 'POST'
+      });
+      if (response.ok) {
+        dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Erinnerung erfolgreich gesendet', type: 'success' } });
+      } else {
+        const errorData = await response.json();
+        dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: `Fehler: ${errorData.error || 'Unbekannt'}`, type: 'error' } });
+      }
+    } catch (err) {
+      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Netzwerkfehler beim Senden der Erinnerung', type: 'error' } });
+    }
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -902,32 +925,32 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           className="flex items-center text-gray-600 hover:text-gray-900 font-medium transition-colors"
         >
           <ArrowLeft className="w-5 h-5 mr-2" />
-          Zurück zur Übersicht
+          {t('orderDetails.backToOverview', 'Zurück zur Übersicht')}
         </button>
       </div>
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="flex justify-between items-center p-6 border-b">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">{localOrder.title}</h2>
-            <p className="text-gray-600 mt-1">Auftrags-Nr.: {localOrder.orderNumber || localOrder.id}</p>
+            <h2 className="text-2xl font-bold text-gray-800 truncate" title={localOrder.title}>{localOrder.title}</h2>
+            <p className="text-gray-600 mt-1">{t('orderDetails.orderNo', 'Auftrags-Nr.')}: {localOrder.orderNumber || localOrder.id}</p>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(`/orders/${localOrder.orderNumber || localOrder.id}/edit`)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
-              title="Auftrag bearbeiten"
+              title={t('orderDetails.editOrder', 'Auftrag bearbeiten')}
             >
               <Edit2 className="w-4 h-4 mr-2" />
-              Bearbeiten
+              {t('orderDetails.edit', 'Bearbeiten')}
             </button>
             <button
               onClick={handleNetworkButtonClick}
               disabled={isCheckingNetwork}
               className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors flex items-center"
-              title="Netzwerkpfad in Zwischenablage kopieren"
+              title={t('orderDetails.copyNetworkPath', 'Netzwerkpfad in Zwischenablage kopieren')}
             >
               <Server className="w-4 h-4 mr-2" />
-              {isCheckingNetwork ? 'Prüfe...' : 'Netzwerkordner'}
+              {isCheckingNetwork ? t('orderDetails.checking', 'Prüfe...') : t('orderDetails.networkFolder', 'Netzwerkordner')}
             </button>
             <button
               onClick={handlePrintOrder}
@@ -943,7 +966,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
         {/* Tabs Navigation */}
         <div className="border-b border-gray-200 bg-gray-50 px-6">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+          <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`${
@@ -952,7 +975,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Dashboard
+              {t('orderDetails.tabDashboard', 'Dashboard')}
             </button>
             <button
               onClick={() => setActiveTab('order_info')}
@@ -962,7 +985,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Auftragsinformationen
+              {t('orderDetails.tabOrderInfo', 'Auftragsinformationen')}
             </button>
             <button
               onClick={() => setActiveTab('components')}
@@ -972,7 +995,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors`}
             >
-              Bauteilübersicht
+              {t('orderDetails.tabComponents', 'Bauteilübersicht')}
             </button>
             <button
               onClick={() => setActiveTab('subtasks')}
@@ -1246,6 +1269,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       >
                         <Check className="w-4 h-4 mr-2" />
                         Endabnahme bestätigen
+                      </button>
+                    )}
+                    
+                    {localOrder.status === 'waiting_confirmation' && (state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager' || state.currentUser?.role === 'admin') && (
+                      <button
+                        onClick={handleSendReminder}
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                      >
+                        <Mail className="w-4 h-4 mr-2" />
+                        Erinnerung senden
                       </button>
                     )}
                     
@@ -1687,7 +1720,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                       <span className="font-medium text-gray-800">{st.title}</span>
                                       <div className="flex space-x-3">
                                         <button onClick={() => { setActiveTab('subtasks'); setEditingSubTaskId(st.id); setEditSubTaskForm({ title: st.title, description: st.description || '', estimatedHours: st.estimatedHours?.toString() || '0', assignedTo: st.assignedTo || null, scopeType: 'component', assignedComponentIds: st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : []), dependencies: st.dependencies || [] }); }} className="text-blue-600 hover:text-blue-800 flex items-center" title="Bearbeiten"><Edit2 className="w-4 h-4 mr-1" /> Bearbeiten</button>
-                                        <button onClick={() => { setActiveTab('subtasks'); }} className="text-purple-600 hover:text-purple-800 flex items-center" title="Zur Unteraufgabe springen"><Eye className="w-4 h-4 mr-1" /> Anzeigen</button>
+                                        <button onClick={() => { setActiveTab('subtasks'); }} className="text-purple-600 hover:text-purple-800 flex items-center" title={t('common.jumpToSubtask', 'Zur Unteraufgabe springen')}><Eye className="w-4 h-4 mr-1" /> {t('common.view', 'Anzeigen')}</button>
                                         <button onClick={() => { handleUpdateSubTask(st, { assignedComponentIds: (st.assignedComponentIds || (st.assignedComponentId ? [st.assignedComponentId] : [])).filter(id => id !== componentId) }); }} className="text-red-600 hover:text-red-800 flex items-center" title="Verknüpfung aufheben"><X className="w-4 h-4 mr-1" /> Entfernen</button>
                                       </div>
                                     </div>
@@ -2325,7 +2358,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     className="text-red-600 hover:text-red-800 transition-colors flex items-center"
                                   >
                                     <Eye className="w-3 h-3 mr-1" />
-                                    <span className="text-xs">Anzeigen</span>
+                                    <span className="text-xs">{t('common.view', 'Anzeigen')}</span>
                                   </button>
                                 )}
                                 {isImageFile(doc.name) && (
@@ -2334,7 +2367,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                     className="text-blue-600 hover:text-blue-800 transition-colors flex items-center"
                                   >
                                     <Eye className="w-3 h-3 mr-1" />
-                                    <span className="text-xs">Anzeigen</span>
+                                    <span className="text-xs">{t('common.view', 'Anzeigen')}</span>
                                   </button>
                                 )}
                                 <button
@@ -2618,7 +2651,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
       {/* Image Preview Modal */}
       {previewImageUrl && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-[100] p-4"
           onClick={() => setPreviewImageUrl(null)}
         >
           <div className="relative max-w-5xl max-h-[90vh] w-full h-full flex items-center justify-center">

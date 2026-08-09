@@ -4,6 +4,7 @@ import { getFileIcon, getFileIconSmall, isImageFile, isPDFFile } from '../utils/
 import { useApp } from '../context/AppContext';
 import { useNavigate } from 'react-router-dom';
 import { Order, PDFDocument, Component, Material, User } from '../types';
+import { useTranslation } from 'react-i18next';
 import { checkPdfSize } from '../utils/pdfChecker';
 import CostCenterPicker from './CostCenterPicker';
 
@@ -16,9 +17,11 @@ interface OrderFormProps {
 export default function OrderForm({ mode, initialData, onClose }: OrderFormProps) {
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   
   // Initialization based on mode
   const [title, setTitle] = useState(mode === 'edit' && initialData ? initialData.title : '');
+  const [projectName, setProjectName] = useState(mode === 'edit' && initialData?.projectName ? initialData.projectName : '');
   const [description, setDescription] = useState(mode === 'edit' && initialData ? initialData.description : '');
   const [orderClientId, setOrderClientId] = useState(mode === 'edit' && initialData ? initialData.clientId : state.currentUser!.id);
   const [orderClientName, setOrderClientName] = useState(mode === 'edit' && initialData ? initialData.clientName : state.currentUser!.name);
@@ -140,6 +143,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   const handleCreateSubmit = async (isDraft: boolean = false) => {
     const newOrder = {
       title,
+      projectName,
       description,
       clientId: orderClientId,
       clientName: orderClientName,
@@ -196,6 +200,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
     const updatedOrder = {
       ...initialData,
       title,
+      projectName,
       description,
       clientId: orderClientId,
       clientName: orderClientName,
@@ -442,7 +447,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="flex justify-between items-center p-6 border-b">
           <h2 className="text-xl font-bold text-gray-900">
-            {mode === 'create' ? 'Neuen Auftrag erstellen' : 'Auftrag bearbeiten'}
+            {mode === 'create' ? t('orderForm.createNew', 'Neuen Auftrag erstellen') : t('orderForm.editOrder', 'Auftrag bearbeiten')}
           </h2>
           <button
             onClick={handleClose}
@@ -454,9 +459,22 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="md:col-span-2">
+            <div className="md:col-span-1">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Projektbezeichnung / Titel <span className="text-red-500">*</span>
+                {t('orderForm.projectName', 'Projektname')}
+              </label>
+              <input
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Name des Projekts"
+              />
+            </div>
+            
+            <div className="md:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {t('orderForm.orderTitle', 'Auftragstitel')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -471,7 +489,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
             {(currentUserRole === 'admin' || currentUserRole === 'manager') && (
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Auftraggeber
+                  {t('orderForm.client', 'Auftraggeber')}
                 </label>
                 <select
                   value={orderClientId}
@@ -482,10 +500,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                   }}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 >
-                  <option value={state.currentUser!.id}>{state.currentUser!.name} (Ich)</option>
+                  <option value={state.currentUser!.id}>{state.currentUser!.name} ({t('orderForm.me', 'Ich')})</option>
                   {users.filter(u => u.id !== state.currentUser!.id).map(user => (
                     <option key={user.id} value={user.id}>
-                      {user.name} ({user.company || 'Kein Institut'})
+                      {user.name} ({user.company || t('orderForm.noInstitute', 'Kein Institut')})
                     </option>
                   ))}
                 </select>
@@ -494,7 +512,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
             <div className="md:col-span-2">
               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                Beschreibung *
+                {t('orderForm.description', 'Beschreibung')} *
               </label>
               <textarea
                 id="description"
@@ -508,7 +526,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
             <div>
               <label htmlFor="deadline" className="block text-sm font-medium text-gray-700 mb-2">
-                Deadline *
+                {t('orderForm.deadline', 'Deadline')} *
               </label>
               <input
                 type="date"
@@ -522,7 +540,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
             <div>
               <label htmlFor="costCenter" className="block text-sm font-medium text-gray-700 mb-2">
-                Kostenstelle *
+                {t('orderForm.costCenter', 'Kostenstelle')} *
               </label>
               <CostCenterPicker
                 id="costCenter"
@@ -536,7 +554,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
               <>
                 <div>
                   <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-2">
-                    Priorität
+                    {t('orderForm.priority', 'Priorität')}
                   </label>
                   <select
                     id="priority"
@@ -544,15 +562,15 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                     onChange={(e) => setPriority(e.target.value as 'low' | 'medium' | 'high')}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="low">Niedrig</option>
-                    <option value="medium">Mittel</option>
-                    <option value="high">Hoch</option>
+                    <option value="low">{t('priority.low', 'Niedrig')}</option>
+                    <option value="medium">{t('priority.medium', 'Mittel')}</option>
+                    <option value="high">{t('priority.high', 'Hoch')}</option>
                   </select>
                 </div>
 
                 <div>
                   <label htmlFor="orderType" className="block text-sm font-medium text-gray-700 mb-2">
-                    Auftragstyp *
+                    {t('orderForm.orderType', 'Auftragstyp')} *
                   </label>
                   <select
                     id="orderType"
@@ -561,8 +579,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   >
-                    <option value="fertigung">Fertigungsauftrag</option>
-                    <option value="service">Serviceauftrag</option>
+                    <option value="fertigung">{t('orderForm.manufacturingOrder', 'Fertigungsauftrag')}</option>
+                    <option value="service">{t('orderForm.serviceOrder', 'Serviceauftrag')}</option>
                   </select>
                 </div>
               </>
@@ -886,6 +904,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
             <button 
               className="absolute -top-12 right-0 text-white hover:text-gray-300"
               onClick={() => setPreviewImageUrl(null)}
+              title="Schließen"
             >
               <X className="w-8 h-8" />
             </button>

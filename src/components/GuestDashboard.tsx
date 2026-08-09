@@ -1,9 +1,11 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import { Clock, ShieldAlert } from 'lucide-react';
 
 export default function GuestDashboard() {
   const { state } = useApp();
+  const { t } = useTranslation();
   const user = state.currentUser;
 
   return (
@@ -14,7 +16,7 @@ export default function GuestDashboard() {
             <ShieldAlert className="h-8 w-8 text-blue-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            Willkommen, {user?.name || user?.username}!
+            {t('dashboard.welcomeGuest', 'Willkommen, {{name}}!', { name: user?.name || user?.username })}
           </h2>
           <div className="bg-amber-50 border-l-4 border-amber-400 p-4 max-w-2xl mx-auto rounded-r-md">
             <div className="flex">
@@ -23,13 +25,13 @@ export default function GuestDashboard() {
               </div>
               <div className="ml-3">
                 <p className="text-sm text-amber-700">
-                  Dein Account wurde registriert. Bitte warte auf die Freischaltung durch einen Administrator.
+                  {t('dashboard.guestWaitMessage', 'Dein Account wurde registriert. Bitte warte auf die Freischaltung durch einen Administrator.')}
                 </p>
               </div>
             </div>
           </div>
           <p className="mt-6 text-sm text-gray-500">
-            Sobald dein Account freigeschaltet wurde, hast du Zugriff auf die Auftragsverwaltung.
+            {t('dashboard.guestAccessInfo', 'Sobald dein Account freigeschaltet wurde, hast du Zugriff auf die Auftragsverwaltung.')}
           </p>
         </div>
       </div>

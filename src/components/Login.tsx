@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { LogIn, Building2, UserPlus, Server, Wifi, WifiOff } from 'lucide-react';
+import { LogIn, Building2, UserPlus, Wifi, WifiOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import ClientRegistration from './ClientRegistration';
 
@@ -14,12 +15,12 @@ interface LDAPStatus {
 
 export default function Login() {
   const { dispatch } = useApp();
+  const { t, i18n } = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [showRegistration, setShowRegistration] = useState(false);
   const [ldapStatus, setLdapStatus] = useState<LDAPStatus | null>(null);
-  const [showLdapInfo, setShowLdapInfo] = useState(false);
 
   // LDAP-Status beim Laden überprüfen
   useEffect(() => {
@@ -75,20 +76,32 @@ export default function Login() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md relative">
+        <div className="absolute top-4 right-4">
+          <select 
+            value={i18n.language} 
+            onChange={(e) => {
+              const lang = e.target.value;
+              i18n.changeLanguage(lang);
+            }}
+            className="text-sm bg-transparent border border-gray-200 rounded text-gray-600 cursor-pointer focus:ring-0"
+          >
+            <option value="de">DE</option>
+            <option value="en">EN</option>
+          </select>
+        </div>
         <div className="text-center mb-8">
           <div className="bg-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Building2 className="text-white w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Werkstatt-Verwaltung</h1>
-          <p className="text-gray-600 mt-2">Bitte melden Sie sich an</p>
+          <h1 className="text-2xl font-bold text-gray-900">{t('login.title', 'Werkstatt-Verwaltung')}</h1>
+          <p className="text-gray-600 mt-2">{t('login.subtitle', 'Bitte melden Sie sich an')}</p>
           
           {/* LDAP-Status-Anzeige */}
           {ldapStatus && (
             <div className="mt-4 flex items-center justify-center">
               <div 
-                className="flex items-center space-x-2 cursor-pointer hover:bg-gray-50 px-3 py-1 rounded"
-                onClick={() => setShowLdapInfo(!showLdapInfo)}
+                className="flex items-center space-x-2 px-3 py-1 rounded"
               >
                 {ldapStatus.ldapConnected ? (
                   <Wifi className="h-4 w-4 text-green-600" />
@@ -96,20 +109,9 @@ export default function Login() {
                   <WifiOff className="h-4 w-4 text-gray-400" />
                 )}
                 <span className={`text-xs ${ldapStatus.ldapConnected ? 'text-green-600' : 'text-gray-400'}`}>
-                  {ldapStatus.ldapConnected ? 'LDAP verbunden' : 'LDAP nicht verfügbar'}
+                  {ldapStatus.ldapConnected ? t('login.ldapConnected', 'LDAP verbunden') : t('login.ldapDisconnected', 'LDAP nicht verfügbar')}
                 </span>
               </div>
-            </div>
-          )}
-          
-          {/* LDAP-Info Details */}
-          {showLdapInfo && ldapStatus?.config && (
-            <div className="mt-2 p-3 bg-gray-50 rounded text-xs text-gray-600">
-              <div className="flex items-center mb-1">
-                <Server className="h-3 w-3 mr-1" />
-                <span>{ldapStatus.config.host}:{ldapStatus.config.port}</span>
-              </div>
-              <div>BaseDN: {ldapStatus.config.baseDN}</div>
             </div>
           )}
         </div>
@@ -117,7 +119,7 @@ export default function Login() {
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-              Benutzername
+              {t('login.username', 'Benutzername')}
             </label>
             <input
               type="text"
@@ -125,14 +127,14 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value.toLowerCase())}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Benutzername eingeben"
+              placeholder={t('login.usernamePlaceholder', 'Benutzername eingeben')}
               required
             />
           </div>
           
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-              Passwort
+              {t('login.password', 'Passwort')}
             </label>
             <input
               type="password"
@@ -140,7 +142,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Passwort eingeben"
+              placeholder={t('login.passwordPlaceholder', 'Passwort eingeben')}
               required
             />
           </div>
@@ -156,7 +158,7 @@ export default function Login() {
             className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
           >
             <LogIn className="w-4 h-4 mr-2" />
-            Anmelden
+            {t('login.submit', 'Anmelden')}
           </button>
 
           <button
@@ -165,7 +167,7 @@ export default function Login() {
             className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center mt-2"
           >
             <UserPlus className="w-4 h-4 mr-2" />
-            Neuen Account erstellen
+            {t('login.createAccount', 'Neuen Account erstellen')}
           </button>
         </form>
       </div>

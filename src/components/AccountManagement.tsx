@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Settings, ShieldAlert, Box, Briefcase, UserCheck } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import NetworkConfigAdmin from './NetworkConfigAdmin';
 import MaterialManagement from './MaterialManagement';
@@ -9,6 +10,7 @@ import DefaultAssigneeAdmin from './DefaultAssigneeAdmin';
 
 export default function AccountManagement() {
   const { state } = useApp();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'material' | 'filetypes' | 'network' | 'costcenter' | 'defaultassignee'>('material');
 
   const isAdminOrManager = state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager';
@@ -18,8 +20,8 @@ export default function AccountManagement() {
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="flex justify-between items-center p-6 border-b">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Einstellungen</h2>
-            <p className="text-gray-600 mt-1">Systemeinstellungen verwalten</p>
+            <h2 className="text-2xl font-bold text-gray-900">{t('settings.title', 'Einstellungen')}</h2>
+            <p className="text-gray-600 mt-1">{t('settings.subtitle', 'Systemeinstellungen verwalten')}</p>
           </div>
         </div>
 
@@ -36,7 +38,7 @@ export default function AccountManagement() {
                   } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
                 >
                   <Box className="w-4 h-4 mr-2" />
-                  Materialverwaltung
+                  {t('settings.tabMaterial', 'Materialverwaltung')}
                 </button>
                 <button
                   onClick={() => setActiveTab('filetypes')}
@@ -47,7 +49,7 @@ export default function AccountManagement() {
                   } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
                 >
                   <ShieldAlert className="w-4 h-4 mr-2" />
-                  Dateityp-Filterung
+                  {t('settings.tabFiletypes', 'Dateityp-Filterung')}
                 </button>
                 <button
                   onClick={() => setActiveTab('network')}
@@ -58,7 +60,7 @@ export default function AccountManagement() {
                   } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
                 >
                   <Settings className="w-4 h-4 mr-2" />
-                  Netzwerkordner
+                  {t('settings.tabNetwork', 'Netzwerkordner')}
                 </button>
                 <button
                   onClick={() => setActiveTab('costcenter')}
@@ -69,7 +71,7 @@ export default function AccountManagement() {
                   } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
                 >
                   <Briefcase className="w-4 h-4 mr-2" />
-                  Kostenstellen
+                  {t('settings.tabCostCenter', 'Kostenstellen')}
                 </button>
                 <button
                   onClick={() => setActiveTab('defaultassignee')}
@@ -80,7 +82,7 @@ export default function AccountManagement() {
                   } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
                 >
                   <UserCheck className="w-4 h-4 mr-2" />
-                  Standard-Zuweisung
+                  {t('settings.tabDefaultAssignee', 'Standard-Zuweisung')}
                 </button>
               </nav>
             </div>

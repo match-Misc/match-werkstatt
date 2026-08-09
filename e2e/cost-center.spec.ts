@@ -73,11 +73,7 @@ test.describe('Kostenstellen Verwaltung und RBAC', () => {
           const createdData = await createRes.json();
           createdCostCenterIds.push(createdData.id);
 
-          if (user.role === 'Auftraggeber') {
-            await page.click('button:has-text("Neuer Auftrag")');
-          } else {
-            await page.click('button:has-text("Auftrag anlegen")');
-          }
+          await page.click('button:has-text("Neuer Auftrag")');
           await expect(page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung')).toBeVisible();
           
           // Test: Manually select an existing cost center
@@ -86,7 +82,7 @@ test.describe('Kostenstellen Verwaltung und RBAC', () => {
           
           // Test: Create a new cost center during order creation
           const newOrderCCNumber = `CC-ORDER-${Date.now()}`;
-          await page.getByTitle('Neue Kostenstelle anlegen').click();
+          await page.getByTitle('Neue Kostenstelle').click();
           await page.getByPlaceholder('z.B. KOSTEN-001').fill(newOrderCCNumber);
           await page.getByPlaceholder('z.B. Projekt X').fill('Order Test Project');
           
@@ -103,7 +99,7 @@ test.describe('Kostenstellen Verwaltung und RBAC', () => {
           expect(await page.locator('#costCenter').inputValue()).toBe(newOrderCCNumber);
 
           // Test: Try to create a duplicate cost center
-          await page.getByTitle('Neue Kostenstelle anlegen').click();
+          await page.getByTitle('Neue Kostenstelle').click();
           await page.getByPlaceholder('z.B. KOSTEN-001').fill(newOrderCCNumber);
           await page.getByPlaceholder('z.B. Projekt X').fill('Duplicate Project');
           await page.click('button:has-text("Anlegen & Auswählen")');
@@ -116,7 +112,7 @@ test.describe('Kostenstellen Verwaltung und RBAC', () => {
           if (user.role === 'Auftraggeber') {
             await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
           } else {
-            await expect(page.locator('button:has-text("Auftrag anlegen")')).not.toBeVisible();
+            await expect(page.locator('button:has-text("Neuer Auftrag")')).not.toBeVisible();
           }
         }
       });
@@ -130,8 +126,10 @@ test.describe('Kostenstellen Verwaltung und RBAC', () => {
       await page.goto('/login');
       await page.fill('#username', admin.username!);
       await page.fill('#password', admin.password!);
+      const loginResponse = page.waitForResponse('**/api/login');
       await page.click('button:has-text("Anmelden")');
-      await expect(page.locator('button:has-text("Abmelden")')).toBeVisible({ timeout: 10000 });
+      await loginResponse;
+      await page.waitForSelector('text=Werkstatt-Verwaltung', { state: 'visible' });
     });
 
     test('Admin kann eine bestehende Kostenstelle über die UI entfernen', async ({ page, request }) => {
