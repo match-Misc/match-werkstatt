@@ -20,9 +20,9 @@ const formatOrderFolderName = (orderNumber, projectName, title) => {
   const safeTitle = sanitize(title);
 
   if (safeProject) {
-    return \`\${safeNumber} - \${safeProject} - \${safeTitle}\`;
+    return `${safeNumber} - ${safeProject} - ${safeTitle}`;
   } else {
-    return \`\${safeNumber} - \${safeTitle}\`;
+    return `${safeNumber} - ${safeTitle}`;
   }
 };
 
