@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Dependencies zuerst kopieren (Cache-Optimierung)
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci
 
 # Quellcode kopieren und Frontend bauen
 COPY . .
@@ -18,7 +18,7 @@ WORKDIR /app
 
 # Nur Backend-Dependencies installieren
 COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Backend-Dateien kopieren
 COPY server.cjs ./
