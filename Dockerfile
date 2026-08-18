@@ -23,6 +23,7 @@ RUN npm ci --omit=dev
 # Backend-Dateien kopieren
 COPY server.cjs ./
 COPY mongo-init.js ./
+COPY server/ ./server/
 COPY scripts/ ./scripts/
 
 # Storage-Verzeichnisse anlegen
