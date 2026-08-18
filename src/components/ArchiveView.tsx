@@ -60,7 +60,10 @@ export default function ArchiveView() {
     });
   };
 
-  const archivedOrders = getSortedOrders(state.orders.filter(order => order.status === 'archived'));
+  const archivedOrders = getSortedOrders(state.orders.filter(order =>
+    order.status === 'archived' &&
+    (state.currentUser?.role !== 'client' || order.clientId === state.currentUser.id)
+  ));
 
   const getTitleImageUrl = (order: Order) => {
     if (order.titleImage) { // Prüft, ob das Feld existiert (nach DB-Migration)
@@ -70,8 +73,8 @@ export default function ArchiveView() {
     return undefined; // Kein Bild vorhanden
   };
 
-  const selectedOrder = orderNumber 
-    ? state.orders.find(o => (o.orderNumber || o.id) === orderNumber) 
+  const selectedOrder = orderNumber
+    ? archivedOrders.find(o => (o.orderNumber || o.id) === orderNumber)
     : null;
 
   if (selectedOrder) {

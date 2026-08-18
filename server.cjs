@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
+const { buildOrderAccessFilter } = require('./server/utils/orderAccess.cjs');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
@@ -1963,9 +1964,17 @@ app.get('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();
     const viewerRole = await parseViewerRole(req);
-    
-    // Load all orders except drafts
-    const orders = await db.collection('Order').find({ status: { $ne: 'Entwurf' } })
+    const cookies = parseCookies(req);
+    const session = cookies.sessionId
+      ? await db.collection('Session').findOne({ token: cookies.sessionId })
+      : null;
+    const orderAccessFilter = buildOrderAccessFilter(viewerRole, session?.userId);
+
+    // Auftraggeber dürfen ausschließlich ihre eigenen Aufträge laden.
+    const orders = await db.collection('Order').find({
+      status: { $ne: 'Entwurf' },
+      ...orderAccessFilter
+    })
       .sort({ createdAt: -1 })
       .toArray();
     
