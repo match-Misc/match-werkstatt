@@ -6,6 +6,7 @@ import {
 } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { Calendar, Filter, PieChart as PieChartIcon, TrendingUp, Clock, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { getOnTimeDeliveryStatus } from '../utils/onTimeDelivery';
 
 export default function AnalyticsDashboard() {
   const { state } = useApp();
@@ -111,13 +112,9 @@ export default function AnalyticsDashboard() {
   const onTimeData = useMemo(() => {
     let onTime = 0, late = 0;
     filteredOrders.filter(o => o.status === 'completed' || o.status === 'archived').forEach(o => {
-      const finishDate = o.updatedAt ? new Date(o.updatedAt) : new Date();
-      const deadline = new Date(o.deadline);
-      // Compare without time
-      finishDate.setHours(0,0,0,0);
-      deadline.setHours(0,0,0,0);
-      if (finishDate <= deadline) onTime++;
-      else late++;
+      const deliveryStatus = getOnTimeDeliveryStatus(o);
+      if (deliveryStatus === 'onTime') onTime++;
+      if (deliveryStatus === 'late') late++;
     });
     return [
       { name: t('analytics.onTime', 'Pünktlich'), value: onTime },
