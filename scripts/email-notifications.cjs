@@ -261,12 +261,13 @@ async function sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData
 /**
  * Sendet E-Mail an alle relevanten Personen, wenn ein Auftrag bearbeitet wurde.
  */
-async function sendOrderEditedEmail(transporter, db, orderId, orderData, changedFields, editorName) {
+async function sendOrderEditedEmail(transporter, db, orderId, orderData, changedFields, editorName, options = {}) {
   try {
     const targetEmails = await getWorkshopRecipients(db, orderData);
 
-    // 1. Client (Auftraggeber) immer hinzufügen
-    if (orderData.clientId) {
+    // Bei einer neuen Auftraggeber-Zuordnung erhält der Auftraggeber eine
+    // eigene, eindeutige Zuordnungs-Mail statt zusätzlich dieser Sammel-Mail.
+    if (options.includeClient !== false && orderData.clientId) {
       try {
         const clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
         if (clientUser && clientUser.email) targetEmails.add(clientUser.email);
@@ -342,8 +343,61 @@ async function sendOrderEditedEmail(transporter, db, orderId, orderData, changed
   }
 }
 
+/**
+ * Informiert einen Benutzer, wenn er nachträglich als Auftraggeber zugeordnet wurde.
+ */
+async function sendClientAssignmentEmail(transporter, db, orderId, orderData) {
+  try {
+    if (!orderData.clientId) {
+      return;
+    }
+
+    let clientUser;
+    try {
+      clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
+    } catch (error) {
+      console.error(`[EMAIL] Ungültige clientId für Auftraggeber-Zuordnung: ${orderData.clientId}`);
+      return;
+    }
+
+    if (!clientUser?.email) {
+      console.log(`[EMAIL] Kein Auftraggeber mit E-Mail für Auftrag ${orderId} gefunden.`);
+      return;
+    }
+
+    const orderNumber = orderData.orderNumber || orderData._id || orderId;
+    const appUrl = process.env.APP_URL || 'http://localhost:5173';
+    const orderLink = `${appUrl}/orders/${orderNumber}`;
+    const html = createBaseEmailHtml(
+      `Sie sind jetzt Auftraggeber für Auftrag ${orderNumber}`,
+      `
+      <p>Hallo ${clientUser.name || 'Auftraggeber'},</p>
+      <p>Sie sind jetzt als Auftraggeber für den Auftrag <strong>"${orderData.title}"</strong> hinterlegt.</p>
+      <p>Sie können alle aktuellen Informationen zum Auftrag in der Match Werkstatt-App einsehen.</p>
+      ${renderButton(orderLink, 'Auftrag in der App öffnen')}
+      `
+    );
+
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: clientUser.email,
+      subject: `Sie wurden als Auftraggeber für Auftrag ${orderNumber} eingetragen`,
+      html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
+    });
+    console.log(`[EMAIL] Auftraggeber-Zuordnungs-E-Mail gesendet: ${info.messageId}`);
+  } catch (error) {
+    console.error('[EMAIL] Fehler beim Senden der Auftraggeber-Zuordnungs-E-Mail:', error);
+  }
+}
+
 module.exports = {
   sendWaitingConfirmationEmail,
   sendWorkshopStatusUpdateEmail,
-  sendOrderEditedEmail
+  sendOrderEditedEmail,
+  sendClientAssignmentEmail
 };

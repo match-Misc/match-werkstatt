@@ -3067,6 +3067,10 @@ app.put('/api/orders/:id', async (req, res) => {
       if (editedFields.length > 0 && existingOrder.status !== 'Entwurf') {
         const emailScript = require('./scripts/email-notifications.cjs');
         const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
+        const clientWasAssigned = clientId !== undefined &&
+          clientId !== null &&
+          clientId !== '' &&
+          String(clientId) !== String(existingOrder.clientId || '');
         
         // Build an object of only the changed fields for the email
         const changedFieldsForEmail = {};
@@ -3074,7 +3078,19 @@ app.put('/api/orders/:id', async (req, res) => {
           changedFieldsForEmail[key] = updateData[key];
         }
         
-        await emailScript.sendOrderEditedEmail(transporter, db, req.params.id, orderDataForEmail, changedFieldsForEmail, effectiveUserName);
+        await emailScript.sendOrderEditedEmail(
+          transporter,
+          db,
+          req.params.id,
+          orderDataForEmail,
+          changedFieldsForEmail,
+          effectiveUserName,
+          { includeClient: !clientWasAssigned }
+        );
+
+        if (clientWasAssigned) {
+          await emailScript.sendClientAssignmentEmail(transporter, db, req.params.id, orderDataForEmail);
+        }
       }
     }
 
