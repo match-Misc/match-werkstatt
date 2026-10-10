@@ -2,6 +2,10 @@ const { ObjectId } = require('mongodb');
 
 const path = require('path');
 
+const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+})[character]);
+
 const renderButton = (url, text) => `
 <div style="text-align: center; margin: 35px 0 15px 0;">
   <!--[if mso]>
@@ -117,12 +121,21 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData,
 
     const appUrl = process.env.APP_URL || 'http://localhost:5173';
     const orderLink = `${appUrl}/orders/${orderNumber}`;
+    const isReworkComplete = Array.isArray(orderData.reworkComments) && orderData.reworkComments.length > 0;
+    const heading = isReminder
+      ? `Erinnerung: Ihr Auftrag ${orderNumber} ist abholbereit`
+      : isReworkComplete
+        ? `Die Nacharbeit für Auftrag ${orderNumber} ist abgeschlossen`
+        : `Ihr Auftrag ${orderNumber} ist abholbereit`;
+    const readyMessage = isReworkComplete
+      ? `die Nacharbeit für Ihren Auftrag <strong>"${escapeHtml(orderData.title)}"</strong> ist abgeschlossen. Der Auftrag steht erneut zur Endabnahme bereit.`
+      : `die Bauteile für Ihren Auftrag <strong>"${escapeHtml(orderData.title)}"</strong> wurden gefertigt und der Auftrag steht nun zur Endabnahme bereit.`;
 
     const html = createBaseEmailHtml(
-      isReminder ? `Erinnerung: Ihr Auftrag ${orderNumber} ist abholbereit` : `Ihr Auftrag ${orderNumber} ist abholbereit`,
+      heading,
       `
-      <p>Hallo ${clientUser.name || 'Kunde'},</p>
-      <p>die Bauteile für Ihren Auftrag <strong>"${orderData.title}"</strong> wurden gefertigt und der Auftrag steht nun zur Endabnahme bereit.</p>
+      <p>Hallo ${escapeHtml(clientUser.name || 'Kunde')},</p>
+      <p>${readyMessage}</p>
       <p>Bitte stimmen Sie sich mit der Werkstatt ab, um die Teile entgegenzunehmen und die Endabnahme in der Werkstatt-App zu bestätigen.</p>
       
       <h3>Auftragsdetails:</h3>
@@ -144,7 +157,11 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData,
       from: process.env.SMTP_USER || 'werkstatt@uni-hannover.de',
       to: clientUser.email,
       cc: Array.from(targetEmails).join(','),
-      subject: isReminder ? `Erinnerung: Endabnahme für Auftrag "${orderData.title}" erforderlich` : `Endabnahme für Auftrag "${orderData.title}" erforderlich`,
+      subject: isReminder
+        ? `Erinnerung: Endabnahme für Auftrag "${orderData.title}" erforderlich`
+        : isReworkComplete
+          ? `Nacharbeit abgeschlossen: Endabnahme für Auftrag "${orderData.title}" erforderlich`
+          : `Endabnahme für Auftrag "${orderData.title}" erforderlich`,
       html: html,
       attachments: [{
         filename: 'match_Logo_2023.png',
@@ -156,6 +173,113 @@ async function sendWaitingConfirmationEmail(transporter, db, orderId, orderData,
     console.log(`[EMAIL] Freigabe-E-Mail an Kunden gesendet: ${info.messageId}`);
   } catch (error) {
     console.error('[EMAIL] Fehler beim Senden der Kunden-E-Mail:', error);
+  }
+}
+
+/** Bestätigt dem aktuellen Auftraggeber die angeforderte Nacharbeit. */
+async function sendReworkRequestEmail(transporter, db, orderId, orderData) {
+  try {
+    if (!orderData.clientId) {
+      console.log(`[EMAIL] Keine clientId für Nacharbeit von Auftrag ${orderId} vorhanden.`);
+      return;
+    }
+
+    let clientUser;
+    try {
+      clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
+    } catch (error) {
+      console.error(`[EMAIL] Ungültige clientId für Nacharbeit von Auftrag ${orderId}:`, error);
+      return;
+    }
+
+    if (!clientUser?.email) {
+      console.log(`[EMAIL] Kein Auftraggeber mit E-Mail für Nacharbeit von Auftrag ${orderId} gefunden.`);
+      return;
+    }
+
+    const orderNumber = orderData.orderNumber || orderData._id || orderId;
+    const orderLink = `${process.env.APP_URL || 'http://localhost:5173'}/orders/${encodeURIComponent(String(orderNumber))}`;
+    const html = createBaseEmailHtml(
+      `Nacharbeit für Auftrag ${escapeHtml(orderNumber)} angefordert`,
+      `
+      <p>Hallo ${escapeHtml(clientUser.name || 'Auftraggeber')},</p>
+      <p>Die Nacharbeit für Ihren Auftrag <strong>"${escapeHtml(orderData.title || orderNumber)}"</strong> wurde angefordert.</p>
+      <p>Ihre Anfrage ist bei der Werkstatt eingegangen. Sie werden benachrichtigt, sobald der Auftrag erneut zur Endabnahme bereitsteht.</p>
+      ${renderButton(orderLink, 'Auftrag in der App öffnen')}
+      `
+    );
+
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: clientUser.email,
+      subject: `Nacharbeit für Auftrag ${orderNumber} angefordert`,
+      html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
+    });
+    console.log(`[EMAIL] Nacharbeits-E-Mail an Auftraggeber gesendet: ${info.messageId}`);
+  } catch (error) {
+    console.error('[EMAIL] Fehler beim Senden der Nacharbeits-E-Mail:', error);
+  }
+}
+
+/**
+ * Fordert den Auftraggeber auf, einen zur Überarbeitung zurückgegebenen Auftrag anzupassen.
+ */
+async function sendRevisionRequestEmail(transporter, db, orderId, orderData, revisionComment) {
+  try {
+    if (!orderData.clientId) {
+      console.log(`[EMAIL] Keine clientId für Überarbeitung von Auftrag ${orderId} vorhanden.`);
+      return;
+    }
+
+    let clientUser;
+    try {
+      clientUser = await db.collection('User').findOne({ _id: new ObjectId(orderData.clientId) });
+    } catch (error) {
+      console.error(`[EMAIL] Ungültige clientId für Überarbeitung von Auftrag ${orderId}:`, error);
+      return;
+    }
+
+    if (!clientUser?.email) {
+      console.log(`[EMAIL] Kein Auftraggeber mit E-Mail für Überarbeitung von Auftrag ${orderId} gefunden.`);
+      return;
+    }
+
+    const orderNumber = orderData.orderNumber || orderData._id || orderId;
+    const orderLink = `${process.env.APP_URL || 'http://localhost:5173'}/orders/${encodeURIComponent(String(orderNumber))}/edit`;
+    const latestComment = revisionComment || orderData.revisionHistory?.at(-1)?.comment;
+    const commentHtml = latestComment
+      ? `<h3>Hinweis der Werkstatt:</h3><p style="white-space: pre-wrap;">${escapeHtml(latestComment)}</p>`
+      : '';
+    const html = createBaseEmailHtml(
+      `Auftrag ${escapeHtml(orderNumber)} muss überarbeitet werden`,
+      `
+      <p>Hallo ${escapeHtml(clientUser.name || 'Auftraggeber')},</p>
+      <p>die Werkstatt hat Ihren Auftrag <strong>"${escapeHtml(orderData.title || orderNumber)}"</strong> zur Überarbeitung zurückgegeben.</p>
+      ${commentHtml}
+      <p>Bitte öffnen Sie den Auftrag, nehmen Sie die erforderlichen Änderungen vor und reichen Sie ihn erneut ein.</p>
+      ${renderButton(orderLink, 'Auftrag jetzt überarbeiten')}
+      `
+    );
+
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: clientUser.email,
+      subject: `Bitte Auftrag ${orderNumber} überarbeiten`,
+      html,
+      attachments: [{
+        filename: 'match_Logo_2023.png',
+        path: path.join(__dirname, '../src/assets/match_Logo_2023.png'),
+        cid: 'matchlogo'
+      }]
+    });
+    console.log(`[EMAIL] Überarbeitungs-E-Mail an Auftraggeber gesendet: ${info.messageId}`);
+  } catch (error) {
+    console.error('[EMAIL] Fehler beim Senden der Überarbeitungs-E-Mail:', error);
   }
 }
 
@@ -395,9 +519,33 @@ async function sendClientAssignmentEmail(transporter, db, orderId, orderData) {
   }
 }
 
+async function sendOrderStatusChangeEmails(transporter, db, orderId, orderData, previousStatus, nextStatus, details = {}) {
+  if (previousStatus === nextStatus) return;
+
+  if (nextStatus === 'waiting_confirmation') {
+    await sendWaitingConfirmationEmail(transporter, db, orderId, orderData);
+  } else if (nextStatus === 'revision') {
+    await sendRevisionRequestEmail(transporter, db, orderId, orderData, details.revisionComment);
+  } else if (nextStatus === 'rework') {
+    await sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData, nextStatus, {
+      userName: details.userName,
+      comment: details.revisionRequest || details.revisionComment
+    });
+    await sendReworkRequestEmail(transporter, db, orderId, orderData);
+  } else if (nextStatus === 'completed') {
+    await sendWorkshopStatusUpdateEmail(transporter, db, orderId, orderData, nextStatus, {
+      userName: details.userName,
+      comment: details.confirmationNote
+    });
+  }
+}
+
 module.exports = {
   sendWaitingConfirmationEmail,
+  sendReworkRequestEmail,
+  sendRevisionRequestEmail,
   sendWorkshopStatusUpdateEmail,
   sendOrderEditedEmail,
-  sendClientAssignmentEmail
+  sendClientAssignmentEmail,
+  sendOrderStatusChangeEmails
 };

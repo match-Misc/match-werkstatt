@@ -1,6 +1,25 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
+  let createdOrderId: string | null = null;
+  let createdCostCenterId: string | null = null;
+
+  test.afterEach(async ({ page }) => {
+    let orderCleanupSucceeded = true;
+    if (createdOrderId) {
+      const response = await page.request.delete(`/api/orders/${createdOrderId}`);
+      orderCleanupSucceeded = response.ok();
+      createdOrderId = null;
+    }
+
+    if (createdCostCenterId) {
+      const response = await page.request.delete(`/api/cost-centers/${createdCostCenterId}`);
+      expect(response.ok()).toBeTruthy();
+      createdCostCenterId = null;
+    }
+    expect(orderCleanupSucceeded).toBeTruthy();
+  });
+
   test.beforeEach(async ({ page }) => {
     // Login as admin to access everything
     await page.goto('/');
@@ -114,7 +133,7 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     
     // Create a cost center first (needed for order creation)
     const costCenterNumber = `CC-TEST-I18N-${Date.now()}`;
-    await page.request.post('/api/cost-centers', {
+    const costCenterResponse = await page.request.post('/api/cost-centers', {
       data: {
         number: costCenterNumber,
         projectName: 'i18n Test Project'
@@ -123,6 +142,8 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
         'Authorization': `Bearer ${await page.evaluate(() => localStorage.getItem('token'))}`
       }
     });
+    expect(costCenterResponse.ok()).toBeTruthy();
+    createdCostCenterId = (await costCenterResponse.json()).id;
 
     await page.goto('/orders/new');
     await page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung').fill('E2E i18n Test Auftrag');
@@ -135,7 +156,13 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     await page.locator('select#costCenter').selectOption(costCenterNumber);
     // Submit
     await page.click('button:has-text("Auftrag einreichen")');
+    const orderResponse = page.waitForResponse(response =>
+      response.url().includes('/api/orders') && response.request().method() === 'POST'
+    );
     await page.click('button:has-text("Auftrag trotzdem einreichen")');
+    const createdOrderResponse = await orderResponse;
+    expect(createdOrderResponse.ok()).toBeTruthy();
+    createdOrderId = (await createdOrderResponse.json()).id;
     
     // Wait for the navigation to finish (it uses navigate(-1) so we go back to dashboard)
     await page.waitForURL('**/dashboard*');

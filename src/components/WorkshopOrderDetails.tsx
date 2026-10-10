@@ -48,6 +48,7 @@ import { Order, SubTask, PDFDocument, RevisionComment, NoteHistory } from '../ty
 import { useTranslation } from 'react-i18next';
 import OrderPDFGenerator from '../utils/OrderPDFGenerator';
 import NetworkFilesViewer from './NetworkFilesViewer';
+import OrderProgress from './OrderProgress';
 
 import {
   DndContext,
@@ -845,6 +846,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
 
   const canModify = state.currentUser?.role === 'admin' || 
                    ((state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager') && localOrder.assignedTo === state.currentUser?.id);
+  const currentUserRole = state.currentUser?.role?.toLowerCase();
+  const canEditSubTaskTime = (subTask: SubTask) => currentUserRole === 'admin' ||
+    currentUserRole === 'manager' ||
+    subTask.assignedTo === state.currentUser?.id;
   const canEditNotes = state.currentUser?.role === 'admin' || state.currentUser?.role === 'employee' || state.currentUser?.role === 'manager';
 
   // Auftrag löschen (nur für Admin und Werkstattleiter)
@@ -963,6 +968,8 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
             </button>
           </div>
         </div>
+
+        <OrderProgress status={localOrder.status} subTasks={localOrder.subTasks} />
 
         {/* Tabs Navigation */}
         <div className="border-b border-gray-200 bg-gray-50 px-6">
@@ -1344,9 +1351,17 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                   {/* Obere Zeile */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Auftragstitel:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Auftraggeber:</span>
                       <span className="text-sm font-medium text-gray-900">{localOrder.clientName}</span>
                     </div>
+                    {localOrder.projectName && <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Projektname:</span>
+                      <span className="text-sm font-medium text-gray-900">{localOrder.projectName}</span>
+                    </div>}
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Erstellt am:</span>
                       <span className="text-sm font-medium text-gray-900">
@@ -2184,7 +2199,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                                       type="number"
                                       value={subTask.actualHours}
                                       onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
-                                      disabled={state.currentUser?.role !== 'admin' && state.currentUser?.role !== 'manager' && subTask.assignedTo !== state.currentUser?.id}
+                                      disabled={!canEditSubTaskTime(subTask)}
                                       className="w-20 px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100 text-sm focus:ring-2 focus:ring-blue-500"
                                       min="0"
                                       step="0.5"
@@ -2397,7 +2412,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                           type="number"
                           value={subTask.actualHours}
                           onChange={(e) => handleUpdateSubTask(subTask, { actualHours: parseFloat(e.target.value) || 0 })}
-                          disabled={state.currentUser?.role !== 'admin' && state.currentUser?.role !== 'manager' && subTask.assignedTo !== state.currentUser?.id}
+                          disabled={!canEditSubTaskTime(subTask)}
                           className="w-16 text-xs px-2 py-1 border border-gray-300 rounded disabled:bg-gray-100"
                           min="0"
                           step="0.5"

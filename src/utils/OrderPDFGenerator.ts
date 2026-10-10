@@ -224,7 +224,10 @@ export class OrderPDFGenerator {
   }
 
   async generateCombinedPDF(): Promise<Blob> {
-    if (!this.options.includeDocuments || !this.order.documents || this.order.documents.length === 0) {
+    const hasOrderDocuments = Array.isArray(this.order.documents) && this.order.documents.length > 0;
+    const hasComponentDocuments = this.options.includeComponents && Array.isArray(this.order.components)
+      && this.order.components.some(component => Array.isArray(component.documents) && component.documents.length > 0);
+    if (!this.options.includeDocuments || (!hasOrderDocuments && !hasComponentDocuments)) {
       // Nur das Deckblatt generieren
       const pdf = await this.generatePDF();
       return new Blob([pdf.output('arraybuffer')], { type: 'application/pdf' });
@@ -245,7 +248,7 @@ export class OrderPDFGenerator {
       coverPages.forEach((page) => pdfDoc.addPage(page));
 
       // Dokumente hinzufügen
-      for (const document of this.order.documents) {
+      for (const document of this.order.documents || []) {
         try {
           await this.addDocumentToMergedPDF(pdfDoc, document, 'Anhang');
         } catch (error) {
@@ -286,27 +289,34 @@ export class OrderPDFGenerator {
         return;
       }
 
-      // Construct correct API path (prioritize document.id if available)
-      let fetchUrl = '';
-      if (document.id) {
-        fetchUrl = `/api/documents/${document.id}`;
-      } else if (this.order.id && document.name) {
-        fetchUrl = `/api/orders/${this.order.id}/files/${encodeURIComponent(document.name)}`;
-      } else if (document.url) {
-        fetchUrl = document.url;
-      }
+      // Try the document API first, then the stored URL and order file path.
+      const documentId = document.id || document._id || document.documentId;
+      const fetchUrls = [
+        documentId ? `/api/documents/${documentId}` : '',
+        document.url || '',
+        this.order.id && document.name ? `/api/orders/${this.order.id}/files/${encodeURIComponent(document.name)}` : ''
+      ].filter((url, index, urls) => url && urls.indexOf(url) === index);
 
-      if (!fetchUrl) {
+      if (fetchUrls.length === 0) {
         throw new Error('No valid URL found for document');
       }
 
-      const response = await fetch(fetchUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      let docBuffer: ArrayBuffer | null = null;
+      for (const fetchUrl of fetchUrls) {
+        try {
+          const response = await fetch(fetchUrl);
+          if (response.ok) {
+            docBuffer = await response.arrayBuffer();
+            break;
+          }
+        } catch (error) {
+          console.warn(`Dokument-URL ${fetchUrl} nicht erreichbar:`, error);
+        }
       }
 
-      const docBuffer = await response.arrayBuffer();
+      if (!docBuffer) {
+        throw new Error(`Dokument ${document.name} konnte über keine verfügbare URL geladen werden`);
+      }
       
       // We load the source document to copy its pages in their original size
       const sourcePdfDoc = await PDFDocument.load(docBuffer);

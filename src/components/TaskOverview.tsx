@@ -7,11 +7,12 @@ import { useTranslation } from 'react-i18next';
 
 
 const taskColumns = [
+  { id: 'orderNumber', label: 'Auftragsnummer' },
   { id: 'orderTitle', label: 'Auftragstitel' },
   { id: 'projectName', label: 'Projektname' },
   { id: 'subTaskTitle', label: 'Aufgabename' },
   { id: 'assignee', label: 'Mitarbeiter' },
-  { id: 'info', label: 'Weitere Informationen' },
+  { id: 'info', label: 'Deadline' },
   { id: 'priority', label: 'Priorität' },
   { id: 'status', label: 'Zustand' }
 ];
@@ -27,6 +28,7 @@ export default function TaskOverview() {
 
   // Filter state
   const [filters, setFilters] = useState<any>({
+    orderNumber: '',
     orderTitle: '',
     subTaskTitle: '',
     assignee: '',
@@ -63,15 +65,25 @@ export default function TaskOverview() {
 
   const allSubTasks = getAllSubTasks();
 
+  const filterOptions = {
+    orderNumber: [...new Set(allSubTasks.map(({ order }) => order.orderNumber || order.id))],
+    orderTitle: [...new Set(allSubTasks.map(({ order }) => order.title))],
+    projectName: [...new Set(allSubTasks.map(({ order }) => order.projectName).filter((name): name is string => Boolean(name)))],
+    assignee: [...new Set(allSubTasks.map(({ assigneeName }) => assigneeName))]
+  };
+  Object.values(filterOptions).forEach(options => options.sort((a, b) => a.localeCompare(b, 'de')));
+
   const filteredTasks = useMemo(() => {
     return allSubTasks.filter(task => {
       const matchOrder = task.order.title.toLowerCase().includes(filters.orderTitle.toLowerCase());
+      const matchOrderNumber = (task.order.orderNumber || task.order.id).toLowerCase().includes(filters.orderNumber.toLowerCase());
+      const matchProject = (task.order.projectName || '').toLowerCase().includes(filters.projectName.toLowerCase());
       const matchSubTask = task.subTask.title.toLowerCase().includes(filters.subTaskTitle.toLowerCase());
       const matchAssignee = task.assigneeName.toLowerCase().includes(filters.assignee.toLowerCase());
       const matchPriority = filters.priority ? (task.subTask.priority || 'medium') === filters.priority : true;
       const matchStatus = filters.status ? task.subTask.status === filters.status : true;
       
-      return matchOrder && matchSubTask && matchAssignee && matchPriority && matchStatus;
+      return matchOrderNumber && matchProject && matchOrder && matchSubTask && matchAssignee && matchPriority && matchStatus;
     });
   }, [allSubTasks, filters]);
 
@@ -96,6 +108,14 @@ export default function TaskOverview() {
           aValue = a.order.title;
           bValue = b.order.title;
           break;
+        case 'orderNumber':
+          aValue = a.order.orderNumber || a.order.id;
+          bValue = b.order.orderNumber || b.order.id;
+          break;
+        case 'projectName':
+          aValue = a.order.projectName || '';
+          bValue = b.order.projectName || '';
+          break;
         case 'subTaskTitle':
           aValue = a.subTask.title;
           bValue = b.subTask.title;
@@ -112,6 +132,10 @@ export default function TaskOverview() {
         case 'status':
           aValue = a.subTask.status;
           bValue = b.subTask.status;
+          break;
+        case 'deadline':
+          aValue = a.deadline;
+          bValue = b.deadline;
           break;
         default:
           return 0;
@@ -140,7 +164,6 @@ export default function TaskOverview() {
     );
 
     const updatedOrder = { ...order, subTasks: updatedSubTasks };
-    dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
 
     try {
       const res = await fetch(`/api/orders/${orderId}`, {
@@ -149,19 +172,11 @@ export default function TaskOverview() {
         body: JSON.stringify(updatedOrder)
       });
       if (!res.ok) throw new Error('Failed to update order');
+      dispatch({ type: 'UPDATE_ORDER', payload: await res.json() });
     } catch (err) {
       console.error('Fehler beim Aktualisieren der Unteraufgabe', err);
+      dispatch({ type: 'SHOW_NOTIFICATION', payload: { message: 'Unteraufgabe konnte nicht aktualisiert werden.', type: 'error' } });
     }
-  };
-
-  const getSubTaskScopeText = (order: Order, subTask: SubTask) => {
-    if (subTask.scopeType !== 'component') return '📋 Gesamtauftrag';
-    const component = order.components?.find((comp: any) => {
-      const compId = comp.id || comp._id;
-      return compId === subTask.assignedComponentId;
-    });
-    const componentTitle = component ? (component.title || 'Bauteil') : (subTask.assignedComponentTitle || 'Bauteil');
-    return `🔧 ${componentTitle}`;
   };
 
   const getStatusColor = (status: string) => {
@@ -211,6 +226,7 @@ export default function TaskOverview() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                {isVisible('orderNumber') && <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>{t('dashboard.columns.orderNumber', 'Auftragsnummer')} {sortConfig?.key === 'orderNumber' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>}
                 {isVisible('orderTitle') && (
                   <th 
                     scope="col" 
@@ -248,8 +264,8 @@ export default function TaskOverview() {
                   </th>
                 )}
                 {isVisible('info') && (
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  {t('tasks.columns.info', 'Weitere Informationen')}
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                  {t('tasks.columns.info', 'Deadline')} {sortConfig?.key === 'deadline' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                 </th>
                 )}
                 {isVisible('priority') && (
@@ -272,10 +288,13 @@ export default function TaskOverview() {
                 )}
               </tr>
               <tr className="bg-gray-100 border-t border-gray-200">
+                {isVisible('orderNumber') && <th className="px-6 py-2"><input type="text" list="task-order-number-options" aria-label="Auftragsnummer filtern" placeholder={t('common.search', 'Filtern...')} className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2" value={filters.orderNumber} onChange={(e) => setFilters(prev => ({ ...prev, orderNumber: e.target.value }))} /></th>}
                 {isVisible('orderTitle') && (
                   <th className="px-6 py-2">
                     <input
                       type="text"
+                      list="task-order-title-options"
+                      aria-label="Auftragstitel filtern"
                       placeholder={t('common.search', 'Filtern...')}
                       className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
                       value={filters.orderTitle}
@@ -287,6 +306,8 @@ export default function TaskOverview() {
                   <th className="px-6 py-2">
                     <input
                       type="text"
+                      list="task-project-name-options"
+                      aria-label="Projektname filtern"
                       placeholder={t('common.search', 'Filtern...')}
                       className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
                       value={filters.projectName || ''}
@@ -305,10 +326,12 @@ export default function TaskOverview() {
                   />
                 </th>
                 )}
-                {isAdmin && (
+                {isAdmin && isVisible('assignee') && (
                   <th className="px-6 py-2">
                     <input
                       type="text"
+                      list="task-assignee-options"
+                      aria-label="Mitarbeiter filtern"
                       placeholder={t('common.search', 'Filtern...')}
                       className="w-full text-xs border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 font-normal py-1.5 px-2"
                       value={filters.assignee}
@@ -352,7 +375,7 @@ export default function TaskOverview() {
             <tbody className="bg-white divide-y divide-gray-200">
               {sortedTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="px-6 py-4 text-center text-sm text-gray-500">
+                    <td colSpan={taskColumns.filter(column => isVisible(column.id) && (column.id !== 'assignee' || isAdmin)).length} className="px-6 py-4 text-center text-sm text-gray-500">
                     Keine Unteraufgaben gefunden.
                   </td>
                 </tr>
@@ -363,28 +386,23 @@ export default function TaskOverview() {
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => navigate(`/orders/${order.orderNumber || order.id}?tab=subtasks`)}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {isVisible('orderNumber') && <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{order.orderNumber || order.id}</td>}
+                    {isVisible('orderTitle') && <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {order.title}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    </td>}
+                    {isVisible('projectName') && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{order.projectName || '—'}</td>}
+                    {isVisible('subTaskTitle') && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {subTask.title}
-                    </td>
-                    {isAdmin && (
+                    </td>}
+                    {isAdmin && isVisible('assignee') && (
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {assigneeName}
                       </td>
                     )}
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      <div className="flex flex-col space-y-1">
-                        <span className="truncate max-w-xs">{subTask.description}</span>
-                        <span className="text-xs">{getSubTaskScopeText(order, subTask)}</span>
-                        <span className={`text-xs ${isOverdue(order.deadline) ? 'text-red-600 font-bold' : (isToday(order.deadline) ? 'text-orange-500 font-bold' : '')}`}>
-                          Deadline: {new Date(order.deadline).toLocaleDateString('de-DE')}
-                        </span>
-                        {subTask.estimatedHours > 0 && <span className="text-xs">Geschätzt: {subTask.estimatedHours}h</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {isVisible('info') && <td className={`px-6 py-4 whitespace-nowrap text-sm ${order.deadline && isOverdue(order.deadline) ? 'text-red-600 font-semibold' : (order.deadline && isToday(order.deadline) ? 'text-orange-600 font-semibold' : 'text-gray-500')}`}>
+                      {order.deadline ? new Date(order.deadline).toLocaleDateString('de-DE') : '—'}
+                    </td>}
+                    {isVisible('priority') && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <select
                         value={subTask.priority || 'medium'}
                         onChange={(e) => {
@@ -398,8 +416,8 @@ export default function TaskOverview() {
                         <option value="medium" className="bg-white text-gray-900">Mittel</option>
                         <option value="low" className="bg-white text-gray-900">Tief</option>
                       </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    </td>}
+                    {isVisible('status') && <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       <select
                         value={subTask.status}
                         onChange={(e) => {
@@ -413,13 +431,25 @@ export default function TaskOverview() {
                         <option value="in_progress" className="bg-white text-gray-900">In Bearbeitung</option>
                         <option value="completed" className="bg-white text-gray-900">Abgeschlossen</option>
                       </select>
-                    </td>
+                    </td>}
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
+        <datalist id="task-order-number-options">
+          {filterOptions.orderNumber.map(value => <option key={value} value={value} />)}
+        </datalist>
+        <datalist id="task-order-title-options">
+          {filterOptions.orderTitle.map(value => <option key={value} value={value} />)}
+        </datalist>
+        <datalist id="task-project-name-options">
+          {filterOptions.projectName.map(value => <option key={value} value={value} />)}
+        </datalist>
+        <datalist id="task-assignee-options">
+          {filterOptions.assignee.map(value => <option key={value} value={value} />)}
+        </datalist>
       </div>
     </div>
   );

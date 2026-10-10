@@ -27,21 +27,42 @@ export default function WorkshopDashboard() {
   const { isVisible } = useTableColumns('workshop');
   const location = useLocation();
   const navigate = useNavigate();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'all' | 'assigned'>('all');
+  const preferencesKey = `workshopDashboardPreferences:${state.currentUser?.id || 'anonymous'}`;
+  const [dashboardPreferences, setDashboardPreferences] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(preferencesKey) || '{}');
+      const savedStatusFilter = typeof saved.statusFilter === 'string' ? saved.statusFilter : 'all';
+      return {
+        statusFilter: ['waiting_confirmation', 'all_with_waiting'].includes(savedStatusFilter) ? 'all' : savedStatusFilter,
+        searchTerm: typeof saved.searchTerm === 'string' ? saved.searchTerm : '',
+        viewMode: saved.viewMode === 'assigned' ? 'assigned' : 'all',
+        sortConfig: saved.sortConfig?.key && ['asc', 'desc'].includes(saved.sortConfig.direction)
+          ? saved.sortConfig
+          : { key: 'orderNumber', direction: 'desc' }
+      };
+    } catch {
+      return { statusFilter: 'all', searchTerm: '', viewMode: 'all', sortConfig: { key: 'orderNumber', direction: 'desc' } };
+    }
+  });
+  const { statusFilter, searchTerm, viewMode, sortConfig } = dashboardPreferences;
+  const setStatusFilter = (value: string) => setDashboardPreferences(current => ({ ...current, statusFilter: value }));
+  const setSearchTerm = (value: string) => setDashboardPreferences(current => ({ ...current, searchTerm: value }));
+  const setViewMode = (value: 'all' | 'assigned') => setDashboardPreferences(current => ({ ...current, viewMode: value }));
   const [orders, setOrders] = useState<Order[]>(Array.isArray(state.orders) ? state.orders : []);
   const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
-  const [sortConfig, setSortConfig] = useState<{ key: keyof Order | 'orderNumber', direction: 'asc' | 'desc' }>({ 
-    key: 'orderNumber', 
-    direction: 'desc' 
-  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(preferencesKey, JSON.stringify(dashboardPreferences));
+    } catch (error) {
+      console.warn('Dashboard-Auswahl konnte nicht gespeichert werden:', error);
+    }
+  }, [preferencesKey, dashboardPreferences]);
 
   const handleSort = (key: keyof Order | 'orderNumber') => {
-    setSortConfig(current => ({
+    setDashboardPreferences(current => ({ ...current, sortConfig: {
       key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
-    }));
+      direction: current.sortConfig.key === key && current.sortConfig.direction === 'asc' ? 'desc' : 'asc'
+    }}));
   };
   const fetchOrders = async () => {
     try {
@@ -200,17 +221,24 @@ export default function WorkshopDashboard() {
       return 0;
   });
 
-  const filteredOrders = sortedOrders.filter(order => {
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter || (statusFilter === 'overdue' && isOverdue(order.deadline));
+  const matchesSearch = (order: Order) => {
     const normalizedSearch = searchTerm.toLowerCase().replace(/[-0]/g, '');
     const normalizedOrderNumber = (order.orderNumber || '').toLowerCase().replace(/[-0]/g, '');
-    const matchesSearch = 
-      order.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    return order.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (order.projectName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       normalizedOrderNumber.includes(normalizedSearch) ||
-                         order.clientName.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesStatus && matchesSearch;
+      order.clientName.toLowerCase().includes(searchTerm.toLowerCase());
+  };
+
+  const filteredOrders = sortedOrders.filter(order => {
+    const matchesStatus = order.status !== 'waiting_confirmation' &&
+      (statusFilter === 'all' || order.status === statusFilter ||
+        (statusFilter === 'overdue' && isOverdue(order.deadline)));
+    return matchesStatus && matchesSearch(order);
   });
+  const waitingConfirmationOrders = sortedOrders.filter(order =>
+    order.status === 'waiting_confirmation' && matchesSearch(order)
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -348,8 +376,8 @@ export default function WorkshopDashboard() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
             >
-              <option value="all">{t('dashboard.all_statuses', 'Alle Status')}</option>
-            <option value="overdue">{t('dashboard.overdue', 'Überfällig')}</option>
+              <option value="all">Arbeitsliste</option>
+              <option value="overdue">{t('dashboard.overdue', 'Überfällig')}</option>
               <option value="pending">{t('dashboard.pending', 'Ausstehend')}</option>
               <option value="accepted">{t('dashboard.accepted', 'Angenommen')}</option>
               <option value="in_progress">{t('dashboard.in_progress', 'In Bearbeitung')}</option>
@@ -769,6 +797,62 @@ export default function WorkshopDashboard() {
             </table>
           </div>
         </div>
+
+      {/* Aufträge zur Endabnahme */}
+      <div className="mb-6 rounded-lg border bg-white shadow-sm">
+        <div className="border-b p-4">
+          <h3 className="text-lg font-semibold text-gray-900">Aufträge zur Abnahme</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              <tr>
+                <th scope="col" className="px-6 py-3">Auftragsnummer</th>
+                <th scope="col" className="px-6 py-3">Projektname</th>
+                <th scope="col" className="px-6 py-3">Auftragstitel</th>
+                <th scope="col" className="px-6 py-3">Auftraggeber</th>
+                <th scope="col" className="px-6 py-3">Freigegeben am</th>
+                <th scope="col" className="px-6 py-3">Deadline</th>
+                <th scope="col" className="px-6 py-3">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {waitingConfirmationOrders.map(order => (
+                <tr key={order.id} className="hover:bg-gray-50">
+                  <td className="whitespace-nowrap px-6 py-4 font-mono text-sm text-gray-900">{order.orderNumber || order.id}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">{order.projectName || '—'}</td>
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{order.title}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">{order.clientName}</td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                    {order.waitingConfirmationSince
+                      ? new Date(order.waitingConfirmationSince).toLocaleDateString('de-DE')
+                      : '—'}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                    {order.deadline ? new Date(order.deadline).toLocaleDateString('de-DE') : '—'}
+                  </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
+                      className="font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      Öffnen
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {waitingConfirmationOrders.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
+                    Keine Aufträge warten auf Abnahme.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* QR-Code Scanner */}
       {showBarcodeScanner && (

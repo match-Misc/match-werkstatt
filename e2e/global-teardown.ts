@@ -21,8 +21,8 @@ async function globalTeardown() {
     const ordersResult = await db.collection('Order').deleteMany(orderQuery);
     console.log(`✅ ${ordersResult.deletedCount} übriggebliebene E2E Test-Aufträge aus Datenbank gelöscht.`);
 
-    // 2. Alle Test-Kostenstellen löschen, die mit "CC-TEST", "CC-ARCH" oder "CC-ASSIGN" beginnen
-    const ccQuery = { number: { $regex: /^(CC-TEST|CC-ARCH|CC-ASSIGN)/i } };
+    // 2. Test-Kostenstellen entfernen, auch ältere i18n-Einträge mit CC-I18N-Präfix
+    const ccQuery = { number: { $regex: /^(CC-TEST|CC-ARCH|CC-ASSIGN|CC-I18N)/i } };
     const ccResult = await db.collection('CostCenter').deleteMany(ccQuery);
     console.log(`✅ ${ccResult.deletedCount} E2E Test-Kostenstellen aus Datenbank gelöscht.`);
     

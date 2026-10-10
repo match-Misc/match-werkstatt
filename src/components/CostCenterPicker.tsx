@@ -13,9 +13,12 @@ interface CostCenterPickerProps {
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  field?: 'number' | 'projectName';
+  refreshKey?: number;
+  onCreated?: () => void;
 }
 
-export default function CostCenterPicker({ id, value, onChange, required = false }: CostCenterPickerProps) {
+export default function CostCenterPicker({ id, value, onChange, required = false, field = 'number', refreshKey, onCreated }: CostCenterPickerProps) {
   const { t } = useTranslation();
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,7 @@ export default function CostCenterPicker({ id, value, onChange, required = false
 
   useEffect(() => {
     fetchCostCenters();
-  }, []);
+  }, [refreshKey]);
 
   const handleCreate = async (e?: React.SyntheticEvent) => {
     e?.preventDefault();
@@ -70,8 +73,9 @@ export default function CostCenterPicker({ id, value, onChange, required = false
       }
 
       const created = await res.json();
-      setCostCenters([...costCenters, created]);
-      onChange(created.number); // Select the newly created cost center
+      setCostCenters(current => [...current, created]);
+      onChange(created[field]);
+      onCreated?.();
       setShowModal(false);
       setNewNumber('');
       setNewProjectName('');
@@ -94,14 +98,20 @@ export default function CostCenterPicker({ id, value, onChange, required = false
           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:opacity-75"
         >
           <option value="">{t('orderForm.pleaseSelect', 'Bitte wählen...')}</option>
-          {costCenters.map(cc => (
-            <option key={cc.id} value={cc.number}>
-              {cc.number} ({cc.projectName})
-            </option>
-          ))}
+          {field === 'projectName'
+            ? [...new Set(costCenters.map(cc => cc.projectName).filter(Boolean))].map(projectName => (
+                <option key={projectName} value={projectName}>{projectName}</option>
+              ))
+            : costCenters.map(cc => (
+                <option key={cc.id} value={cc.number}>
+                  {cc.number} ({cc.projectName})
+                </option>
+              ))}
           {/* Allow maintaining the existing value even if it's not in the list (backward compatibility) */}
-          {value && !costCenters.find(cc => cc.number === value) && (
-            <option value={value}>{value} ({t('orderForm.unknown', 'Unbekannt')})</option>
+          {value && !costCenters.some(cc => cc[field] === value) && (
+            <option value={value}>
+              {field === 'projectName' ? value : `${value} (${t('orderForm.unknown', 'Unbekannt')})`}
+            </option>
           )}
         </select>
         <button

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Clock, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Edit2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { ColumnConfigDropdown, useTableColumns } from './ColumnConfigDropdown';
@@ -8,6 +8,10 @@ import OrderForm from './OrderForm';
 import EndabnahmeActions from './EndabnahmeActions';
 import { Order } from '../types';
 import { useTranslation } from 'react-i18next';
+
+const clientColumns = orderColumns.filter(column =>
+  ['orderNumber', 'projectName', 'title', 'createdAt', 'deadline', 'status', 'actions'].includes(column.id)
+);
 
 export default function ClientDashboard() {
   const { isVisible } = useTableColumns('client');
@@ -142,7 +146,7 @@ export default function ClientDashboard() {
         <div className="bg-white rounded-lg shadow-sm border mb-8">
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-bold text-gray-900">{t('client.waiting_confirmation', 'Aufträge zur Endabnahme')}</h3>
-            <ColumnConfigDropdown columns={orderColumns} tableId="client" />
+            <ColumnConfigDropdown columns={clientColumns} tableId="client" />
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -254,7 +258,7 @@ export default function ClientDashboard() {
               <p className="text-sm text-gray-500 mt-1">{t('client.subtitle', 'Verwalten Sie Ihre Werkstattaufträge')}</p>
             </div>
             <div className="flex items-center gap-3">
-              <ColumnConfigDropdown columns={orderColumns} tableId="client" />
+              <ColumnConfigDropdown columns={clientColumns} tableId="client" />
               <button
                 onClick={() => navigate('/orders/new')}
                 className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -306,9 +310,6 @@ export default function ClientDashboard() {
                     </div>
                   </th>
                   )}
-                  {isVisible('time') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.time', 'Geschätzt')}</th>
-                  )}
                   {isVisible('actions') && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('common.actions', 'Aktionen')}</th>
                   )}
@@ -355,14 +356,6 @@ export default function ClientDashboard() {
                           {order.status === 'revision' && (
                             <div className="mt-1 text-xs text-orange-600 font-medium">{t('client.pleaseRevise', 'Bitte überarbeiten')}</div>
                           )}
-                        </td>
-                      )}
-                    {isVisible('time') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center text-sm text-gray-900">
-                            <Clock className="w-4 h-4 text-gray-400 mr-1" />
-                            {order.estimatedHours}h
-                          </div>
                         </td>
                       )}
                     {isVisible('actions') && (

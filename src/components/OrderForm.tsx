@@ -7,6 +7,7 @@ import { Order, PDFDocument, Component, Material, User } from '../types';
 import { useTranslation } from 'react-i18next';
 import { checkPdfSize } from '../utils/pdfChecker';
 import CostCenterPicker from './CostCenterPicker';
+import MaterialPicker from './MaterialPicker';
 
 interface OrderFormProps {
   mode: 'create' | 'edit';
@@ -39,6 +40,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   
   const [deadline, setDeadline] = useState(mode === 'edit' && initialData ? formatDateForInput(initialData.deadline) : '');
   const [costCenter, setCostCenter] = useState(mode === 'edit' && initialData ? initialData.costCenter : '');
+  const [costCentersRefreshKey, setCostCentersRefreshKey] = useState(0);
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(mode === 'edit' && initialData ? initialData.priority : 'medium');
   const [orderType, setOrderType] = useState<'fertigung' | 'service'>(mode === 'edit' && initialData ? initialData.orderType || 'fertigung' : 'fertigung');
   const [documents, setDocuments] = useState<PDFDocument[]>(mode === 'edit' && initialData ? initialData.documents || [] : []);
@@ -460,15 +462,16 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="projectName" className="block text-sm font-medium text-gray-700 mb-2">
                 {t('orderForm.projectName', 'Projektname')}
               </label>
-              <input
-                type="text"
+              <CostCenterPicker
+                id="projectName"
                 value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                placeholder="Name des Projekts"
+                onChange={setProjectName}
+                field="projectName"
+                refreshKey={costCentersRefreshKey}
+                onCreated={() => setCostCentersRefreshKey(key => key + 1)}
               />
             </div>
             
@@ -500,10 +503,10 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                   }}
                   className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                 >
-                  <option value={state.currentUser!.id}>{state.currentUser!.name} ({t('orderForm.me', 'Ich')})</option>
+                  <option value={state.currentUser!.id}>{state.currentUser!.name}</option>
                   {users.filter(u => u.id !== state.currentUser!.id).map(user => (
                     <option key={user.id} value={user.id}>
-                      {user.name} ({user.company || t('orderForm.noInstitute', 'Kein Institut')})
+                      {user.name}
                     </option>
                   ))}
                 </select>
@@ -547,6 +550,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 value={costCenter}
                 onChange={setCostCenter}
                 required={true}
+                refreshKey={costCentersRefreshKey}
+                onCreated={() => setCostCentersRefreshKey(key => key + 1)}
               />
             </div>
 
@@ -730,19 +735,15 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                       </div>
 
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label htmlFor={`component-material-${component.id}`} className="block text-sm font-medium text-gray-700 mb-1">
                           Material
                         </label>
-                        <select
+                        <MaterialPicker
+                          id={`component-material-${component.id}`}
                           value={component.material || ''}
-                          onChange={(e) => updateComponent(component.id, 'material', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">Kein Material ausgewählt</option>
-                          {availableMaterials.map(mat => (
-                            <option key={mat.id} value={mat.name}>{mat.name}</option>
-                          ))}
-                        </select>
+                          materials={availableMaterials}
+                          onChange={selectedMaterial => updateComponent(component.id, 'material', selectedMaterial)}
+                        />
                       </div>
 
                       <div>

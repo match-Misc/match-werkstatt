@@ -8,6 +8,7 @@ const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
 const { buildOrderAccessFilter } = require('./server/utils/orderAccess.cjs');
+const { shouldAutoStartOrder } = require('./server/utils/autoStartOrder.cjs');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
@@ -2571,8 +2572,17 @@ app.put('/api/orders/:id', async (req, res) => {
     if (orderType !== undefined) updateData.orderType = orderType;
     if (subTasks !== undefined) {
       const existingSubTasks = existingOrder.subTasks || [];
-      const userRole = await parseViewerRole(req);
-      const requestUserId = userId; // Aus dem Body extrahiert
+      const cookies = parseCookies(req);
+      const session = cookies.sessionId
+        ? await db.collection('Session').findOne({ token: cookies.sessionId })
+        : null;
+      const sessionUser = session?.userId
+        ? await db.collection('User').findOne({ _id: new ObjectId(session.userId) })
+        : null;
+      // Rollen können sich während einer bestehenden Sitzung ändern. Für Zeitkorrekturen
+      // zählt die aktuelle Benutzerrolle, nicht die beim Login gespeicherte Rolle.
+      const userRole = session ? normalizeUserRole(sessionUser?.role) : await parseViewerRole(req);
+      const requestUserId = sessionUser?._id.toString() || userId;
 
       for (const st of subTasks) {
         const oldSt = existingSubTasks.find(old => old.id === st.id);
@@ -2603,6 +2613,10 @@ app.put('/api/orders/:id', async (req, res) => {
       }
       
       updateData.subTasks = subTasks;
+      if (shouldAutoStartOrder(existingOrder, subTasks, status)) {
+        updateData.status = 'in_progress';
+        if (!existingOrder.acceptedDate) updateData.acceptedDate = new Date();
+      }
     }
     
     // Handle title image deletion (when titleImage is explicitly set to null)
@@ -2973,24 +2987,23 @@ app.put('/api/orders/:id', async (req, res) => {
     .sort({ createdAt: -1 })
     .toArray();
     
-    // Trigger email notifications if status changed
-    if (status !== undefined && status !== existingOrder.status) {
+    const clientWasAssigned = clientId !== undefined &&
+      clientId !== null &&
+      clientId !== '' &&
+      String(clientId) !== String(existingOrder.clientId || '');
+
+    // Use the persisted status, including automatic starts triggered by a subtask.
+    if (newStatus !== oldStatus) {
       const emailScript = require('./scripts/email-notifications.cjs');
       const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
       
-      console.log(`[EMAIL] Status changed from ${existingOrder.status} to ${status}. Triggering emails...`);
-      
-      if (status === 'waiting_confirmation') {
-        await emailScript.sendWaitingConfirmationEmail(transporter, db, req.params.id, orderDataForEmail);
-      } else if (status === 'completed' || status === 'rework') {
-        const commentData = status === 'completed' 
-          ? { userName: effectiveUserName, comment: confirmationNote }
-          : { userName: effectiveUserName, comment: revisionRequest || revisionComment };
-        await emailScript.sendWorkshopStatusUpdateEmail(transporter, db, req.params.id, orderDataForEmail, status, commentData);
-      }
+      console.log(`[EMAIL] Status changed from ${oldStatus} to ${newStatus}. Triggering emails...`);
+      await emailScript.sendOrderStatusChangeEmails(
+        transporter, db, req.params.id, orderDataForEmail, oldStatus, newStatus,
+        { userName: effectiveUserName, revisionRequest, revisionComment, confirmationNote }
+      );
     } else {
-      // If status didn't change (or if it did, we might not want to double-email, but we only email if status DID NOT change to avoid spam)
-      // Actually, let's just trigger edit email if there are meaningful field changes.
+      // Send an edit email only if the order status stayed the same.
       const isClientEditing = effectiveUserId && existingOrder.clientId && String(effectiveUserId) === String(existingOrder.clientId);
       const ignoredFields = ['updatedAt', 'revisionHistory', 'reworkComments', 'status', 'subTasks', 'internalWorkshopNote', 'estimatedHours', 'actualHours', 'assignedTo'];
       
@@ -3067,11 +3080,6 @@ app.put('/api/orders/:id', async (req, res) => {
       if (editedFields.length > 0 && existingOrder.status !== 'Entwurf') {
         const emailScript = require('./scripts/email-notifications.cjs');
         const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
-        const clientWasAssigned = clientId !== undefined &&
-          clientId !== null &&
-          clientId !== '' &&
-          String(clientId) !== String(existingOrder.clientId || '');
-        
         // Build an object of only the changed fields for the email
         const changedFieldsForEmail = {};
         for (const key of editedFields) {
@@ -3088,10 +3096,14 @@ app.put('/api/orders/:id', async (req, res) => {
           { includeClient: !clientWasAssigned }
         );
 
-        if (clientWasAssigned) {
-          await emailScript.sendClientAssignmentEmail(transporter, db, req.params.id, orderDataForEmail);
-        }
       }
+    }
+
+    // Notify the new client independently of status or other changed fields.
+    if (clientWasAssigned) {
+      const emailScript = require('./scripts/email-notifications.cjs');
+      const orderDataForEmail = { ...updatedOrder, subTasks: updatedOrder.subTasks || existingOrder.subTasks };
+      await emailScript.sendClientAssignmentEmail(transporter, db, req.params.id, orderDataForEmail);
     }
 
     await client.close();
@@ -3115,6 +3127,19 @@ app.put('/api/orders/:id', async (req, res) => {
     
     console.log('Final response documents:', responseOrder.documents?.length || 0);
     console.log('Final response components:', responseOrder.components?.length || 0);
+    const wss = req.app.get('wss');
+    if (wss) {
+      const message = JSON.stringify({ type: 'orderUpdated', payload: { id: req.params.id } });
+      wss.clients.forEach(socket => {
+        if (socket.readyState === WebSocket.OPEN) {
+          try {
+            socket.send(message);
+          } catch (error) {
+            console.error('Auftragsaktualisierung konnte nicht übertragen werden:', error);
+          }
+        }
+      });
+    }
     res.json(responseOrder);
   } catch (err) {
     console.error('PUT /api/orders/:id error:', err);

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import ws from '../utils/websocket';
 import { useApp } from '../context/AppContext';
 import NetworkFileUpload from './NetworkFileUpload';
+import OrderProgress from './OrderProgress';
 import STLViewer from './STLViewer';
 import { getFileIcon, getFileIconSmall, isImageFile, isPDFFile } from '../utils/fileIcons';
 
@@ -556,6 +557,8 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
           </div>
         </div>
 
+        <OrderProgress status={currentOrder.status} subTasks={currentOrder.subTasks} />
+
         {/* Tabs Navigation */}
         <div className="border-b border-gray-200 bg-gray-50 px-6">
           <nav className="-mb-px flex space-x-8" aria-label="Tabs">
@@ -804,9 +807,17 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                   {/* Obere Zeile */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Auftragstitel:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Auftraggeber:</span>
                       <span className="text-sm font-medium text-gray-900">{currentOrder.clientName}</span>
                     </div>
+                    {currentOrder.projectName && <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-600">Projektname:</span>
+                      <span className="text-sm font-medium text-gray-900">{currentOrder.projectName}</span>
+                    </div>}
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-gray-600">Erstellt am:</span>
                       <span className="text-sm font-medium text-gray-900">

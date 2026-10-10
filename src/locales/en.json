@@ -94,7 +94,7 @@
       "columns": {
         "subTaskTitle": "Task Name",
         "assignee": "Assignee",
-        "info": "Additional Information"
+        "info": "Deadline"
       }
     },
     "archive": {
