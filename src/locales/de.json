@@ -108,6 +108,7 @@
       "createUser": "Benutzer erstellen",
       "costCenters": "Kostenstellen verwalten",
       "newCostCenter": "Neue Kostenstelle",
+      "newProject": "Neues Projekt",
       "materialDesc": "Hier können Sie die Materialien definieren, die bei der Bauteil-Erstellung im Dropdown zur Verfügung stehen.",
       "newMaterialPlaceholder": "Neues Material hinzufügen (z.B. S235JR)",
       "add": "Hinzufügen",

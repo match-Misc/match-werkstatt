@@ -36,7 +36,7 @@ describe('CostCenterPicker', () => {
 
     render(<CostCenterPicker field="projectName" value="" onChange={onChange} onCreated={onCreated} />);
     await waitFor(() => expect(screen.getByRole('combobox')).not.toBeDisabled());
-    await user.click(screen.getByTitle('Neue Kostenstelle anlegen'));
+    await user.click(screen.getByTitle('Neues Projekt'));
     await user.type(screen.getByPlaceholderText('z.B. KOSTEN-001'), created.number);
     await user.type(screen.getByPlaceholderText('z.B. Projekt X'), created.projectName);
     await user.click(screen.getByRole('button', { name: 'Anlegen & Auswählen' }));

@@ -118,7 +118,9 @@ export default function CostCenterPicker({ id, value, onChange, required = false
           type="button"
           onClick={() => setShowModal(true)}
           className="flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-lg px-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          title={t('admin.newCostCenter', 'Neue Kostenstelle anlegen')}
+          title={field === 'projectName'
+            ? t('admin.newProject', 'Neues Projekt')
+            : t('admin.newCostCenter', 'Neue Kostenstelle anlegen')}
         >
           <Plus className="w-5 h-5" />
         </button>

@@ -108,6 +108,7 @@
       "createUser": "Create User",
       "costCenters": "Manage Cost Centers",
       "newCostCenter": "New Cost Center",
+      "newProject": "New Project",
       "materialDesc": "Here you can define the materials that are available in the dropdown when creating components.",
       "newMaterialPlaceholder": "Add new material (e.g., S235JR)",
       "add": "Add",

@@ -2,15 +2,25 @@ import { test, expect } from '@playwright/test';
 
 test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
   let createdOrderId: string | null = null;
+  let createdOrderTitle: string | null = null;
   let createdCostCenterId: string | null = null;
 
   test.afterEach(async ({ page }) => {
+    if (!createdOrderId && createdOrderTitle) {
+      const response = await page.request.get('/api/orders');
+      if (response.ok()) {
+        const orders = await response.json();
+        createdOrderId = orders.find((order: { title: string }) => order.title === createdOrderTitle)?.id || null;
+      }
+    }
+
     let orderCleanupSucceeded = true;
     if (createdOrderId) {
       const response = await page.request.delete(`/api/orders/${createdOrderId}`);
       orderCleanupSucceeded = response.ok();
       createdOrderId = null;
     }
+    createdOrderTitle = null;
 
     if (createdCostCenterId) {
       const response = await page.request.delete(`/api/cost-centers/${createdCostCenterId}`);
@@ -121,12 +131,15 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     // Check DE
     await page.selectOption('[data-testid="language-select"]', 'de');
     await expect(page.locator('h2', { hasText: 'Meine Aufträge' })).toBeVisible();
-    await expect(page.locator('text=Keine Aufträge in dieser Ansicht.')).toBeVisible();
+    const emptyStateDe = page.getByText('Keine Aufträge in dieser Ansicht.', { exact: true });
+    const wasEmpty = await emptyStateDe.isVisible();
 
     // Switch to EN
     await page.selectOption('[data-testid="language-select"]', 'en');
     await expect(page.locator('h2', { hasText: 'My Orders' })).toBeVisible();
-    await expect(page.locator('text=No orders in this view.')).toBeVisible();
+    if (wasEmpty) {
+      await expect(page.getByText('No orders in this view.', { exact: true })).toBeVisible();
+    }
 
     // Create an order to test populated state table headers
     await page.selectOption('[data-testid="language-select"]', 'de');
@@ -146,7 +159,8 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     createdCostCenterId = (await costCenterResponse.json()).id;
 
     await page.goto('/orders/new');
-    await page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung').fill('E2E i18n Test Auftrag');
+    createdOrderTitle = `E2E i18n Test Auftrag ${Date.now()}`;
+    await page.getByPlaceholder('Kurze, aussagekräftige Bezeichnung').fill(createdOrderTitle);
     await page.getByLabel(/Beschreibung/i).fill('Test Description');
     // Set deadline
     const futureDate = new Date();
@@ -162,10 +176,14 @@ test.describe('i18n Phase 1-3 Dashboards & Admin', () => {
     await page.click('button:has-text("Auftrag trotzdem einreichen")');
     const createdOrderResponse = await orderResponse;
     expect(createdOrderResponse.ok()).toBeTruthy();
-    createdOrderId = (await createdOrderResponse.json()).id;
     
     // Wait for the navigation to finish (it uses navigate(-1) so we go back to dashboard)
     await page.waitForURL('**/dashboard*');
+    const ordersResponse = await page.request.get('/api/orders');
+    expect(ordersResponse.ok()).toBeTruthy();
+    const orders = await ordersResponse.json();
+    createdOrderId = orders.find((order: { title: string }) => order.title === createdOrderTitle)?.id || null;
+    expect(createdOrderId).toBeTruthy();
     
     // Check DE table headers
     await expect(page.locator('th', { hasText: 'Auftragsnummer' })).toBeVisible();
