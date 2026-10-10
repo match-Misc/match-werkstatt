@@ -139,6 +139,8 @@
       "dxf": "CAD-Zeichnung (DXF)",
       "step": "CAD-Modell (STEP)",
       "iges": "CAD-Modell (IGES)",
+      "solidworks": "SolidWorks-Datei",
+      "ipt": "CAD-Modell (IPT/IAM)",
       "zip": "Archiv (ZIP)",
       "emcam": "CAM-Datei (EMCAM)",
       "default": "Dokument",

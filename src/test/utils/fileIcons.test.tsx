@@ -4,6 +4,7 @@ import {
   isSTLFile,
   isCADFile,
   isIPTFile,
+  isSolidWorksFile,
   isDWGFile,
   isZIPFile,
   isEMCAMFile,
@@ -33,6 +34,13 @@ describe('fileIcons utils', () => {
       expect(isIPTFile('assembly.iam')).toBe(true);
       expect(isIPTFile('part.ipt')).toBe(true);
       expect(isIPTFile('part.step')).toBe(false);
+    });
+
+    it('detects SolidWorks files', () => {
+      expect(isSolidWorksFile('part.sldprt')).toBe(true);
+      expect(isSolidWorksFile('assembly.SLDASM')).toBe(true);
+      expect(isSolidWorksFile('drawing.slddrw')).toBe(true);
+      expect(isSolidWorksFile('part.step')).toBe(false);
     });
 
     it('detects DWG files', () => {
@@ -65,6 +73,7 @@ describe('fileIcons utils', () => {
       expect(getFileTypeDescription('Maße.dwg')).toBe('Zeichnung (DWG)');
       expect(getFileTypeDescription('Foto-Ü.png')).toBe('Bilddatei');
       expect(getFileTypeDescription('Doku_ÄÖÜ.pdf')).toBe('PDF-Dokument');
+      expect(getFileTypeDescription('Teil.sldprt')).toBe('SolidWorks-Datei');
       expect(getFileTypeDescription('Müller-Testdatei.txt')).toBe('Dokument');
     });
   });
@@ -74,6 +83,9 @@ describe('fileIcons utils', () => {
       // By checking the type of the returned React element (functional component)
       const stlIcon = getFileIcon('model.stl');
       expect(stlIcon.type.displayName || stlIcon.type.name).toBe('Server');
+
+      const sldIcon = getFileIcon('part.sldprt');
+      expect(sldIcon.type.displayName || sldIcon.type.name).toBe('Box');
 
       const iptIcon = getFileIcon('part.ipt');
       expect(iptIcon.type.displayName || iptIcon.type.name).toBe('Box');

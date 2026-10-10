@@ -56,6 +56,11 @@ const DocumentViewer = ({
       case 'stp': return t('fileTypes.step', 'CAD-Modell (STEP)');
       case 'iges':
       case 'igs': return t('fileTypes.iges', 'CAD-Modell (IGES)');
+      case 'sldprt':
+      case 'sldasm':
+      case 'slddrw': return t('fileTypes.solidworks', 'SolidWorks-Datei');
+      case 'ipt':
+      case 'iam': return t('fileTypes.ipt', 'CAD-Modell (IPT/IAM)');
       case 'zip': return t('fileTypes.zip', 'Archiv (ZIP)');
       case 'emcam': return t('fileTypes.emcam', 'CAM-Datei (EMCAM)');
       default: return t('fileTypes.default', 'Dokument');

@@ -91,7 +91,7 @@ export const networkUploadUtils = {
     const extension = filename.toLowerCase().split('.').pop();
     
     const camExtensions = ['nc', 'gcode', 'cnc', 'tap', 'iso', 'mpf'];
-    const drawingExtensions = ['dwg', 'dxf', 'pdf', 'step', 'stp', 'iges', 'igs'];
+    const drawingExtensions = ['dwg', 'dxf', 'pdf', 'step', 'stp', 'iges', 'igs', 'sldprt', 'sldasm', 'slddrw', 'ipt', 'iam'];
     const photoExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff'];
     
     if (camExtensions.includes(extension || '')) {

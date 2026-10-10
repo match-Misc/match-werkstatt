@@ -425,7 +425,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                 <input
                   type="file"
                   multiple
-                  accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
+                  accept=".pdf,.stl,.step,.stp,.ipt,.iam,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb,.sldprt,.sldasm,.slddrw,.dwg,.dxf"
                   onChange={(e) => handleFileUpload(e.target.files)}
                   className="hidden"
                 />
@@ -582,7 +582,7 @@ export default function EditOrder({ order, onClose, onOrderUpdated }: EditOrderP
                           <input
                             type="file"
                             multiple
-                            accept=".pdf,.stl,.step,.stp,.ipt,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb"
+                            accept=".pdf,.stl,.step,.stp,.ipt,.iam,.iges,.igs,.obj,.ply,.3ds,.dae,.gltf,.glb,.sldprt,.sldasm,.slddrw,.dwg,.dxf"
                             onChange={(e) => handleComponentFileUpload(component.id, e.target.files)}
                             className="hidden"
                           />

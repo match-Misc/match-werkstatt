@@ -33,9 +33,14 @@ export const isPDFFile = (fileName: string) => {
   return /\.pdf$/i.test(fileName);
 };
 
+export const isSolidWorksFile = (fileName: string) => {
+  return /\.(sldprt|sldasm|slddrw)$/i.test(fileName);
+};
+
 export const getFileIcon = (fileName: string, className = "w-5 h-5 mr-3") => {
   if (isSTLFile(fileName)) return <Server className={`${className} text-purple-600`} />;
   if (isIPTFile(fileName)) return <Box className={`${className} text-orange-500`} />;
+  if (isSolidWorksFile(fileName)) return <Box className={`${className} text-red-600`} />;
   if (isCADFile(fileName)) return <Box className={`${className} text-blue-600`} />;
   if (isDWGFile(fileName)) return <PenTool className={`${className} text-blue-500`} />;
   if (isZIPFile(fileName)) return <Archive className={`${className} text-yellow-600`} />;
@@ -52,6 +57,7 @@ export const getFileIconSmall = (fileName: string) => {
 export const getFileTypeDescription = (fileName: string) => {
   if (isSTLFile(fileName)) return '3D-Modell (STL)';
   if (isIPTFile(fileName)) return 'CAD-Modell (IPT/IAM)';
+  if (isSolidWorksFile(fileName)) return 'SolidWorks-Datei';
   if (isCADFile(fileName)) return '3D-Modell/CAD';
   if (isDWGFile(fileName)) return 'Zeichnung (DWG)';
   if (isZIPFile(fileName)) return 'Archiv (ZIP)';
