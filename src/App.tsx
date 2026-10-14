@@ -192,7 +192,7 @@ function AppContent() {
           } />
           
           <Route path="/drafts" element={
-            <RequireRole allowedRoles={['admin', 'manager', 'client']}>
+            <RequireRole allowedRoles={['admin', 'manager', 'employee', 'client']}>
               <DraftsOverview />
             </RequireRole>
           } />
@@ -204,7 +204,7 @@ function AppContent() {
           } />
 
           <Route path="/admin/users" element={
-            <RequireRole allowedRoles={['admin']}>
+            <RequireRole allowedRoles={['admin', 'manager']}>
               <UserManagement />
             </RequireRole>
           } />

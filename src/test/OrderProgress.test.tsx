@@ -4,6 +4,17 @@ import OrderProgress from '../components/OrderProgress';
 import { Order, SubTask } from '../types';
 
 describe('OrderProgress', () => {
+  it('shows a compact table bar without visible description or percentage', () => {
+    render(<OrderProgress compact status="in_progress" subTasks={[{ status: 'completed' }, { status: 'pending' }] as SubTask[]} />);
+    const bar = screen.getByRole('progressbar');
+    expect(bar).toHaveAttribute('aria-valuenow', '50');
+    expect(bar).toHaveAttribute('aria-valuetext', 'Warten auf Bearbeitung, 1 von 2 Unteraufgaben abgeschlossen');
+    expect(bar.textContent).toBe('');
+    expect(screen.queryByText('Fortschritt')).not.toBeInTheDocument();
+    expect(screen.queryByText('50 %')).not.toBeInTheDocument();
+    expect(screen.queryByText('Warten auf Bearbeitung')).not.toBeInTheDocument();
+  });
+
   it('shows the percentage beside the bar and keeps task counts accessible', () => {
     const subTasks = [
       { status: 'completed' },

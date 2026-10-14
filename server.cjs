@@ -7,8 +7,11 @@ const path = require('path');
 const fs = require('fs');
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
-const { buildOrderAccessFilter } = require('./server/utils/orderAccess.cjs');
+const { buildOrderAccessFilter, hideInternalOrderFields } = require('./server/utils/orderAccess.cjs');
 const { shouldAutoStartOrder } = require('./server/utils/autoStartOrder.cjs');
+const { preserveSubTaskHours } = require('./server/utils/subTaskHours.cjs');
+const { canDeleteDraft } = require('./server/utils/draftAccess.cjs');
+const { duplicateOrder } = require('./server/utils/duplicateOrder.cjs');
 
 // Hybrid LDAP Integration
 const SimpleLDAPAuth = require('./scripts/simple-ldap-auth.cjs');
@@ -862,8 +865,7 @@ async function parseViewerRole(req) {
 async function sanitizeOrderForViewer(order, viewerRole, db) {
   let sanitized = order;
   if (viewerRole === 'client') {
-    const { internalWorkshopNote, ...orderWithoutInternalNote } = sanitized;
-    sanitized = orderWithoutInternalNote;
+    sanitized = hideInternalOrderFields(sanitized);
   }
   
   if (viewerRole === 'client' || viewerRole === 'guest') {
@@ -1740,8 +1742,16 @@ app.put('/api/users/:id', async (req, res) => {
     console.log('PUT /api/users/:id - Body:', req.body);
     
     const { client, db } = await getDB();
-    const { username, password, name, company, email, role, isActive, tableConfig } = req.body;
+    const { username, password, name, company, email, role, isActive, tableConfig, tableColumnOrder } = req.body;
     
+    if (tableColumnOrder !== undefined && (
+      !tableColumnOrder || typeof tableColumnOrder !== 'object' || Array.isArray(tableColumnOrder) ||
+      Object.values(tableColumnOrder).some(ids => !Array.isArray(ids) || ids.some(id => typeof id !== 'string'))
+    )) {
+      await client.close();
+      return res.status(400).json({ error: 'Ungültige Spaltenreihenfolge' });
+    }
+
     // Check if user exists first
     const existingUser = await db.collection('User').findOne({ _id: new ObjectId(req.params.id) });
     if (!existingUser) {
@@ -1769,6 +1779,7 @@ app.put('/api/users/:id', async (req, res) => {
     if (role !== undefined && existingUser.username !== 'admin') updateData.role = role;
     if (isActive !== undefined) updateData.isActive = isActive;
     if (tableConfig !== undefined) updateData.tableConfig = tableConfig;
+    if (tableColumnOrder !== undefined) updateData.tableColumnOrder = tableColumnOrder;
     
     console.log('Update data:', updateData);
     
@@ -2092,7 +2103,8 @@ app.get('/api/drafts', async (req, res) => {
       status: 'Entwurf',
       $or: [
         { clientId: sessionUserId },
-        { clientId: sessionUserId.toString() }
+        { clientId: sessionUserId.toString() },
+        { createdBy: sessionUserId.toString() }
       ]
     }).sort({ createdAt: -1 }).toArray();
     
@@ -2491,7 +2503,7 @@ app.put('/api/orders/:id', async (req, res) => {
     const {
       title, projectName, description, clientId, clientName, deadline, costCenter,
       priority, status, estimatedHours, actualHours, assignedTo, notes,
-      orderType, subTasks, documents, components, revisionRequest, revisionComment,
+      orderType, subTasks: incomingSubTasks, documents, components, revisionRequest, revisionComment,
       userId, userName, materialOrderedByWorkshop, materialOrderedByClient,
       materialOrderedByClientConfirmed, materialAvailable, confirmationNote,
       confirmationDate, canEdit, titleImage, internalWorkshopNote
@@ -2506,6 +2518,15 @@ app.put('/api/orders/:id', async (req, res) => {
     if (!existingOrder) {
       await client.close();
       return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    }
+
+    // Auftraggeber erhalten keine Stundenfelder. Fehlende Werte sind keine Zeitkorrektur.
+    const subTasks = preserveSubTaskHours(incomingSubTasks, existingOrder.subTasks);
+
+    const restartingOrder = ['completed', 'archived'].includes(existingOrder.status) && status === 'in_progress';
+    if (restartingOrder && !['manager', 'admin'].includes(await parseViewerRole(req))) {
+      await client.close();
+      return res.status(403).json({ error: 'Nur die Werkstattleitung darf abgeschlossene Aufträge wieder starten' });
     }
 
     let revisionHistory = Array.isArray(existingOrder.revisionHistory) ? existingOrder.revisionHistory : [];
@@ -2792,6 +2813,13 @@ app.put('/api/orders/:id', async (req, res) => {
     if (materialAvailable !== undefined) updateData.materialAvailable = materialAvailable;
     if (confirmationNote !== undefined) updateData.confirmationNote = confirmationNote;
     if (confirmationDate !== undefined) updateData.confirmationDate = new Date(confirmationDate);
+    if (restartingOrder) {
+      updateData.confirmationDate = null;
+      updateData.confirmationNote = '';
+      updateData.waitingConfirmationSince = null;
+      updateData.remindersSent = [];
+    }
+
     if (canEdit !== undefined) updateData.canEdit = canEdit;
     
     // Always update history
@@ -3140,7 +3168,7 @@ app.put('/api/orders/:id', async (req, res) => {
         }
       });
     }
-    res.json(responseOrder);
+    res.json(await parseViewerRole(req) === 'client' ? hideInternalOrderFields(responseOrder) : responseOrder);
   } catch (err) {
     console.error('PUT /api/orders/:id error:', err);
     res.status(500).json({ error: 'Fehler beim Aktualisieren des Auftrags', details: err.message });
@@ -3300,7 +3328,39 @@ app.get('/api/orders/:id/title-image', async (req, res) => {
   }
 });
 
-// POST /api/orders - Create new order
+// POST /api/orders/:id/duplicate - Create an independent draft
+app.post('/api/orders/:id/duplicate', async (req, res) => {
+  if (!ObjectId.isValid(req.params.id) || (req.body?.resetWork !== undefined && typeof req.body.resetWork !== 'boolean')) {
+    return res.status(400).json({ error: 'Ungültige Anfrage zum Duplizieren' });
+  }
+  let connection;
+  try {
+    const { client, db } = await getDB();
+    connection = client;
+    const token = parseCookies(req).sessionId;
+    const session = token ? await db.collection('Session').findOne({ token }) : null;
+    if (!session?.userId || !ObjectId.isValid(String(session.userId))) {
+      return res.status(401).json({ error: 'Bitte anmelden, um einen Auftrag zu duplizieren' });
+    }
+    const account = await db.collection('User').findOne({ _id: new ObjectId(String(session.userId)) });
+    if (!account || account.isActive === false) return res.status(403).json({ error: 'Zugriff verweigert' });
+    const source = await db.collection('Order').findOne({ _id: new ObjectId(req.params.id) });
+    if (!source) return res.status(404).json({ error: 'Auftrag nicht gefunden' });
+    const config = await db.collection('settings').findOne({ type: 'network-config' });
+    const draft = await duplicateOrder({
+      db, source, user: { id: String(account._id), role: normalizeUserRole(account.role) },
+      uploadsDir, networkPath: config?.networkPath, getFolderName: getOrCreateOrderFolderName,
+      resetWork: req.body?.resetWork !== false
+    });
+    res.status(201).json({ id: draft.id, orderNumber: draft.orderNumber, status: draft.status });
+  } catch (error) {
+    console.error('Auftrag duplizieren fehlgeschlagen:', error);
+    res.status(error.status || 500).json({ error: error.status === 403 ? error.message : 'Auftrag konnte nicht vollständig dupliziert werden. Bitte die Anhänge prüfen.' });
+  } finally {
+    if (connection) await connection.close();
+  }
+});
+
 app.post('/api/orders', async (req, res) => {
   try {
     const { client, db } = await getDB();
@@ -3450,7 +3510,8 @@ app.post('/api/orders', async (req, res) => {
 });
 
 // DELETE /api/orders/:id - Delete order
-app.delete('/api/orders/:id', async (req, res) => {
+async function deleteOrder(req, res, draftOnly = false) {
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: 'Ungültige Auftrags-ID' });
   try {
     const { client, db } = await getDB();
     
@@ -3458,6 +3519,20 @@ app.delete('/api/orders/:id', async (req, res) => {
     if (!order) {
       await client.close();
       return res.status(404).json({ error: 'Order nicht gefunden' });
+    }
+
+    if (draftOnly) {
+      const token = parseCookies(req).sessionId;
+      const session = token ? await db.collection('Session').findOne({ token }) : null;
+      if (!session?.userId || !ObjectId.isValid(String(session.userId))) {
+        await client.close();
+        return res.status(401).json({ error: 'Bitte anmelden, um einen Entwurf zu löschen' });
+      }
+      const account = await db.collection('User').findOne({ _id: new ObjectId(String(session.userId)) });
+      if (!account || account.isActive === false || !canDeleteDraft({ id: String(account._id), role: normalizeUserRole(account.role) }, order)) {
+        await client.close();
+        return res.status(403).json({ error: 'Keine Berechtigung: Nur eigene Entwürfe dürfen gelöscht werden' });
+      }
     }
 
     const orderFolderName = await getOrCreateOrderFolderName(db, order);
@@ -3535,7 +3610,10 @@ app.delete('/api/orders/:id', async (req, res) => {
     console.error('DELETE /api/orders/:id error:', err);
     res.status(500).json({ error: 'Fehler beim Löschen des Auftrags', details: err.message });
   }
-});
+}
+
+app.delete('/api/orders/:id', (req, res) => deleteOrder(req, res));
+app.delete('/api/drafts/:id', (req, res) => deleteOrder(req, res, true));
 
 // === COMPONENTS API ===
 // GET /api/orders/:orderId/components - Get all components for an order

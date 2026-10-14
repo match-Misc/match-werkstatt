@@ -55,3 +55,20 @@ Diese Suite iteriert ebenfalls durch **alle Rollen** und testet den komplexen Wo
 | **Einstellungen verwalten** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Aufträge erstellen** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Kostenstelle anlegen** | ✅ | ✅ | ✅ | ✅ | ❌ |
+
+
+## Werkstattleitung und Tabellen (`workshop-management.spec.ts`)
+
+Elf Browsertests mit simulierten API-Antworten prüfen den Zugriff auf die Benutzerverwaltung, die gespeicherte Umschaltung „Verwaltung / Abarbeitung“ einschließlich zugewiesener Unteraufgaben, die Abnahmesortierung per Maus und Tastatur sowie die persönliche Spaltenreihenfolge. Weitere Prüfungen decken den Wiederstart abgeschlossener und archivierter Aufträge und die ausgeblendeten Stunden in der Auftraggeberansicht ab. Die Tests verändern keine realen Aufträge.
+
+Unter „Spalten anpassen“ können Spalten ein- und ausgeblendet sowie mit den Pfeilen nach links bzw. rechts verschoben werden. Die Reihenfolge wird im Benutzerkonto pro Tabelle gespeichert; Fertigungs- und Serviceaufträge teilen sich dieselbe Konfiguration.
+
+Die Dashboardtabellen werden unabhängig voneinander sortiert. In der Werkstattansicht wird die Sortierung für Fertigung, Service und Abnahme getrennt pro Person gespeichert; bisherige Einstellungen werden übernommen. Ein Browsertest mit langen Tabellen prüft, dass Maus- und Tastatursortierung die Scrollposition nicht verändern. In der Auftraggeberansicht sind Abnahme und aktuelle Aufträge ebenfalls unabhängig sortierbar.
+
+Eine weitere Prüfung reproduziert die Überlappung zweier Spaltenkonfigurationen und stellt sicher, dass das geöffnete Menü den Button der folgenden Tabelle überdeckt.
+
+Die Statusspalte zeigt einen kompakten Fortschrittsbalken ohne sichtbaren Text oder Prozentzahl. Er verwendet dieselbe Berechnung wie die Auftragsdetails. Zwei Browserprüfungen decken Werkstatt- und Auftraggeberansicht ab; Screenreader erhalten weiterhin den Bearbeitungsstand und die Unteraufgabenanzahl.
+
+Die Duplizierfunktion wird für Werkstattleitung und Auftraggeber vom Detailbutton über den Herkunftslink bis zum Speichern des neuen Entwurfs geprüft. Servertests mit echten temporären Dateien prüfen Dateiunabhängigkeit, Archivkopien, Berechtigungen, neue ID-Verweise und Fehlerbereinigung.
+
+Die Entwurfsübersicht enthält Auftragsnummer, Projektname, Auftragstitel und Deadline sowie einen Papierkorb pro Zeile. Fehlende Werte erscheinen als Strich. Zeilenklick öffnet die Bearbeitung. Die Löschfunktion in Zeile und Formular verlangt eine Bestätigung; Tests prüfen auch den Abbruch, die Zugriffsrechte und das Löschen von Kopien ohne Verlust des Originals.

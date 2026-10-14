@@ -1,3 +1,5 @@
+import DeleteDraftButton from './DeleteDraftButton';
+import OrderOriginLink from './OrderOriginLink';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, Trash2, Plus, Eye } from 'lucide-react';
 import { getFileIcon, getFileIconSmall, isImageFile, isPDFFile } from '../utils/fileIcons';
@@ -23,6 +25,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
   // Initialization based on mode
   const [title, setTitle] = useState(mode === 'edit' && initialData ? initialData.title : '');
   const [projectName, setProjectName] = useState(mode === 'edit' && initialData?.projectName ? initialData.projectName : '');
+  const [notes, setNotes] = useState(initialData?.notes || '');
   const [description, setDescription] = useState(mode === 'edit' && initialData ? initialData.description : '');
   const [orderClientId, setOrderClientId] = useState(mode === 'edit' && initialData ? initialData.clientId : state.currentUser!.id);
   const [orderClientName, setOrderClientName] = useState(mode === 'edit' && initialData ? initialData.clientName : state.currentUser!.name);
@@ -158,7 +161,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       estimatedHours: 0,
       actualHours: 0,
       assignedTo: null,
-      notes: '',
+      notes,
       createdAt: new Date(),
       updatedAt: new Date(),
       subTasks: [],
@@ -201,6 +204,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
 
     const updatedOrder = {
       ...initialData,
+      notes,
       title,
       projectName,
       description,
@@ -227,8 +231,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Fehler beim Speichern des Auftrags: ${response.status} ${errorText}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || 'Fehler beim Speichern des Auftrags');
       }
 
       const responseData = await response.json();
@@ -245,7 +249,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
       console.error('Fehler beim Aktualisieren des Auftrags:', error);
       dispatch({ 
         type: 'SHOW_NOTIFICATION', 
-        payload: { message: 'Fehler beim Speichern des Auftrags', type: 'error' }
+        payload: { message: error instanceof Error ? error.message : 'Fehler beim Speichern des Auftrags', type: 'error' }
       });
     } finally {
       setShowConfirmModal(false);
@@ -459,6 +463,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
           </button>
         </div>
 
+        {initialData?.duplicatedFrom && <div className="px-6 pt-4"><OrderOriginLink order={initialData} /></div>}
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="md:col-span-1">
@@ -526,6 +531,14 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
                 required
               />
             </div>
+
+            {initialData?.duplicatedFrom && (
+              <div className="md:col-span-2">
+                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-2">{t('orderForm.notes', 'Notizen')}</label>
+                <textarea id="notes" value={notes} onChange={event => setNotes(event.target.value)} rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              </div>
+            )}
 
             <div>
               <label htmlFor="deadline" className="block text-sm font-medium text-gray-700 mb-2">
@@ -863,7 +876,7 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
             )}
           </div>
 
-          <div className="flex justify-between pt-6 border-t mt-6">
+          <div className="flex flex-wrap gap-4 justify-between pt-6 border-t mt-6">
             <button
               type="button"
               onClick={handleClose}
@@ -872,7 +885,8 @@ export default function OrderForm({ mode, initialData, onClose }: OrderFormProps
             >
               Abbrechen
             </button>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-4">
+              {mode === 'edit' && initialData?.status === 'Entwurf' && <DeleteDraftButton draft={initialData} />}
               {(!initialData || initialData.status === 'Entwurf') && (
                 <button
                   type="button"

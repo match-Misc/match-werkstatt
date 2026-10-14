@@ -7,6 +7,7 @@ export interface User {
   isActive?: boolean;
   password?: string;
   tableConfig?: Record<string, boolean>;
+  tableColumnOrder?: Record<string, string[]>;
 }
 
 export interface InternalFile {
@@ -74,6 +75,8 @@ export interface Image {
 
 export interface Order {
   id: string;
+  duplicatedFrom?: { id: string; orderNumber: string };
+  createdBy?: string;
   orderNumber?: string; // Auftragsnummer (F-250707-1, etc.)
   projectName?: string; // Projektname (neu)
   title: string;

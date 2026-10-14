@@ -1,3 +1,5 @@
+import DuplicateOrderButton from './DuplicateOrderButton';
+import OrderOriginLink from './OrderOriginLink';
 import { useState, useEffect } from 'react';
 import { isRestrictedFile } from '../utils/fileFilter';
 import { 
@@ -938,8 +940,10 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
           <div>
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={localOrder.title}>{localOrder.title}</h2>
             <p className="text-gray-600 mt-1">{t('orderDetails.orderNo', 'Auftrags-Nr.')}: {localOrder.orderNumber || localOrder.id}</p>
+            <OrderOriginLink order={localOrder} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <DuplicateOrderButton order={localOrder} />
             <button
               onClick={() => navigate(`/orders/${localOrder.orderNumber || localOrder.id}/edit`)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -1259,6 +1263,16 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </button>
                     )}
                     
+                    {['completed', 'archived'].includes(localOrder.status) && ['admin', 'manager'].includes(state.currentUser?.role || '') && (
+                      <button
+                        onClick={() => handleStatusChange('in_progress')}
+                        className="flex-1 flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                      >
+                        <RotateCcw className="w-4 h-4 mr-2" />
+                        Wieder starten
+                      </button>
+                    )}
+
                     {localOrder.status === 'completed' && (state.currentUser?.role === 'admin' || state.currentUser?.role === 'manager') && (
                       <button
                         onClick={handleArchive}
@@ -1289,7 +1303,7 @@ export default function WorkshopOrderDetails({ order, onClose }: WorkshopOrderDe
                       </button>
                     )}
                     
-                    {localOrder.status !== 'completed' && (
+                    {!['completed', 'archived'].includes(localOrder.status) && (
                       <button
                         onClick={() => handleStatusChange('revision')}
                         className="flex-1 flex items-center justify-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"

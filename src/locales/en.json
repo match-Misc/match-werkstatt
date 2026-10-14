@@ -1,5 +1,12 @@
 {
   "translation": {
+    "drafts": {
+      "delete": "Delete draft",
+      "deleteConfirm": "Permanently delete draft {{number}}? All information and attachments of this draft will be deleted.",
+      "deleteError": "Could not delete the draft",
+      "deleted": "Draft deleted",
+      "loadError": "Could not load drafts"
+    },
     "nav": {
       "dashboard": "Dashboard",
       "new_order": "New Order",
@@ -163,6 +170,11 @@
       "adminOnly": "You need administrator or manager rights to view this page."
     },
     "orderDetails": {
+      "duplicate": "Duplicate order",
+      "duplicating": "Duplicating…",
+      "duplicateSuccess": "Order duplicated as a draft",
+      "duplicateError": "Could not duplicate the order",
+      "duplicatedFrom": "Duplicated from order",
       "backToOverview": "Back to Overview",
       "orderNo": "Order No.",
       "editOrder": "Edit Order",
@@ -194,6 +206,7 @@
       "ldapDisconnected": "LDAP Unavailable"
     },
     "orderForm": {
+      "notes": "Notes",
       "createNew": "Create New Order",
       "editOrder": "Edit Order",
       "projectName": "Project Name",

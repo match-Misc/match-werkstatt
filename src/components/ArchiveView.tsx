@@ -1,17 +1,19 @@
-import { useState } from 'react';
+import OrderProgress from './OrderProgress';
+import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Order } from '../types';
 import OrderDetails from './OrderDetails';
-import { Eye, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import WorkshopOrderDetails from './WorkshopOrderDetails';
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 
 import { orderColumns } from './WorkshopDashboard';
-import { ColumnConfigDropdown, useTableColumns } from './ColumnConfigDropdown';
+import { ColumnConfigDropdown, useTableColumns, OrderedTableRow } from './ColumnConfigDropdown';
 
 const archiveColumns = [
-  ...orderColumns.filter(c => ['orderNumber', 'projectName', 'title', 'clientName', 'status', 'actions'].includes(c.id)),
+  ...orderColumns.filter(c => ['orderNumber', 'clientName', 'status'].includes(c.id)),
   { id: 'acceptedDate', label: 'Auftrag angenommen' },
   { id: 'completedDate', label: 'Auftrag abgeschlossen' },
   { id: 'confirmationDate', label: 'Auftrag abgenommen' }
@@ -74,11 +76,20 @@ export default function ArchiveView() {
   };
 
   const selectedOrder = orderNumber
-    ? archivedOrders.find(o => (o.orderNumber || o.id) === orderNumber)
+    ? state.orders.find(o => (o.orderNumber || o.id) === orderNumber &&
+        (state.currentUser?.role !== 'client' || o.clientId === state.currentUser.id))
     : null;
 
+  useEffect(() => {
+    if (selectedOrder && selectedOrder.status !== 'archived') {
+      navigate(`/orders/${selectedOrder.orderNumber || selectedOrder.id}`, { replace: true });
+    }
+  }, [selectedOrder, navigate]);
+
   if (selectedOrder) {
-    return <OrderDetails order={selectedOrder} onClose={() => navigate('/archive')} />;
+    return state.currentUser?.role === 'client'
+      ? <OrderDetails order={selectedOrder} onClose={() => navigate('/archive')} />
+      : <WorkshopOrderDetails order={selectedOrder} onClose={() => navigate('/archive')} />;
   }
 
   return (
@@ -97,27 +108,27 @@ export default function ArchiveView() {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                <OrderedTableRow tableId="archive">
+                  <th data-column="orderNumber" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.order', 'Auftrag')}</span>
                       {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
+                  <th data-column="clientName" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.clientName', 'Auftraggeber')}</span>
                       {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                  <th data-column="status" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('common.status', 'Status')}</span>
                       {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   {isVisible('acceptedDate') && (
-                    <th 
+                    <th data-column="acceptedDate"
                       scope="col" 
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('acceptedDate' as any)}
@@ -126,7 +137,7 @@ export default function ArchiveView() {
                     </th>
                   )}
                   {isVisible('completedDate') && (
-                    <th 
+                    <th data-column="completedDate"
                       scope="col" 
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('waitingConfirmationSince' as any)}
@@ -135,7 +146,7 @@ export default function ArchiveView() {
                     </th>
                   )}
                   {isVisible('confirmationDate') && (
-                    <th 
+                    <th data-column="confirmationDate"
                       scope="col" 
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('confirmationDate' as any)}
@@ -143,21 +154,19 @@ export default function ArchiveView() {
                       {t('dashboard.columns.confirmationDate', 'Auftrag abgenommen')} {sortConfig.key === 'confirmationDate' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                     </th>
                   )}
-                  {isVisible('actions') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.actions', 'Aktionen')}</th>
-                  )}
-                </tr>
+
+                </OrderedTableRow>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {archivedOrders.map((order) => {
                   const imageUrl = getTitleImageUrl(order);
                   return (
-                    <tr 
+                    <OrderedTableRow tableId="archive"
                       key={order.id} 
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => navigate(`/archive/${order.orderNumber || order.id}`)}
                     >
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="orderNumber" className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-4">
                           {imageUrl && (
                             <img src={imageUrl} alt={order.title} className="w-12 h-12 object-cover rounded-md" />
@@ -169,50 +178,33 @@ export default function ArchiveView() {
                         </div>
                       </td>
                       {isVisible('clientName') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="clientName" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{order.clientName}</div>
                           <div className="text-sm text-gray-500">{order.costCenter}</div>
                         </td>
                       )}
                       {isVisible('status') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-                            {t('dashboard.archived', 'Archiviert')}
-                          </span>
+                        <td data-column="status" className="px-6 py-4 whitespace-nowrap">
+                          <OrderProgress compact status={order.status} subTasks={order.subTasks} />
                         </td>
                       )}
                       {isVisible('acceptedDate') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td data-column="acceptedDate" className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {order.acceptedDate ? new Date(order.acceptedDate).toLocaleDateString('de-DE') : '-'}
                         </td>
                       )}
                       {isVisible('completedDate') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td data-column="completedDate" className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {order.confirmationDate ? new Date(order.confirmationDate).toLocaleDateString('de-DE') : (order.waitingConfirmationSince ? new Date(order.waitingConfirmationSince).toLocaleDateString('de-DE') : '-')}
                         </td>
                       )}
                       {isVisible('confirmationDate') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td data-column="confirmationDate" className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {order.confirmationDate ? new Date(order.confirmationDate).toLocaleDateString('de-DE') : '-'}
                         </td>
                       )}
-                      {isVisible('actions') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-3">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/archive/${order.orderNumber || order.id}`);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 flex items-center"
-                            >
-                              <Eye className="w-4 h-4 mr-1" />
-                              {t('common.view', 'Anzeigen')}
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
+
+                    </OrderedTableRow>
                   );
                 })}
               </tbody>

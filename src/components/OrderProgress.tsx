@@ -3,6 +3,7 @@ import { Order, SubTask } from '../types';
 interface OrderProgressProps {
   status: Order['status'];
   subTasks?: SubTask[];
+  compact?: boolean;
 }
 
 function getCurrentStep(status: Order['status'], subTasks: SubTask[]) {
@@ -44,11 +45,27 @@ function getProgress(status: Order['status'], subTasks: SubTask[], completed: nu
   }
 }
 
-export default function OrderProgress({ status, subTasks = [] }: OrderProgressProps) {
+export default function OrderProgress({ status, subTasks = [], compact = false }: OrderProgressProps) {
   const completed = subTasks.filter(task => task.status === 'completed').length;
   const inProgress = subTasks.filter(task => task.status === 'in_progress').length;
   const percent = getProgress(status, subTasks, completed);
   const currentStep = getCurrentStep(status, subTasks);
+
+  if (compact) {
+    return (
+      <div
+        role="progressbar"
+        aria-label="Auftragsfortschritt"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={`${currentStep}, ${completed} von ${subTasks.length} Unteraufgaben abgeschlossen${inProgress ? `, ${inProgress} in Bearbeitung` : ''}`}
+        className="h-2.5 w-28 overflow-hidden rounded-full bg-gray-200"
+      >
+        <div className="h-full rounded-full bg-blue-400 transition-all duration-300" style={{ width: `${percent}%` }} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-4 border-b border-gray-200 px-6 py-4">

@@ -25,8 +25,8 @@ export default function Sidebar({ isExpanded, setIsExpanded }: SidebarProps) {
   const role = state.currentUser?.role || '';
   const location = useLocation();
 
-  // "admin" only items
-  const showUserManagement = role === 'admin';
+  // Verwaltungsrollen
+  const showUserManagement = ['admin', 'manager'].includes(role);
   const isClient = role === 'client';
 
   // Toggle function
@@ -36,7 +36,7 @@ export default function Sidebar({ isExpanded, setIsExpanded }: SidebarProps) {
 
   const navItems = [
     { name: t('nav.dashboard', 'Auftragsübersicht'), icon: LayoutDashboard, path: '/dashboard', section: 'Core' },
-    ...(['client', 'admin', 'manager'].includes(role) ? [{ name: t('nav.drafts', 'Entwürfe'), icon: FileEdit, path: '/drafts', section: 'Core' }] : []),
+    ...(['client', 'admin', 'manager', 'employee'].includes(role) ? [{ name: t('nav.drafts', 'Entwürfe'), icon: FileEdit, path: '/drafts', section: 'Core' }] : []),
     ...(!isClient ? [{ name: t('nav.tasks', 'Unteraufgaben'), icon: CheckSquare, path: '/tasks', section: 'Core' }] : []),
     { name: 'Archiv', icon: Archive, path: '/archive', section: 'Core' },
     ...(['admin', 'manager'].includes(role) ? [{ name: 'Auswertungen', icon: BarChart2, path: '/analytics', section: 'Management' }] : []),

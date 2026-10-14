@@ -1,5 +1,12 @@
 {
   "translation": {
+    "drafts": {
+      "delete": "Entwurf löschen",
+      "deleteConfirm": "Entwurf {{number}} endgültig löschen? Alle Angaben und Anhänge dieses Entwurfs werden gelöscht.",
+      "deleteError": "Entwurf konnte nicht gelöscht werden",
+      "deleted": "Entwurf gelöscht",
+      "loadError": "Entwürfe konnten nicht geladen werden"
+    },
     "nav": {
       "dashboard": "Dashboard",
       "new_order": "Neuer Auftrag",
@@ -163,6 +170,11 @@
       "adminOnly": "Sie benötigen Administrator- oder Manager-Rechte, um diese Seite zu sehen."
     },
     "orderDetails": {
+      "duplicate": "Auftrag duplizieren",
+      "duplicating": "Wird dupliziert…",
+      "duplicateSuccess": "Auftrag als Entwurf dupliziert",
+      "duplicateError": "Auftrag konnte nicht dupliziert werden",
+      "duplicatedFrom": "Dupliziert von Auftrag",
       "backToOverview": "Zurück zur Übersicht",
       "orderNo": "Auftrags-Nr.",
       "editOrder": "Auftrag bearbeiten",
@@ -194,6 +206,7 @@
       "ldapDisconnected": "LDAP nicht verfügbar"
     },
     "orderForm": {
+      "notes": "Notizen",
       "createNew": "Neuen Auftrag erstellen",
       "editOrder": "Auftrag bearbeiten",
       "projectName": "Projektname",

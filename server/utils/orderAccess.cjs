@@ -12,4 +12,12 @@ function buildOrderAccessFilter(viewerRole, viewerId) {
   };
 }
 
-module.exports = { buildOrderAccessFilter };
+function hideInternalOrderFields(order) {
+  const { internalWorkshopNote, estimatedHours, actualHours, ...visibleOrder } = order;
+  if (Array.isArray(order.subTasks)) {
+    visibleOrder.subTasks = order.subTasks.map(({ estimatedHours, actualHours, ...task }) => task);
+  }
+  return visibleOrder;
+}
+
+module.exports = { buildOrderAccessFilter, hideInternalOrderFields };

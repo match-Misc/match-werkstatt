@@ -16,10 +16,16 @@ Die API-Endpunkte können lokal standardmäßig über `http://localhost:3001/api
 
 - `GET /api/orders` - Alle Aufträge (mit Bauteilen und Dokumenten)
 - `POST /api/orders` - Neuen Auftrag erstellen
+- `POST /api/orders/:id/duplicate` - Zugänglichen Auftrag als eigenständigen Entwurf duplizieren (gültige Sitzung erforderlich). HTTP 201 liefert `id`, `orderNumber`, `status`. Angaben und Dateien werden kopiert; tatsächliche Stunden und Bearbeitungsstatus werden standardmäßig zurückgesetzt. `duplicatedFrom` hält ID und Nummer des Originals fest.
 - `GET /api/orders/:id` - Auftrag mit allen Relationen laden
 - `PUT /api/orders/:id` - Auftrag aktualisieren (inkl. Bauteile)
 - `DELETE /api/orders/:id` - Auftrag löschen
+- `DELETE /api/drafts/:id` - Entwurf mit Angaben und Anhängen löschen. Gültige Sitzung erforderlich; Auftraggeber dürfen nur eigene Entwürfe löschen. Bereits eingereichte Aufträge und fremde Entwürfe werden abgewiesen.
 - `GET /api/orders/barcode/:code` - Auftrag per QR-Code finden
+
+Auftraggeber erhalten keine internen Werkstattnotizen und keine geschätzten oder tatsächlichen Stunden; das gilt auch für Unteraufgaben.
+
+Admin und Werkstattleitung können `completed` und `archived` über `PUT /api/orders/:id` mit `{ "status": "in_progress" }` wieder starten. Dabei werden Endabnahme und Erinnerungsstatus zurückgesetzt. Zeiten und Unteraufgaben bleiben erhalten; archivierte Auftragsordner werden über den bestehenden Archivmechanismus zurückverschoben.
 
 ---
 
@@ -34,11 +40,11 @@ Die API-Endpunkte können lokal standardmäßig über `http://localhost:3001/api
 
 ---
 
-## Benutzerverwaltung (Admin)
+## Benutzerverwaltung (Admin und Werkstattleitung)
 
 - `GET /api/users` - Alle Benutzer abrufen
 - `POST /api/users` - Benutzer erstellen
-- `PUT /api/users/:id` - Benutzer bearbeiten
+- `PUT /api/users/:id` - Benutzer bearbeiten; persönliche Spaltenkonfiguration mit `tableConfig` (Sichtbarkeit) und `tableColumnOrder` (Objekt mit Tabellen-ID → Liste von Spalten-IDs) speichern
 - `DELETE /api/users/:id` - Benutzer löschen
 
 ---

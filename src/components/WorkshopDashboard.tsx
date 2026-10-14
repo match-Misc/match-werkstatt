@@ -1,10 +1,11 @@
+import OrderProgress from './OrderProgress';
 import { useState, useEffect } from 'react';
-import { Clock, User, Edit2, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
+import { Clock, User, Filter, Search, QrCode, Plus, ArrowUpDown, ArrowUp, ArrowDown, Download } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useApp } from '../context/AppContext';
 import QRCodeScanner from './QRCodeScanner';
-import { ColumnConfigDropdown, useTableColumns } from './ColumnConfigDropdown';
+import { ColumnConfigDropdown, useTableColumns, OrderedTableRow } from './ColumnConfigDropdown';
 import { Order } from '../types';
 
 export const orderColumns = [
@@ -17,9 +18,18 @@ export const orderColumns = [
   { id: 'status', label: 'Status' },
   { id: 'priority', label: 'Priorität' },
   { id: 'assignedTo', label: 'Zugewiesen' },
-  { id: 'time', label: 'Zeit' },
-  { id: 'actions', label: 'Aktionen' }
+  { id: 'time', label: 'Zeit' }
 ];
+
+const acceptanceColumns = [
+  ...orderColumns.filter(column => ['orderNumber', 'projectName', 'title', 'clientName'].includes(column.id)),
+  { id: 'waitingConfirmationSince', label: 'Freigegeben am' },
+  { id: 'deadline', label: 'Deadline' }
+];
+
+type SortConfig = { key: keyof Order; direction: 'asc' | 'desc' };
+type DashboardTable = 'fertigung' | 'service' | 'acceptance';
+const defaultSort: SortConfig = { key: 'orderNumber', direction: 'desc' };
 
 export default function WorkshopDashboard() {
   const { state, dispatch } = useApp();
@@ -36,15 +46,16 @@ export default function WorkshopDashboard() {
         statusFilter: ['waiting_confirmation', 'all_with_waiting'].includes(savedStatusFilter) ? 'all' : savedStatusFilter,
         searchTerm: typeof saved.searchTerm === 'string' ? saved.searchTerm : '',
         viewMode: saved.viewMode === 'assigned' ? 'assigned' : 'all',
-        sortConfig: saved.sortConfig?.key && ['asc', 'desc'].includes(saved.sortConfig.direction)
-          ? saved.sortConfig
-          : { key: 'orderNumber', direction: 'desc' }
+        sortConfigs: Object.fromEntries(['fertigung', 'service', 'acceptance'].map(tableId => {
+          const config = saved.sortConfigs?.[tableId] || saved.sortConfig;
+          return [tableId, config?.key && ['asc', 'desc'].includes(config.direction) ? config : defaultSort];
+        })) as Record<DashboardTable, SortConfig>
       };
     } catch {
-      return { statusFilter: 'all', searchTerm: '', viewMode: 'all', sortConfig: { key: 'orderNumber', direction: 'desc' } };
+      return { statusFilter: 'all', searchTerm: '', viewMode: 'all', sortConfigs: { fertigung: defaultSort, service: defaultSort, acceptance: defaultSort } };
     }
   });
-  const { statusFilter, searchTerm, viewMode, sortConfig } = dashboardPreferences;
+  const { statusFilter, searchTerm, viewMode, sortConfigs } = dashboardPreferences;
   const setStatusFilter = (value: string) => setDashboardPreferences(current => ({ ...current, statusFilter: value }));
   const setSearchTerm = (value: string) => setDashboardPreferences(current => ({ ...current, searchTerm: value }));
   const setViewMode = (value: 'all' | 'assigned') => setDashboardPreferences(current => ({ ...current, viewMode: value }));
@@ -58,10 +69,13 @@ export default function WorkshopDashboard() {
     }
   }, [preferencesKey, dashboardPreferences]);
 
-  const handleSort = (key: keyof Order | 'orderNumber') => {
-    setDashboardPreferences(current => ({ ...current, sortConfig: {
-      key,
-      direction: current.sortConfig.key === key && current.sortConfig.direction === 'asc' ? 'desc' : 'asc'
+  const handleSort = (tableId: DashboardTable, key: keyof Order) => {
+    setDashboardPreferences(current => ({ ...current, sortConfigs: {
+      ...current.sortConfigs,
+      [tableId]: {
+        key,
+        direction: current.sortConfigs[tableId].key === key && current.sortConfigs[tableId].direction === 'asc' ? 'desc' : 'asc'
+      }
     }}));
   };
   const fetchOrders = async () => {
@@ -188,7 +202,7 @@ export default function WorkshopDashboard() {
   const activeOrders = getFilteredOrders();
   
   // Sort orders by selected criteria
-  const sortedOrders = [...activeOrders].sort((a, b) => {
+  const compareOrders = (a: Order, b: Order, sortConfig: SortConfig) => {
       let aVal: any = a[sortConfig.key as keyof Order];
       let bVal: any = b[sortConfig.key as keyof Order];
 
@@ -204,9 +218,9 @@ export default function WorkshopDashboard() {
       } else if (sortConfig.key === 'createdAt') {
         aVal = new Date(a.createdAt).getTime();
         bVal = new Date(b.createdAt).getTime();
-      } else if (sortConfig.key === 'deadline') {
-        aVal = new Date(a.deadline).getTime();
-        bVal = new Date(b.deadline).getTime();
+      } else if (['deadline', 'waitingConfirmationSince'].includes(sortConfig.key)) {
+        aVal = new Date(a[sortConfig.key as 'deadline'] || 0).getTime();
+        bVal = new Date(b[sortConfig.key as 'deadline'] || 0).getTime();
       } else if (sortConfig.key === 'status') {
         aVal = a.status || '';
         bVal = b.status || '';
@@ -219,7 +233,7 @@ export default function WorkshopDashboard() {
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
-  });
+  };
 
   const matchesSearch = (order: Order) => {
     const normalizedSearch = searchTerm.toLowerCase().replace(/[-0]/g, '');
@@ -230,41 +244,15 @@ export default function WorkshopDashboard() {
       order.clientName.toLowerCase().includes(searchTerm.toLowerCase());
   };
 
-  const filteredOrders = sortedOrders.filter(order => {
+  const filteredOrders = activeOrders.filter(order => {
     const matchesStatus = order.status !== 'waiting_confirmation' &&
       (statusFilter === 'all' || order.status === statusFilter ||
         (statusFilter === 'overdue' && isOverdue(order.deadline)));
     return matchesStatus && matchesSearch(order);
   });
-  const waitingConfirmationOrders = sortedOrders.filter(order =>
+  const waitingConfirmationOrders = activeOrders.filter(order =>
     order.status === 'waiting_confirmation' && matchesSearch(order)
-  );
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'accepted': return 'bg-blue-100 text-blue-800';
-      case 'in_progress': return 'bg-purple-100 text-purple-800';
-      case 'revision': return 'bg-orange-100 text-orange-800';
-      case 'rework': return 'bg-orange-100 text-orange-800'; // Konsistente Farbe für Nacharbeit
-      case 'waiting_confirmation': return 'bg-cyan-100 text-cyan-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending': return t('dashboard.pending', 'Ausstehend');
-      case 'accepted': return t('dashboard.accepted', 'Angenommen');
-      case 'in_progress': return t('dashboard.in_progress', 'In Bearbeitung');
-      case 'revision': return t('dashboard.revision', 'Überarbeitung');
-      case 'rework': return t('dashboard.rework', 'In Nacharbeit');
-      case 'waiting_confirmation': return t('dashboard.waiting_confirmation', 'Wartet auf Abnahme');
-      case 'completed': return t('dashboard.completed', 'Abgeschlossen');
-      default: return status;
-    }
-  };
+  ).sort((a, b) => compareOrders(a, b, sortConfigs.acceptance));
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -328,8 +316,8 @@ export default function WorkshopDashboard() {
   const displayItems = createDisplayList();
 
   // Listen nach Auftragstyp trennen
-  const fertigungOrders = displayItems.filter(item => item.type === 'order' && item.order && item.order.orderType === 'fertigung');
-  const serviceOrders = displayItems.filter(item => item.type === 'order' && item.order && item.order.orderType === 'service');
+  const fertigungOrders = displayItems.filter(item => item.type === 'order' && item.order && item.order.orderType === 'fertigung').sort((a, b) => compareOrders(a.order, b.order, sortConfigs.fertigung));
+  const serviceOrders = displayItems.filter(item => item.type === 'order' && item.order && item.order.orderType === 'service').sort((a, b) => compareOrders(a.order, b.order, sortConfigs.service));
 
   // Handle opening order from QR code URL
   useEffect(() => {
@@ -359,7 +347,7 @@ export default function WorkshopDashboard() {
           <h2 className="text-2xl font-bold text-gray-900">{t('dashboard.title', 'Werkstattaufträge')}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
+          <div className="relative w-full min-w-48 md:w-64">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
               type="text"
@@ -386,7 +374,23 @@ export default function WorkshopDashboard() {
               <option value="completed">{t('dashboard.completed', 'Abgeschlossen')}</option>
             </select>
           </div>
-          {['workshop', 'employee', 'manager'].includes(state.currentUser?.role || '') && (
+          {state.currentUser?.role === 'manager' && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className={viewMode === 'all' ? 'font-semibold text-blue-700' : 'text-gray-600'}>Verwaltung</span>
+              <button
+                type="button"
+                role="switch"
+                aria-label="Abarbeitung: nur eigene Aufträge"
+                aria-checked={viewMode === 'assigned'}
+                onClick={() => setViewMode(viewMode === 'all' ? 'assigned' : 'all')}
+                className={`relative h-6 w-11 rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 ${viewMode === 'assigned' ? 'bg-blue-600' : 'bg-gray-400'}`}
+              >
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${viewMode === 'assigned' ? 'left-0.5 translate-x-5' : 'left-0.5'}`} />
+              </button>
+              <span className={viewMode === 'assigned' ? 'font-semibold text-blue-700' : 'text-gray-600'}>Abarbeitung</span>
+            </div>
+          )}
+          {['workshop', 'employee'].includes(state.currentUser?.role || '') && (
             <select
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as 'all' | 'assigned')}
@@ -433,127 +437,123 @@ export default function WorkshopDashboard() {
             <ColumnConfigDropdown columns={orderColumns} tableId="workshop" />
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full" style={{ overflowAnchor: 'none' }}>
               <thead className="bg-gray-50">
-                <tr>
+                <OrderedTableRow tableId="workshop">
                   {isVisible('orderNumber') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                  <th data-column="orderNumber" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'orderNumber')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.orderNumber', 'Auftragsnummer')}</span>
-                      {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'orderNumber' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('projectName') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.projectName', 'Projektname')}</th>
+                    <th onClick={() => handleSort('fertigung', 'projectName')} data-column="projectName" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.projectName', 'Projektname')}</th>
                   )}
                   {isVisible('title') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.title', 'Auftragstitel')}</th>
+                    <th onClick={() => handleSort('fertigung', 'title')} data-column="title" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.title', 'Auftragstitel')}</th>
                   )}
                   {isVisible('clientName') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
+                  <th data-column="clientName" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'clientName')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.clientName', 'Auftraggeber')}</span>
-                      {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'clientName' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('createdAt') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('createdAt')}>
+                  <th data-column="createdAt" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'createdAt')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.createdAt', 'Erstellt')}</span>
-                      {sortConfig.key === 'createdAt' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'createdAt' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('deadline') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                  <th data-column="deadline" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'deadline')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.deadline', 'Deadline')}</span>
-                      {sortConfig.key === 'deadline' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'deadline' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('status') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                  <th data-column="status" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'status')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.status', 'Status')}</span>
-                      {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'status' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('priority') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('priority')}>
+                  <th data-column="priority" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('fertigung', 'priority')}>
                     <div className="flex items-center space-x-1">
                       <span>{t('dashboard.columns.priority', 'Priorität')}</span>
-                      {sortConfig.key === 'priority' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.fertigung.key === 'priority' ? (sortConfigs.fertigung.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('assignedTo') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.assignedTo', 'Zugewiesen')}</th>
+                  <th onClick={() => handleSort('fertigung', 'assignedTo')} data-column="assignedTo" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.assignedTo', 'Zugewiesen')}</th>
                   )}
                   {isVisible('time') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.time', 'Zeit')}</th>
+                  <th onClick={() => handleSort('fertigung', 'estimatedHours')} data-column="time" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.time', 'Zeit')}</th>
                   )}
-                  {isVisible('actions') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{t('dashboard.columns.actions', 'Aktionen')}</th>
-                  )}
-                </tr>
+
+                </OrderedTableRow>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {fertigungOrders.map((item) => {
                   const order = item.order;
                   return (
-                    <tr 
+                    <OrderedTableRow tableId="workshop"
                       key={`order-${order.id}`} 
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                     >
                       {isVisible('orderNumber') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="orderNumber" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 font-mono">{order.orderNumber || order.id}</div>
                         </td>
                       )}
                       {isVisible('projectName') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="projectName" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{order.projectName || '-'}</div>
                         </td>
                       )}
                       {isVisible('title') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="title" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{order.title}</div>
                         </td>
                       )}
                       {isVisible('clientName') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="clientName" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{order.clientName}</div>
                           <div className="text-sm text-gray-500">{order.costCenter}</div>
                         </td>
                       )}
                       {isVisible('createdAt') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="createdAt" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                         </td>
                       )}
                       {isVisible('deadline') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="deadline" className="px-6 py-4 whitespace-nowrap">
                           <div className={`text-sm ${isOverdue(order.deadline) ? 'text-red-600 font-bold' : (order.deadline && new Date(order.deadline).toDateString() === new Date().toDateString() ? 'text-orange-500 font-bold' : 'text-gray-900')}`}>
                             {new Date(order.deadline).toLocaleDateString('de-DE')}
                           </div>
                         </td>
                       )}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
-                          {getStatusText(order.status)}
-                        </span>
+                      <td data-column="status" className="px-6 py-4 whitespace-nowrap">
+                        <OrderProgress compact status={order.status} subTasks={order.subTasks} />
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="priority" className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs rounded-full ${getPriorityColor(order.priority)}`}>
                           {getPriorityText(order.priority)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="assignedTo" className="px-6 py-4 whitespace-nowrap">
                         {order.assignedTo ? (
                           <div className="flex items-center">
                             <User className="w-4 h-4 text-gray-400 mr-1" />
@@ -565,39 +565,14 @@ export default function WorkshopDashboard() {
                           <span className="text-sm text-gray-500">Nicht zugewiesen</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="time" className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center text-sm text-gray-900">
                           <Clock className="w-4 h-4 text-gray-400 mr-1" />
                           {order.estimatedHours}h
                         </div>
                       </td>
-                      {isVisible('actions') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-3">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/orders/${order.orderNumber || order.id}`);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 flex items-center"
-                            >
-                              <Edit2 className="w-4 h-4 mr-1" />
-                              Bearbeiten
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // PDF-Download-Logik hier
-                              }}
-                              className="text-gray-600 hover:text-gray-800"
-                              title="Auftrag als PDF herunterladen"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
+
+                    </OrderedTableRow>
                   );
                 })}
                 {fertigungOrders.length === 0 && (
@@ -619,127 +594,123 @@ export default function WorkshopDashboard() {
             <ColumnConfigDropdown columns={orderColumns} tableId="workshop" />
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full" style={{ overflowAnchor: 'none' }}>
               <thead className="bg-gray-50">
-                <tr>
+                <OrderedTableRow tableId="workshop">
                   {isVisible('orderNumber') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('orderNumber')}>
+                  <th data-column="orderNumber" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'orderNumber')}>
                     <div className="flex items-center space-x-1">
                       <span>Auftragsnummer</span>
-                      {sortConfig.key === 'orderNumber' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'orderNumber' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('projectName') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Projektname</th>
+                    <th onClick={() => handleSort('service', 'projectName')} data-column="projectName" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Projektname</th>
                   )}
                   {isVisible('title') && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftragstitel</th>
+                    <th onClick={() => handleSort('service', 'title')} data-column="title" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Auftragstitel</th>
                   )}
                   {isVisible('clientName') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('clientName')}>
+                  <th data-column="clientName" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'clientName')}>
                     <div className="flex items-center space-x-1">
                       <span>Auftraggeber</span>
-                      {sortConfig.key === 'clientName' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'clientName' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('createdAt') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('createdAt')}>
+                  <th data-column="createdAt" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'createdAt')}>
                     <div className="flex items-center space-x-1">
                       <span>Erstellt</span>
-                      {sortConfig.key === 'createdAt' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'createdAt' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('deadline') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('deadline')}>
+                  <th data-column="deadline" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'deadline')}>
                     <div className="flex items-center space-x-1">
                       <span>Deadline</span>
-                      {sortConfig.key === 'deadline' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'deadline' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('status') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
+                  <th data-column="status" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'status')}>
                     <div className="flex items-center space-x-1">
                       <span>Status</span>
-                      {sortConfig.key === 'status' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'status' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('priority') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('priority')}>
+                  <th data-column="priority" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('service', 'priority')}>
                     <div className="flex items-center space-x-1">
                       <span>Priorität</span>
-                      {sortConfig.key === 'priority' ? (sortConfig.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
+                      {sortConfigs.service.key === 'priority' ? (sortConfigs.service.direction === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />) : <ArrowUpDown className="w-4 h-4 opacity-0 group-hover:opacity-100" />}
                     </div>
                   </th>
                   )}
                   {isVisible('assignedTo') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zugewiesen</th>
+                  <th onClick={() => handleSort('service', 'assignedTo')} data-column="assignedTo" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zugewiesen</th>
                   )}
                   {isVisible('time') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zeit</th>
+                  <th onClick={() => handleSort('service', 'estimatedHours')} data-column="time" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Zeit</th>
                   )}
-                  {isVisible('actions') && (
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Aktionen</th>
-                  )}
-                </tr>
+
+                </OrderedTableRow>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {serviceOrders.map((item) => {
                   const order = item.order;
                   return (
-                    <tr 
+                    <OrderedTableRow tableId="workshop"
                       key={`order-${order.id}`} 
                       className="hover:bg-gray-50 cursor-pointer"
                       onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
                     >
                       {isVisible('orderNumber') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="orderNumber" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 font-mono">{order.orderNumber || order.id}</div>
                         </td>
                       )}
                       {isVisible('projectName') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="projectName" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{order.projectName || '-'}</div>
                         </td>
                       )}
                       {isVisible('title') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="title" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-gray-900">{order.title}</div>
                         </td>
                       )}
                       {isVisible('clientName') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="clientName" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{order.clientName}</div>
                           <div className="text-sm text-gray-500">{order.costCenter}</div>
                         </td>
                       )}
                       {isVisible('createdAt') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="createdAt" className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">{new Date(order.createdAt).toLocaleDateString('de-DE')}</div>
                         </td>
                       )}
                       {isVisible('deadline') && (
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td data-column="deadline" className="px-6 py-4 whitespace-nowrap">
                           <div className={`text-sm ${isOverdue(order.deadline) ? 'text-red-600 font-bold' : (order.deadline && new Date(order.deadline).toDateString() === new Date().toDateString() ? 'text-orange-500 font-bold' : 'text-gray-900')}`}>
                             {new Date(order.deadline).toLocaleDateString('de-DE')}
                           </div>
                         </td>
                       )}
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(order.status)}`}>
-                          {getStatusText(order.status)}
-                        </span>
+                      <td data-column="status" className="px-6 py-4 whitespace-nowrap">
+                        <OrderProgress compact status={order.status} subTasks={order.subTasks} />
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="priority" className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs rounded-full ${getPriorityColor(order.priority)}`}>
                           {getPriorityText(order.priority)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="assignedTo" className="px-6 py-4 whitespace-nowrap">
                         {order.assignedTo ? (
                           <div className="flex items-center">
                             <User className="w-4 h-4 text-gray-400 mr-1" />
@@ -751,39 +722,14 @@ export default function WorkshopDashboard() {
                           <span className="text-sm text-gray-500">Nicht zugewiesen</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td data-column="time" className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center text-sm text-gray-900">
                           <Clock className="w-4 h-4 text-gray-400 mr-1" />
                           {order.estimatedHours}h
                         </div>
                       </td>
-                      {isVisible('actions') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-3">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/orders/${order.orderNumber || order.id}`);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 flex items-center"
-                            >
-                              <Edit2 className="w-4 h-4 mr-1" />
-                              Bearbeiten
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                // PDF-Download-Logik hier
-                              }}
-                              className="text-gray-600 hover:text-gray-800"
-                              title="Auftrag als PDF herunterladen"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
+
+                    </OrderedTableRow>
                   );
                 })}
                 {serviceOrders.length === 0 && (
@@ -800,47 +746,40 @@ export default function WorkshopDashboard() {
 
       {/* Aufträge zur Endabnahme */}
       <div className="mb-6 rounded-lg border bg-white shadow-sm">
-        <div className="border-b p-4">
+        <div className="border-b p-4 flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-900">Aufträge zur Abnahme</h3>
+          <ColumnConfigDropdown columns={acceptanceColumns} tableId="workshopAcceptance" />
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full" style={{ overflowAnchor: 'none' }}>
             <thead className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              <tr>
-                <th scope="col" className="px-6 py-3">Auftragsnummer</th>
-                <th scope="col" className="px-6 py-3">Projektname</th>
-                <th scope="col" className="px-6 py-3">Auftragstitel</th>
-                <th scope="col" className="px-6 py-3">Auftraggeber</th>
-                <th scope="col" className="px-6 py-3">Freigegeben am</th>
-                <th scope="col" className="px-6 py-3">Deadline</th>
-                <th scope="col" className="px-6 py-3">Aktionen</th>
-              </tr>
+              <OrderedTableRow tableId="workshopAcceptance">
+                <th onClick={() => handleSort('acceptance', 'orderNumber')} data-column="orderNumber" scope="col" className="px-6 py-3">Auftragsnummer</th>
+                <th onClick={() => handleSort('acceptance', 'projectName')} data-column="projectName" scope="col" className="px-6 py-3">Projektname</th>
+                <th onClick={() => handleSort('acceptance', 'title')} data-column="title" scope="col" className="px-6 py-3">Auftragstitel</th>
+                <th onClick={() => handleSort('acceptance', 'clientName')} data-column="clientName" scope="col" className="px-6 py-3">Auftraggeber</th>
+                <th onClick={() => handleSort('acceptance', 'waitingConfirmationSince')} data-column="waitingConfirmationSince" scope="col" className="px-6 py-3">Freigegeben am</th>
+                <th onClick={() => handleSort('acceptance', 'deadline')} data-column="deadline" scope="col" className="px-6 py-3">Deadline</th>
+
+              </OrderedTableRow>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {waitingConfirmationOrders.map(order => (
-                <tr key={order.id} className="hover:bg-gray-50">
-                  <td className="whitespace-nowrap px-6 py-4 font-mono text-sm text-gray-900">{order.orderNumber || order.id}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{order.projectName || '—'}</td>
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900">{order.title}</td>
-                  <td className="px-6 py-4 text-sm text-gray-900">{order.clientName}</td>
-                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                <OrderedTableRow tableId="workshopAcceptance" key={order.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}>
+                  <td data-column="orderNumber" className="whitespace-nowrap px-6 py-4 font-mono text-sm text-gray-900">{order.orderNumber || order.id}</td>
+                  <td data-column="projectName" className="px-6 py-4 text-sm text-gray-900">{order.projectName || '—'}</td>
+                  <td data-column="title" className="px-6 py-4 text-sm font-medium text-gray-900">{order.title}</td>
+                  <td data-column="clientName" className="px-6 py-4 text-sm text-gray-900">{order.clientName}</td>
+                  <td data-column="waitingConfirmationSince" className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
                     {order.waitingConfirmationSince
                       ? new Date(order.waitingConfirmationSince).toLocaleDateString('de-DE')
                       : '—'}
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
+                  <td data-column="deadline" className="whitespace-nowrap px-6 py-4 text-sm text-gray-700">
                     {order.deadline ? new Date(order.deadline).toLocaleDateString('de-DE') : '—'}
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-sm">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/orders/${order.orderNumber || order.id}`)}
-                      className="font-medium text-blue-600 hover:text-blue-800"
-                    >
-                      Öffnen
-                    </button>
-                  </td>
-                </tr>
+
+                </OrderedTableRow>
               ))}
               {waitingConfirmationOrders.length === 0 && (
                 <tr>

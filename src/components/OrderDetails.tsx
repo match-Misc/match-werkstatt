@@ -1,3 +1,5 @@
+import DuplicateOrderButton from './DuplicateOrderButton';
+import OrderOriginLink from './OrderOriginLink';
 import { useEffect, useState } from 'react';
 import { X, Download, Plus, Eye, Box, Edit2, FileText, Archive, Wrench, ArrowLeft, File, FileImage, Server } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -535,8 +537,10 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
           <div>
             <h2 className="text-2xl font-bold text-gray-800 truncate" title={currentOrder.title}>{currentOrder.title}</h2>
             <p className="text-gray-600 mt-1">{t('orderDetails.orderNo', 'Auftrags-Nr.')}: {currentOrder.orderNumber || currentOrder.id}</p>
+            <OrderOriginLink order={currentOrder} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <DuplicateOrderButton order={currentOrder} />
             <button
               onClick={() => navigate(`/orders/${currentOrder.orderNumber || currentOrder.id}/edit`)}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
@@ -618,7 +622,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Arbeitsbereich</h3>
                 
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div className={`grid grid-cols-1 ${state.currentUser?.role === 'client' ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-4 items-start`}>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Zugewiesen an
@@ -630,6 +634,7 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       </div>
                     </div>
 
+                    {state.currentUser?.role !== 'client' && (<>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Geschätzte Stunden
@@ -647,6 +652,36 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                         {currentOrder.actualHours}h
                       </div>
                     </div>
+                    </>)}
+                    {/* Materialstatus Sektion */}
+                    <div className={state.currentUser?.role === 'client' ? '' : 'md:col-span-3'}>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Materialstatus
+                      </label>
+                      <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
+                        {currentOrder.materialAvailable && "Material vorhanden"}
+                        {currentOrder.materialOrderedByWorkshop && "Material durch Werkstatt bestellt"}
+
+                        {currentOrder.materialOrderedByClient && (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex items-center text-sm text-gray-800">
+                              Material selbst bestellen
+                            </div>
+                            <label className="flex items-center p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={currentOrder.materialOrderedByClientConfirmed || false}
+                                onChange={(e) => handleMaterialStatusUpdate('materialOrderedByClientConfirmed', e.target.checked)}
+                                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                              />
+                              <span className="ml-2 text-sm text-gray-700 font-medium">Ich bestätige, dass ich das Material bestellt habe</span>
+                            </label>
+                          </div>
+                        )}
+
+                        {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && "Kein Material benötigt"}
+                      </div>
+                    </div>
                   </div>
 
                   {currentOrder.notes && (
@@ -659,36 +694,6 @@ export default function OrderDetails({ order, onClose }: OrderDetailsProps) {
                       </div>
                     </div>
                   )}
-
-                  {/* Materialstatus Sektion */}
-                  <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Materialstatus
-                    </label>
-                    <div className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900">
-                      {currentOrder.materialAvailable && "Material vorhanden"}
-                      {currentOrder.materialOrderedByWorkshop && "Material durch Werkstatt bestellt"}
-                      
-                      {currentOrder.materialOrderedByClient && (
-                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center text-sm text-gray-800">
-                            Material selbst bestellen
-                          </div>
-                          <label className="flex items-center p-2 bg-blue-50 border border-blue-100 rounded cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={currentOrder.materialOrderedByClientConfirmed || false}
-                              onChange={(e) => handleMaterialStatusUpdate('materialOrderedByClientConfirmed', e.target.checked)}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <span className="ml-2 text-sm text-gray-700 font-medium">Ich bestätige, dass ich das Material bestellt habe</span>
-                          </label>
-                        </div>
-                      )}
-
-                      {!currentOrder.materialAvailable && !currentOrder.materialOrderedByWorkshop && !currentOrder.materialOrderedByClient && "Kein Material benötigt"}
-                    </div>
-                  </div>
                 </div>
               </div>
 
